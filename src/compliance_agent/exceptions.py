@@ -51,3 +51,11 @@ class PlannerFailure(ComplianceAgentError):
 
 class RunLockUnavailable(ComplianceAgentError):
     """Raised when another compliance-agent process owns the run lock."""
+
+
+class AuditRetentionFailure(ComplianceAgentError):
+    """Raised when an audit-retention candidate fails deletion safety checks."""
+
+
+class StateReadFailure(ComplianceAgentError):
+    """Raised when an external state reader cannot return a trusted complete snapshot."""

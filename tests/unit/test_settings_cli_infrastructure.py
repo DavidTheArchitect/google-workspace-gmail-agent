@@ -180,3 +180,28 @@ def test_cli_reports_invalid_direct_input_without_opening_browser(
     assert "URL schemes" in capsys.readouterr().err
     assert run(["block", "add"]) == 2
     assert "provide at least one" in capsys.readouterr().err
+
+
+def test_cli_audit_prune_defaults_to_plan_and_requires_apply(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _settings_paths(tmp_path)
+    monkeypatch.setenv("CA_PROFILE_DIR", str(paths["profile_dir"]))
+    monkeypatch.setenv("CA_AUDIT_DIR", str(paths["audit_dir"]))
+    monkeypatch.setenv("CA_STATE_DIR", str(paths["state_dir"]))
+    expired = paths["audit_dir"] / "runs" / f"20000101T000000Z-{'0' * 32}"
+    expired.mkdir(parents=True)
+    paths["audit_dir"].chmod(0o700)
+
+    assert run(["audit", "prune"]) == 0
+    planned = json.loads(capsys.readouterr().out)
+    assert planned["candidate_count"] == 1
+    assert not planned["applied"]
+    assert expired.exists()
+
+    assert run(["audit", "prune", "--apply"]) == 0
+    applied = json.loads(capsys.readouterr().out)
+    assert applied["applied"]
+    assert not expired.exists()

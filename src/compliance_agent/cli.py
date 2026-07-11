@@ -19,10 +19,12 @@ from compliance_agent.application.planning_service import (
     direct_remove_rule_plan,
     direct_set_notice_plan,
 )
+from compliance_agent.application.retention_service import AuditRetentionService
 from compliance_agent.audit.export import export_redacted
 from compliance_agent.audit.manifest import RunManifest, verify_manifest
 from compliance_agent.audit.writer import verify_event_chain
 from compliance_agent.exceptions import ComplianceAgentError
+from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.llm.planner import build_planner
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.resources import AddressEntry
@@ -77,6 +79,11 @@ def build_parser() -> argparse.ArgumentParser:
     export = audit_commands.add_parser("export-redacted", help="create a shareable text export")
     export.add_argument("run_directory", type=Path)
     export.add_argument("destination", type=Path)
+    prune = audit_commands.add_parser(
+        "prune",
+        help="list expired audit runs; delete only with --apply",
+    )
+    prune.add_argument("--apply", action="store_true")
     return parser
 
 
@@ -166,6 +173,24 @@ def _run_audit(args: argparse.Namespace) -> int:
     if args.audit_command == "export-redacted":
         exported = export_redacted(args.run_directory, args.destination)
         print(exported)
+        return 0
+    if args.audit_command == "prune":
+        settings = Settings()
+        service = AuditRetentionService(
+            settings.audit_dir,
+            SystemClock(),
+            settings.audit_retention_days,
+        )
+        candidates = service.find_expired()
+        deleted = service.delete_expired(candidates) if args.apply else ()
+        _print_json(
+            {
+                "applied": args.apply,
+                "candidate_count": len(candidates),
+                "candidates": [str(candidate.path) for candidate in candidates],
+                "deleted": [str(path) for path in deleted],
+            }
+        )
         return 0
     manifest_path = args.run_directory / "manifest.json"
     manifest = RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))

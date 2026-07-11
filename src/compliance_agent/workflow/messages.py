@@ -133,6 +133,7 @@ class VerificationRequestMessage(FrozenModel):
 class VerificationResultMessage(FrozenModel):
     """Fresh-read deterministic verification paired with mutation evidence."""
 
+    prepared_change: PreparedChangeMessage
     mutation_result: MutationResult
     verification_result: VerificationResult
 

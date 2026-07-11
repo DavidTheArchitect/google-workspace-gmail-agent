@@ -46,6 +46,13 @@ For natural-language planning:
 uv run compliance-agent plan "Block spammer.com with notice Mail rejected."
 ```
 
+Audit retention is non-destructive by default:
+
+```powershell
+uv run compliance-agent audit prune
+uv run compliance-agent audit prune --apply
+```
+
 See [docs/api-feasibility.md](docs/api-feasibility.md),
 [docs/architecture.md](docs/architecture.md), and [docs/live-test-procedure.md](docs/live-test-procedure.md)
 before enabling any live work.

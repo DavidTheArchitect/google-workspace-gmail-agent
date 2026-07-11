@@ -8,6 +8,7 @@ import pytest
 from compliance_agent.application.change_service import ChangeService
 from compliance_agent.application.planning_service import direct_add_plan, direct_list_plan
 from compliance_agent.domain.ownership import OwnershipRegistry
+from compliance_agent.exceptions import AuditWriteFailure, StateReadFailure
 from compliance_agent.schemas.hitl import ConfirmationResponse
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.preflight import PreflightIdentity, PreflightResult
@@ -16,6 +17,7 @@ from compliance_agent.schemas.results import MutationResult, RunResult
 from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.schemas.status import RunStatus
 from compliance_agent.workflow.build import WorkflowDependencies, build_compliance_workflow
+from compliance_agent.workflow.contracts import NullWorkflowAuditor
 from compliance_agent.workflow.messages import (
     ClarificationPauseRequest,
     LoginPauseRequest,
@@ -55,7 +57,7 @@ class QueuePreflight:
 class QueueReader:
     """Return controlled state snapshots in call order."""
 
-    def __init__(self, states: Sequence[BlockedSenderState]) -> None:
+    def __init__(self, states: Sequence[BlockedSenderState | Exception]) -> None:
         self.states = list(states)
         self.calls = 0
 
@@ -64,7 +66,10 @@ class QueueReader:
         if not self.states:
             message = "fake reader has no state"
             raise AssertionError(message)
-        return self.states.pop(0)
+        state = self.states.pop(0)
+        if isinstance(state, Exception):
+            raise state
+        return state
 
 
 class QueueWriter:
@@ -87,6 +92,14 @@ class RecordingFinalizer:
 
     async def finalize(self, result: RunResult) -> None:
         self.results.append(result)
+
+
+class FailingFinalizer:
+    """Simulate loss of protected terminal audit persistence."""
+
+    async def finalize(self, _result: RunResult) -> None:
+        message = "controlled finalization failure"
+        raise AuditWriteFailure(message)
 
 
 class FixedIdentifiers:
@@ -122,8 +135,9 @@ def _dependencies(  # noqa: PLR0913 - scenario dependencies remain explicit.
     writer: QueueWriter | None = None,
     identifiers: Sequence[UUID] = (SECOND_ID,),
     registry: OwnershipRegistry | None = None,
-) -> tuple[WorkflowDependencies, RecordingFinalizer, QueueWriter]:
-    finalizer = RecordingFinalizer()
+    fail_finalization: bool = False,
+) -> tuple[WorkflowDependencies, RecordingFinalizer | FailingFinalizer, QueueWriter]:
+    finalizer = FailingFinalizer() if fail_finalization else RecordingFinalizer()
     actual_writer = writer or QueueWriter((MutationResult(status="completed", operation="apply"),))
     dependencies = WorkflowDependencies(
         planner=planner,
@@ -132,9 +146,11 @@ def _dependencies(  # noqa: PLR0913 - scenario dependencies remain explicit.
         verification_reader=verification_reader or QueueReader((BlockedSenderState(),)),
         writer=actual_writer,
         audit_finalizer=finalizer,
+        auditor=NullWorkflowAuditor(),
         change_service=ChangeService(FixedIdentifiers(identifiers), PREFIX),
         ownership_registry=registry or OwnershipRegistry(),
         expected_admin_email="admin@example.com",
+        expected_workspace_domain="example.com",
         audit_directory="C:/audit/run",
     )
     return dependencies, finalizer, actual_writer
@@ -268,6 +284,62 @@ async def test_declined_login_and_failed_preflight_stop_unchanged() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("identity", "expected_error"),
+    [
+        (
+            PreflightIdentity(
+                administrator_email="other@example.com",
+                workspace_domain="example.com",
+            ),
+            "wrong_administrator",
+        ),
+        (
+            PreflightIdentity(
+                administrator_email="admin@example.com",
+                workspace_domain="other.example",
+            ),
+            "workspace_identity_mismatch",
+        ),
+    ],
+)
+async def test_workflow_revalidates_ready_preflight_identity(
+    identity: PreflightIdentity,
+    expected_error: str,
+) -> None:
+    dependencies, _, writer = _dependencies(
+        planner=QueuePlanner((direct_list_plan(),)),
+        preflight=QueuePreflight((PreflightResult(status="ready", identity=identity),)),
+        current_reader=QueueReader(()),
+    )
+
+    result = await build_compliance_workflow(dependencies).run(
+        UserRequestMessage(request_text="List")
+    )
+
+    assert _only_output(result).error_code == expected_error
+    assert not writer.change_sets
+
+
+@pytest.mark.asyncio
+async def test_audit_finalization_failure_is_fail_closed_before_mutation() -> None:
+    dependencies, _, _ = _dependencies(
+        planner=QueuePlanner((TaskPlan(status="unsupported", unsupported_reason="unsupported"),)),
+        preflight=QueuePreflight(()),
+        current_reader=QueueReader(()),
+        fail_finalization=True,
+    )
+
+    result = await build_compliance_workflow(dependencies).run(
+        UserRequestMessage(request_text="Unsupported")
+    )
+    output = _only_output(result)
+
+    assert output.status == RunStatus.FAILED_UNCHANGED
+    assert output.error_code == "audit_finalization_failed"
+
+
+@pytest.mark.asyncio
 async def test_exact_confirmation_then_fresh_read_mutates_and_verifies() -> None:
     current_reader = QueueReader((BlockedSenderState(), BlockedSenderState()))
     verification_reader = QueueReader(())
@@ -291,6 +363,29 @@ async def test_exact_confirmation_then_fresh_read_mutates_and_verifies() -> None
     assert len(writer.change_sets) == 1
     assert current_reader.calls == 2
     assert finalizer.results == [output]
+
+
+@pytest.mark.asyncio
+async def test_audit_finalization_failure_preserves_post_mutation_facts() -> None:
+    verification_reader = QueueReader(())
+    dependencies, _, _ = _dependencies(
+        planner=QueuePlanner((_add_plan(),)),
+        preflight=QueuePreflight((_ready(),)),
+        current_reader=QueueReader((BlockedSenderState(), BlockedSenderState())),
+        verification_reader=verification_reader,
+        fail_finalization=True,
+    )
+    workflow = build_compliance_workflow(dependencies)
+    pending = await _run_until_request(workflow)
+    request = pending.data
+    assert isinstance(request, WorkflowConfirmationRequest)
+    verification_reader.states.append(request.presentation.change_set.expected_after)
+
+    result = await workflow.run(responses={pending.request_id: _approval(request)})
+    output = _only_output(result)
+
+    assert output.status == RunStatus.APPLIED_PENDING_PROPAGATION
+    assert any("finalization failed" in warning.lower() for warning in output.warnings)
 
 
 @pytest.mark.asyncio
@@ -545,3 +640,32 @@ async def test_verification_mismatch_never_becomes_success(
     result = await workflow.run(responses={pending.request_id: _approval(request)})
 
     assert _only_output(result).status == expected_status
+
+
+@pytest.mark.asyncio
+async def test_state_reader_failures_map_to_phase_appropriate_terminal_statuses() -> None:
+    initial_dependencies, _, _ = _dependencies(
+        planner=QueuePlanner((direct_list_plan(),)),
+        preflight=QueuePreflight((_ready(),)),
+        current_reader=QueueReader((StateReadFailure("initial"),)),
+    )
+    initial = await build_compliance_workflow(initial_dependencies).run(
+        UserRequestMessage(request_text="List")
+    )
+
+    verification_dependencies, _, _ = _dependencies(
+        planner=QueuePlanner((_add_plan(),)),
+        preflight=QueuePreflight((_ready(),)),
+        current_reader=QueueReader((BlockedSenderState(), BlockedSenderState())),
+        verification_reader=QueueReader((StateReadFailure("verification"),)),
+    )
+    workflow = build_compliance_workflow(verification_dependencies)
+    pending = await _run_until_request(workflow)
+    request = pending.data
+    assert isinstance(request, WorkflowConfirmationRequest)
+    verification = await workflow.run(responses={pending.request_id: _approval(request)})
+
+    assert _only_output(initial).status == RunStatus.FAILED_UNCHANGED
+    assert _only_output(initial).error_code == "initial_state_read_failed"
+    assert _only_output(verification).status == RunStatus.INDETERMINATE
+    assert _only_output(verification).error_code == "verification_state_read_failed"

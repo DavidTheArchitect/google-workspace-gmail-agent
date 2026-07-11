@@ -1,26 +1,37 @@
 """Thin fixed-process Microsoft Agent Framework executors."""
 
-from typing import Protocol
-
 from agent_framework import Executor, WorkflowContext, handler, response_handler
 
 from compliance_agent.application.change_service import ChangeService
 from compliance_agent.application.mutation_service import BlockedSenderWriter
 from compliance_agent.application.state_read_service import BlockedSenderReader
 from compliance_agent.application.verification_service import VerificationService
+from compliance_agent.application.workflow_audit_service import PreparedChangeAudit
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import OwnershipRegistry
 from compliance_agent.domain.preconditions import state_has_drifted, validate_confirmation
 from compliance_agent.domain.reconciliation import ReconciliationContext, reconcile_mutation
 from compliance_agent.domain.reporting import determine_run_result
 from compliance_agent.domain.verification import verify_state
-from compliance_agent.exceptions import ComplianceAgentError, StaleConfirmation
+from compliance_agent.exceptions import (
+    AuditWriteFailure,
+    ComplianceAgentError,
+    OwnershipNotEstablished,
+    StaleConfirmation,
+    StateReadFailure,
+)
 from compliance_agent.schemas.hitl import ConfirmationRequest, ConfirmationResponse
-from compliance_agent.schemas.plan import TaskPlan
-from compliance_agent.schemas.preflight import PreflightResult
 from compliance_agent.schemas.results import RunResult
 from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.schemas.status import RunStatus
+from compliance_agent.workflow.contracts import (
+    AuditFinalizer,
+    NullWorkflowAuditor,
+    OwnershipLifecycle,
+    PlannerAdapter,
+    PreflightAdapter,
+    WorkflowAuditor,
+)
 from compliance_agent.workflow.messages import (
     ApprovedChangeMessage,
     ClarificationPauseRequest,
@@ -42,33 +53,13 @@ from compliance_agent.workflow.messages import (
 )
 
 
-class PlannerAdapter(Protocol):
-    """Return a trusted TaskPlan from one user request."""
-
-    async def create_plan(self, request_text: str) -> TaskPlan:
-        """Create and validate one plan."""
-
-
-class PreflightAdapter(Protocol):
-    """Check browser session, privilege, identity, and root-OU evidence."""
-
-    async def check(self) -> PreflightResult:
-        """Return one closed preflight result."""
-
-
-class AuditFinalizer(Protocol):
-    """Finalize required audit artifacts before a result becomes workflow output."""
-
-    async def finalize(self, result: RunResult) -> None:
-        """Persist terminal evidence without returning or changing authoritative facts."""
-
-
 class PlannerExecutor(Executor):
     """Call exactly one planning adapter and emit one typed message."""
 
-    def __init__(self, planner: PlannerAdapter) -> None:
+    def __init__(self, planner: PlannerAdapter, auditor: WorkflowAuditor | None = None) -> None:
         super().__init__(id="planner")
         self._planner = planner
+        self._auditor = auditor or NullWorkflowAuditor()
 
     @handler
     async def handle(
@@ -78,7 +69,9 @@ class PlannerExecutor(Executor):
     ) -> None:
         """Emit validated planning output."""
 
+        self._auditor.record_request(message.request_text)
         plan = await self._planner.create_plan(message.request_text)
+        self._auditor.record_plan(plan)
         await ctx.send_message(PlannedTaskMessage(request_text=message.request_text, plan=plan))
 
 
@@ -166,10 +159,18 @@ class ClarificationExecutor(Executor):
 class PreflightExecutor(Executor):
     """Call one browser preflight adapter and route its closed result."""
 
-    def __init__(self, preflight: PreflightAdapter, expected_admin_email: str) -> None:
+    def __init__(
+        self,
+        preflight: PreflightAdapter,
+        expected_admin_email: str,
+        expected_workspace_domain: str,
+        auditor: WorkflowAuditor,
+    ) -> None:
         super().__init__(id="preflight")
         self._preflight = preflight
         self._expected_admin_email = expected_admin_email
+        self._expected_workspace_domain = expected_workspace_domain
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -180,9 +181,22 @@ class PreflightExecutor(Executor):
         """Emit ready, manual-login, or fail-closed terminal state."""
 
         result = await self._preflight.check()
+        self._auditor.record_preflight(result)
         if result.status == "ready":
             if result.identity is None:
                 await ctx.send_message(_failed_preflight("preflight_ready_missing_identity"))
+                return
+            if (
+                result.identity.administrator_email.casefold()
+                != self._expected_admin_email.casefold()
+            ):
+                await ctx.send_message(_failed_preflight("wrong_administrator"))
+                return
+            if (
+                result.identity.workspace_domain.casefold()
+                != self._expected_workspace_domain.casefold()
+            ):
+                await ctx.send_message(_failed_preflight("workspace_identity_mismatch"))
                 return
             await ctx.send_message(
                 PreflightReadyMessage(plan=message.plan, identity=result.identity)
@@ -253,19 +267,32 @@ class LoginExecutor(Executor):
 class ReadCurrentStateExecutor(Executor):
     """Read one complete normalized state after successful preflight."""
 
-    def __init__(self, reader: BlockedSenderReader) -> None:
+    def __init__(self, reader: BlockedSenderReader, auditor: WorkflowAuditor) -> None:
         super().__init__(id="read_current_state")
         self._reader = reader
+        self._auditor = auditor
 
     @handler
     async def handle(
         self,
         message: PreflightReadyMessage,
-        ctx: WorkflowContext[CurrentStateMessage],
+        ctx: WorkflowContext[CurrentStateMessage | WorkflowTerminalMessage],
     ) -> None:
         """Emit the normalized state with its verified identity context."""
 
-        current_state = await self._reader.read_state()
+        try:
+            current_state = await self._reader.read_state()
+        except StateReadFailure:
+            await ctx.send_message(
+                WorkflowTerminalMessage(
+                    result=RunResult(
+                        status=RunStatus.FAILED_UNCHANGED,
+                        error_code="initial_state_read_failed",
+                    )
+                )
+            )
+            return
+        self._auditor.record_state("before", current_state)
         await ctx.send_message(
             CurrentStateMessage(
                 plan=message.plan,
@@ -283,11 +310,13 @@ class ComputeChangeExecutor(Executor):
         change_service: ChangeService,
         ownership_registry: OwnershipRegistry,
         audit_directory: str,
+        auditor: WorkflowAuditor,
     ) -> None:
         super().__init__(id="compute_change")
         self._change_service = change_service
         self._ownership_registry = ownership_registry
         self._audit_directory = audit_directory
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -313,6 +342,20 @@ class ComputeChangeExecutor(Executor):
                 )
             )
             return
+        plan_hash = canonical_hash(message.plan)
+        before_state_hash = canonical_hash(message.current_state)
+        change_set_hash = canonical_hash(change_set)
+        self._auditor.record_prepared_change(
+            PreparedChangeAudit(
+                plan=message.plan,
+                current_state=message.current_state,
+                desired=desired,
+                change_set=change_set,
+                plan_hash=plan_hash,
+                before_state_hash=before_state_hash,
+                change_set_hash=change_set_hash,
+            )
+        )
         if not change_set.has_mutations:
             await ctx.send_message(
                 WorkflowTerminalMessage(result=RunResult(status=RunStatus.NO_CHANGE_REQUIRED))
@@ -325,9 +368,9 @@ class ComputeChangeExecutor(Executor):
                 current_state=message.current_state,
                 desired=desired,
                 change_set=change_set,
-                plan_hash=canonical_hash(message.plan),
-                before_state_hash=canonical_hash(message.current_state),
-                change_set_hash=canonical_hash(change_set),
+                plan_hash=plan_hash,
+                before_state_hash=before_state_hash,
+                change_set_hash=change_set_hash,
                 audit_directory=self._audit_directory,
             )
         )
@@ -336,8 +379,9 @@ class ComputeChangeExecutor(Executor):
 class ConfirmationExecutor(Executor):
     """Request mandatory exact-hash approval for every non-empty mutation."""
 
-    def __init__(self) -> None:
+    def __init__(self, auditor: WorkflowAuditor) -> None:
         super().__init__(id="confirmation")
+        self._auditor = auditor
 
     @handler
     async def request(
@@ -376,6 +420,7 @@ class ConfirmationExecutor(Executor):
         """Accept only an approval tied to every exact displayed hash."""
 
         expected = original_request.presentation
+        self._auditor.record_confirmation(response)
         hashes_match = (
             response.plan_hash == expected.plan_hash
             and response.before_state_hash == expected.before_state_hash
@@ -407,19 +452,32 @@ class ConfirmationExecutor(Executor):
 class ReReadStateExecutor(Executor):
     """Perform the mandatory fresh state read after approval and before mutation."""
 
-    def __init__(self, reader: BlockedSenderReader) -> None:
+    def __init__(self, reader: BlockedSenderReader, auditor: WorkflowAuditor) -> None:
         super().__init__(id="reread_current_state")
         self._reader = reader
+        self._auditor = auditor
 
     @handler
     async def handle(
         self,
         message: ApprovedChangeMessage,
-        ctx: WorkflowContext[FreshStateMessage],
+        ctx: WorkflowContext[FreshStateMessage | WorkflowTerminalMessage],
     ) -> None:
         """Emit fresh state without deciding whether approval remains valid."""
 
-        observed_state = await self._reader.read_state()
+        try:
+            observed_state = await self._reader.read_state()
+        except StateReadFailure:
+            await ctx.send_message(
+                WorkflowTerminalMessage(
+                    result=RunResult(
+                        status=RunStatus.FAILED_UNCHANGED,
+                        error_code="prewrite_state_read_failed",
+                    )
+                )
+            )
+            return
+        self._auditor.record_state("prewrite", observed_state)
         await ctx.send_message(
             FreshStateMessage(approved_change=message, observed_state=observed_state)
         )
@@ -475,9 +533,10 @@ class DriftCheckExecutor(Executor):
 class MutationExecutor(Executor):
     """Apply exactly one approved change set without blind internal retries."""
 
-    def __init__(self, writer: BlockedSenderWriter) -> None:
+    def __init__(self, writer: BlockedSenderWriter, auditor: WorkflowAuditor) -> None:
         super().__init__(id="mutation")
         self._writer = writer
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -489,8 +548,22 @@ class MutationExecutor(Executor):
     ) -> None:
         """Route structured write observations to verification or reconciliation."""
 
-        mutation_result = await self._writer.apply(
-            message.approved_change.prepared_change.change_set
+        prepared = message.approved_change.prepared_change
+        attempt = message.retry_count + 1
+        self._auditor.record_mutation_started(
+            prepared.change_set,
+            attempt=attempt,
+            plan_hash=prepared.plan_hash,
+            before_state_hash=prepared.before_state_hash,
+            change_set_hash=prepared.change_set_hash,
+        )
+        mutation_result = await self._writer.apply(prepared.change_set)
+        self._auditor.record_mutation_result(
+            mutation_result,
+            attempt=attempt,
+            plan_hash=prepared.plan_hash,
+            before_state_hash=prepared.before_state_hash,
+            change_set_hash=prepared.change_set_hash,
         )
         observed = MutationResultMessage(command=message, mutation_result=mutation_result)
         if mutation_result.status == "partial":
@@ -512,9 +585,10 @@ class MutationExecutor(Executor):
 class ReconciliationExecutor(Executor):
     """Read back uncertain writes and permit at most one proven-safe retry."""
 
-    def __init__(self, reader: BlockedSenderReader) -> None:
+    def __init__(self, reader: BlockedSenderReader, auditor: WorkflowAuditor) -> None:
         super().__init__(id="reconciliation")
         self._reader = reader
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -529,7 +603,18 @@ class ReconciliationExecutor(Executor):
         mutation = message.mutation
         command = mutation.command
         prepared = command.approved_change.prepared_change
-        observed_state = await self._reader.read_state()
+        try:
+            observed_state = await self._reader.read_state()
+        except StateReadFailure:
+            await ctx.send_message(
+                WorkflowTerminalMessage(
+                    result=RunResult(
+                        status=RunStatus.INDETERMINATE,
+                        error_code="reconciliation_state_read_failed",
+                    )
+                )
+            )
+            return
         confirmation_valid = _confirmation_remains_valid(command, observed_state)
         decision = reconcile_mutation(
             prepared.current_state,
@@ -545,9 +630,17 @@ class ReconciliationExecutor(Executor):
                 confirmation_valid=confirmation_valid,
             ),
         )
+        self._auditor.record_reconciliation(
+            decision,
+            attempt=command.retry_count + 1,
+            plan_hash=prepared.plan_hash,
+            before_state_hash=prepared.before_state_hash,
+            change_set_hash=prepared.change_set_hash,
+        )
         if decision.outcome == "desired_state_present":
             await ctx.send_message(
                 VerificationResultMessage(
+                    prepared_change=prepared,
                     mutation_result=mutation.mutation_result,
                     verification_result=verify_state(
                         prepared.desired.desired_state,
@@ -607,24 +700,48 @@ def _confirmation_remains_valid(
 class VerificationExecutor(Executor):
     """Perform a separate fresh read and deterministic desired-state comparison."""
 
-    def __init__(self, verification_service: VerificationService) -> None:
+    def __init__(
+        self,
+        verification_service: VerificationService,
+        auditor: WorkflowAuditor,
+    ) -> None:
         super().__init__(id="verification")
         self._verification_service = verification_service
+        self._auditor = auditor
 
     @handler
     async def handle(
         self,
         message: VerificationRequestMessage,
-        ctx: WorkflowContext[VerificationResultMessage],
+        ctx: WorkflowContext[VerificationResultMessage | WorkflowTerminalMessage],
     ) -> None:
         """Emit independent verification evidence."""
 
         desired_state = (
             message.mutation.command.approved_change.prepared_change.desired.desired_state
         )
-        verification_result = await self._verification_service.verify(desired_state)
+        try:
+            verification_result = await self._verification_service.verify(desired_state)
+        except StateReadFailure:
+            await ctx.send_message(
+                WorkflowTerminalMessage(
+                    result=RunResult(
+                        status=RunStatus.INDETERMINATE,
+                        error_code="verification_state_read_failed",
+                    )
+                )
+            )
+            return
+        prepared = message.mutation.command.approved_change.prepared_change
+        self._auditor.record_verification(
+            verification_result,
+            plan_hash=prepared.plan_hash,
+            before_state_hash=prepared.before_state_hash,
+            change_set_hash=prepared.change_set_hash,
+        )
         await ctx.send_message(
             VerificationResultMessage(
+                prepared_change=prepared,
                 mutation_result=message.mutation.mutation_result,
                 verification_result=verification_result,
             )
@@ -634,8 +751,14 @@ class VerificationExecutor(Executor):
 class VerificationDecisionExecutor(Executor):
     """Select authoritative terminal status from mutation and verification facts."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        ownership_lifecycle: OwnershipLifecycle,
+        auditor: WorkflowAuditor,
+    ) -> None:
         super().__init__(id="verification_decision")
+        self._ownership_lifecycle = ownership_lifecycle
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -645,22 +768,34 @@ class VerificationDecisionExecutor(Executor):
     ) -> None:
         """Emit the deterministic result; no narrative can change it."""
 
-        await ctx.send_message(
-            WorkflowTerminalMessage(
-                result=determine_run_result(
-                    message.mutation_result,
-                    message.verification_result,
-                )
-            )
+        result = determine_run_result(
+            message.mutation_result,
+            message.verification_result,
         )
+        try:
+            update = self._ownership_lifecycle.commit_verified(
+                message.prepared_change.change_set,
+                message.verification_result,
+            )
+            self._auditor.record_ownership_update(update)
+        except (OSError, OwnershipNotEstablished):
+            result = _with_warnings(
+                result,
+                (
+                    "Verified UI state was not committed to the local ownership registry; "
+                    "the affected resource remains read-only until reconciled.",
+                ),
+            )
+        await ctx.send_message(WorkflowTerminalMessage(result=result))
 
 
 class AuditFinalizationExecutor(Executor):
     """Finalize audit evidence before yielding the authoritative output."""
 
-    def __init__(self, finalizer: AuditFinalizer) -> None:
+    def __init__(self, finalizer: AuditFinalizer, auditor: WorkflowAuditor) -> None:
         super().__init__(id="audit_finalization")
         self._finalizer = finalizer
+        self._auditor = auditor
 
     @handler
     async def handle(
@@ -670,8 +805,27 @@ class AuditFinalizationExecutor(Executor):
     ) -> None:
         """Yield only after the audit finalizer returns the unchanged result."""
 
-        await self._finalizer.finalize(message.result)
-        await ctx.yield_output(message.result)
+        result = _with_warnings(message.result, self._auditor.warnings)
+        try:
+            await self._finalizer.finalize(result)
+        except AuditWriteFailure:
+            if self._auditor.mutation_started:
+                result = _with_warnings(
+                    result,
+                    ("Terminal audit finalization failed; protected evidence may be incomplete.",),
+                )
+            else:
+                result = RunResult(
+                    status=RunStatus.FAILED_UNCHANGED,
+                    error_code="audit_finalization_failed",
+                    warnings=result.warnings,
+                )
+        await ctx.yield_output(result)
+
+
+def _with_warnings(result: RunResult, warnings: tuple[str, ...]) -> RunResult:
+    combined = tuple(dict.fromkeys((*result.warnings, *warnings)))
+    return result.model_copy(update={"warnings": combined})
 
 
 class PlanningOutputExecutor(Executor):

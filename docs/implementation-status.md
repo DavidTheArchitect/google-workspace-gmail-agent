@@ -20,6 +20,10 @@ Review date: 2026-07-11
 - Repository-wide hardening review: order-sensitive plan hashing, non-overlapping sensitive paths,
   strict result-evidence invariants, deterministic exhausted-retry status, failure-safe browser and
   process-lock cleanup, inert diagnostic HTML, and browser safety code included in coverage.
+- Integration foundations: incremental request/plan/preflight/state/change/confirmation/mutation/
+  reconciliation/verification audit artifacts and events; post-mutation audit degradation;
+  verified ownership-registry updates; expected adapter failure mapping; exclusive-lock composition
+  with runtime manifest metadata; and explicit plan-first audit retention.
 
 ## Implemented but awaiting live validation
 
@@ -29,17 +33,6 @@ Review date: 2026-07-11
 - Deterministic administrator, Workspace, privilege, Gmail-context, blocked-senders-context, and
   root-OU preflight policy.
 - Attended login and sanitized observation scripts.
-
-## Remaining integration work before live mutation enablement
-
-- Emit the complete request, plan, confirmation, before/desired/after, verification, and
-  per-operation event set through the protected audit writer; terminal reports and the manifest are
-  integrated, but the full workflow artifact set is not yet wired.
-- Add the production composition root that binds the fixed workflow to accepted browser readers,
-  writers, ownership persistence, runtime manifest metadata, and crash-safe adapter error mapping.
-- Update ownership records only after verified resource creation/removal and test interrupted
-  ownership-store transitions against supervised disposable resources.
-- Enforce configured audit retention through an explicit, separately tested maintenance command.
 
 ## Gated on supervised Admin console evidence
 

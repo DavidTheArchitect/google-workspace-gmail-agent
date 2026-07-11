@@ -13,6 +13,13 @@ CLI / Agent Framework workflow / Playwright / Ollama
 Dependencies point inward. `schemas` and `domain` must not import Playwright, OpenAI/Ollama,
 Agent Framework, command-line packages, environment readers, or concrete persistence adapters.
 
+The production composition root acquires the exclusive run lock before loading ownership evidence,
+creates the protected audit run, collects runtime manifest facts, and wraps only externally supplied
+adapters that have passed the supervised UI-contract gate. Expected Playwright and I/O failures are
+mapped to closed preflight, read, or uncertain-mutation outcomes before entering the graph. The
+mutation-capable composition refuses plan-only or dry-run settings and independently rechecks the
+configured administrator and Workspace identities before any state read.
+
 Gemma converts language into a `TaskPlan`. It cannot select a browser locator, choose a mutation
 handler, establish ownership, authorize a change, determine whether a save succeeded, or construct
 the authoritative status. Direct commands construct the same `TaskPlan` without a model.

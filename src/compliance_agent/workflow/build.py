@@ -1,6 +1,6 @@
 """Fixed typed Agent Framework graph builders."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from agent_framework import Workflow, WorkflowBuilder
 
@@ -9,9 +9,16 @@ from compliance_agent.application.mutation_service import BlockedSenderWriter
 from compliance_agent.application.state_read_service import BlockedSenderReader
 from compliance_agent.application.verification_service import VerificationService
 from compliance_agent.domain.ownership import OwnershipRegistry
+from compliance_agent.workflow.contracts import (
+    AuditFinalizer,
+    NullOwnershipLifecycle,
+    OwnershipLifecycle,
+    PlannerAdapter,
+    PreflightAdapter,
+    WorkflowAuditor,
+)
 from compliance_agent.workflow.executors import (
     AuditFinalizationExecutor,
-    AuditFinalizer,
     ClarificationExecutor,
     ComputeChangeExecutor,
     ConfirmationExecutor,
@@ -19,10 +26,8 @@ from compliance_agent.workflow.executors import (
     LoginExecutor,
     MutationExecutor,
     PlanDecisionExecutor,
-    PlannerAdapter,
     PlannerExecutor,
     PlanningOutputExecutor,
-    PreflightAdapter,
     PreflightExecutor,
     ReadCurrentStateExecutor,
     ReconciliationExecutor,
@@ -34,6 +39,7 @@ from compliance_agent.workflow.messages import (
     ApprovedChangeMessage,
     ClarificationPauseRequest,
     CurrentStateMessage,
+    FreshStateMessage,
     LoginPauseRequest,
     MutationCommandMessage,
     PreflightReadyMessage,
@@ -56,10 +62,13 @@ class WorkflowDependencies:
     verification_reader: BlockedSenderReader
     writer: BlockedSenderWriter
     audit_finalizer: AuditFinalizer
+    auditor: WorkflowAuditor
     change_service: ChangeService
     ownership_registry: OwnershipRegistry
     expected_admin_email: str
+    expected_workspace_domain: str
     audit_directory: str
+    ownership_lifecycle: OwnershipLifecycle = field(default_factory=NullOwnershipLifecycle)
 
 
 def build_planning_workflow(planner: PlannerAdapter) -> Workflow:
@@ -79,25 +88,40 @@ def build_compliance_workflow(  # noqa: PLR0915 - fixed topology stays explicit 
 ) -> Workflow:
     """Build the fixed administrative workflow with three explicit HITL boundaries."""
 
-    planner = PlannerExecutor(dependencies.planner)
+    planner = PlannerExecutor(dependencies.planner, dependencies.auditor)
     plan_decision = PlanDecisionExecutor()
     clarification = ClarificationExecutor()
-    preflight = PreflightExecutor(dependencies.preflight, dependencies.expected_admin_email)
+    preflight = PreflightExecutor(
+        dependencies.preflight,
+        dependencies.expected_admin_email,
+        dependencies.expected_workspace_domain,
+        dependencies.auditor,
+    )
     login = LoginExecutor()
-    read_current = ReadCurrentStateExecutor(dependencies.current_reader)
+    read_current = ReadCurrentStateExecutor(dependencies.current_reader, dependencies.auditor)
     compute = ComputeChangeExecutor(
         dependencies.change_service,
         dependencies.ownership_registry,
         dependencies.audit_directory,
+        dependencies.auditor,
     )
-    confirmation = ConfirmationExecutor()
-    reread = ReReadStateExecutor(dependencies.current_reader)
+    confirmation = ConfirmationExecutor(dependencies.auditor)
+    reread = ReReadStateExecutor(dependencies.current_reader, dependencies.auditor)
     drift = DriftCheckExecutor()
-    mutation = MutationExecutor(dependencies.writer)
-    reconciliation = ReconciliationExecutor(dependencies.verification_reader)
-    verification = VerificationExecutor(VerificationService(dependencies.verification_reader))
-    verification_decision = VerificationDecisionExecutor()
-    audit = AuditFinalizationExecutor(dependencies.audit_finalizer)
+    mutation = MutationExecutor(dependencies.writer, dependencies.auditor)
+    reconciliation = ReconciliationExecutor(
+        dependencies.verification_reader,
+        dependencies.auditor,
+    )
+    verification = VerificationExecutor(
+        VerificationService(dependencies.verification_reader),
+        dependencies.auditor,
+    )
+    verification_decision = VerificationDecisionExecutor(
+        dependencies.ownership_lifecycle,
+        dependencies.auditor,
+    )
+    audit = AuditFinalizationExecutor(dependencies.audit_finalizer, dependencies.auditor)
 
     builder = WorkflowBuilder(
         start_executor=planner,
@@ -147,7 +171,16 @@ def build_compliance_workflow(  # noqa: PLR0915 - fixed topology stays explicit 
         audit,
         condition=lambda message: isinstance(message, WorkflowTerminalMessage),
     )
-    builder.add_edge(read_current, compute)
+    builder.add_edge(
+        read_current,
+        compute,
+        condition=lambda message: isinstance(message, CurrentStateMessage),
+    )
+    builder.add_edge(
+        read_current,
+        audit,
+        condition=lambda message: isinstance(message, WorkflowTerminalMessage),
+    )
     builder.add_edge(
         compute,
         confirmation,
@@ -168,7 +201,16 @@ def build_compliance_workflow(  # noqa: PLR0915 - fixed topology stays explicit 
         audit,
         condition=lambda message: isinstance(message, WorkflowTerminalMessage),
     )
-    builder.add_edge(reread, drift)
+    builder.add_edge(
+        reread,
+        drift,
+        condition=lambda message: isinstance(message, FreshStateMessage),
+    )
+    builder.add_edge(
+        reread,
+        audit,
+        condition=lambda message: isinstance(message, WorkflowTerminalMessage),
+    )
     builder.add_edge(
         drift,
         compute,
@@ -214,6 +256,15 @@ def build_compliance_workflow(  # noqa: PLR0915 - fixed topology stays explicit 
         audit,
         condition=lambda message: isinstance(message, WorkflowTerminalMessage),
     )
-    builder.add_edge(verification, verification_decision)
+    builder.add_edge(
+        verification,
+        verification_decision,
+        condition=lambda message: isinstance(message, VerificationResultMessage),
+    )
+    builder.add_edge(
+        verification,
+        audit,
+        condition=lambda message: isinstance(message, WorkflowTerminalMessage),
+    )
     builder.add_edge(verification_decision, audit)
     return builder.build()
