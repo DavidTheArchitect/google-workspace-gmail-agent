@@ -14,7 +14,7 @@ playwright-report/
 test-results/
 
 # Never commit authentication material, ownership data, or audit packages.
-.compliance_agent/
-browser-profile/
-audit/
-state/
+/.compliance_agent/
+/browser-profile/
+/audit/
+/state/

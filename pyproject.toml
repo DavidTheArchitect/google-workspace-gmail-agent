@@ -55,6 +55,9 @@ select = [
 "src/compliance_agent/cli.py" = ["T201"]
 "src/compliance_agent/exceptions.py" = ["N818"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["compliance_agent", "tests"]
+
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
