@@ -12,7 +12,7 @@ type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
 
 
 def canonical_json(model: BaseModel) -> str:
-    """Serialize a model with stable keys and order-independent collections."""
+    """Serialize with stable keys, unordered state collections, and ordered plan actions."""
 
     value = _canonicalize(model.model_dump(mode="json", exclude_none=False))
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -24,15 +24,20 @@ def canonical_hash(model: BaseModel) -> str:
     return hashlib.sha256(canonical_json(model).encode("utf-8")).hexdigest()
 
 
-def _canonicalize(value: object) -> JsonValue:
+def _canonicalize(value: object, *, preserve_sequence_order: bool = False) -> JsonValue:
     if isinstance(value, str):
         return unicodedata.normalize("NFC", value)
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, Mapping):
-        return {str(key): _canonicalize(item) for key, item in sorted(value.items())}
+        return {
+            str(key): _canonicalize(item, preserve_sequence_order=key == "actions")
+            for key, item in sorted(value.items())
+        }
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         items = [_canonicalize(item) for item in value]
+        if preserve_sequence_order:
+            return items
         return sorted(items, key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False))
     message = f"value is not canonical JSON data: {type(value).__name__}"
     raise TypeError(message)

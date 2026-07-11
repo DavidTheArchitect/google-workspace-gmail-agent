@@ -6,7 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from compliance_agent.schemas.plan import TaskPlan
-from compliance_agent.schemas.resources import AddressEntry, ManagedBlockedSenderRule
+from compliance_agent.schemas.resources import (
+    AddressEntry,
+    ManagedAddressList,
+    ManagedBlockedSenderRule,
+)
 
 
 def test_plan_calculates_normalized_entry_instead_of_trusting_model_output() -> None:
@@ -74,6 +78,22 @@ def test_duplicate_normalized_entries_are_rejected() -> None:
         )
 
 
+def test_read_only_list_action_cannot_be_mixed_with_mutations() -> None:
+    with pytest.raises(ValidationError, match="only action"):
+        TaskPlan.model_validate(
+            {
+                "status": "plan",
+                "actions": [
+                    {"type": "list_blocked_sender_rules"},
+                    {
+                        "type": "add_blocked_entries",
+                        "entries": [{"kind": "domain", "value": "example.com"}],
+                    },
+                ],
+            }
+        )
+
+
 def test_empty_create_and_blank_notices_are_rejected() -> None:
     with pytest.raises(ValidationError, match="requires at least one entry"):
         TaskPlan.model_validate(
@@ -103,6 +123,22 @@ def test_managed_rule_requires_list_and_nonblank_notice() -> None:
             ownership_id=uuid4(),
             display_name="rule",
             address_list_names=(),
+        )
+
+
+def test_resource_models_reject_duplicate_entries_and_list_names() -> None:
+    entry = AddressEntry(kind="domain", value="example.com")
+    with pytest.raises(ValidationError, match="duplicate normalized"):
+        ManagedAddressList(
+            ownership_id=uuid4(),
+            display_name="list",
+            entries=(entry, entry),
+        )
+    with pytest.raises(ValidationError, match="duplicate address-list"):
+        ManagedBlockedSenderRule(
+            ownership_id=uuid4(),
+            display_name="rule",
+            address_list_names=("list", "list"),
         )
     with pytest.raises(ValidationError, match="cannot be blank"):
         ManagedBlockedSenderRule(

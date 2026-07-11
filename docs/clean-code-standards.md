@@ -10,4 +10,6 @@
   exception handler is permitted.
 - Ruff formatting/linting, strict mypy, branch-aware pytest coverage, architecture checks, and
   secret checks are mandatory.
+- Security-critical browser/session code is part of the coverage gate; infrastructure packages are
+  not blanket-excluded merely because live browser acceptance requires supervision.
 - Complexity limits prompt review; they are not targets to game with meaningless wrappers.

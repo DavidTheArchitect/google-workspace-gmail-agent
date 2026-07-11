@@ -111,6 +111,18 @@ def test_mutation_contract_rejects_css_broad_text_and_unscoped_candidates() -> N
             attribute_name="data-action",
             value='save"] button',
         )
+    with pytest.raises(ValidationError, match="invalid regular expression"):
+        LocatorContract.model_validate(
+            {
+                **base,
+                "candidates": [{"kind": "role", "role": "button", "value": "["}],
+                "expected_name_pattern": "[",
+            }
+        )
+    invalid_assertion = _mutation_contract().model_dump()
+    invalid_assertion["post_resolution_assertions"] = ["visble"]
+    with pytest.raises(ValidationError):
+        LocatorContract.model_validate(invalid_assertion)
 
 
 @pytest.mark.asyncio
@@ -137,3 +149,59 @@ async def test_zero_duplicate_hidden_or_disabled_controls_abort() -> None:
         await resolve_locator(FakePage(1, visible=False), contract, _safety())
     with pytest.raises(SelectorNotFound, match="not enabled"):
         await resolve_locator(FakePage(1, enabled=False), contract, _safety())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "value", "attribute_name"),
+    [
+        ("label", r"^Name$", None),
+        ("text", r"^Read only text$", None),
+        ("aria_label", r"^Name$", None),
+        ("stable_attribute", "save", "data-action"),
+        ("css_read_only", ".read-only", None),
+    ],
+)
+async def test_reviewed_read_only_locator_strategies_resolve(
+    kind: str,
+    value: str,
+    attribute_name: str | None,
+) -> None:
+    contract = LocatorContract.model_validate(
+        {
+            "purpose": "read fixture",
+            "allowed_page_states": [AdminPageState.GMAIL_SPAM_SETTINGS],
+            "mutation_capable": False,
+            "candidates": [{"kind": kind, "value": value, "attribute_name": attribute_name}],
+        }
+    )
+    safety = LocatorSafetyContext(
+        page_state=AdminPageState.GMAIL_SPAM_SETTINGS,
+        root_ou_confirmed=False,
+        target_resource_confirmed=False,
+    )
+
+    assert await resolve_locator(FakePage(1), contract, safety)
+
+
+@pytest.mark.asyncio
+async def test_read_only_locator_rejects_wrong_state_and_ambiguous_candidate() -> None:
+    contract = LocatorContract(
+        purpose="read fixture",
+        allowed_page_states=(AdminPageState.GMAIL_SPAM_SETTINGS,),
+        mutation_capable=False,
+        candidates=(LocatorCandidate(kind="text", value="fixture"),),
+    )
+    wrong_state = LocatorSafetyContext(
+        page_state=AdminPageState.UNKNOWN,
+        root_ou_confirmed=False,
+        target_resource_confirmed=False,
+    )
+    correct_state = wrong_state.model_copy(
+        update={"page_state": AdminPageState.GMAIL_SPAM_SETTINGS}
+    )
+
+    with pytest.raises(SelectorNotFound, match="not allowed"):
+        await resolve_locator(FakePage(1), contract, wrong_state)
+    with pytest.raises(SelectorAmbiguous, match="matched 2"):
+        await resolve_locator(FakePage(2), contract, correct_state)

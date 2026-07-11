@@ -2,6 +2,9 @@
 
 from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
 from compliance_agent.domain.reconciliation import ReconciliationContext, reconcile_mutation
 from compliance_agent.domain.reporting import determine_run_result
 from compliance_agent.domain.verification import verify_state
@@ -166,3 +169,10 @@ def test_authoritative_status_covers_terminal_failure_paths() -> None:
     assert determine_run_result(mutation_uncertain, None).status == RunStatus.INDETERMINATE
     assert determine_run_result(mutation_unchanged, mismatch).status == RunStatus.FAILED_UNCHANGED
     assert determine_run_result(mutation_uncertain, mismatch).status == RunStatus.INDETERMINATE
+
+
+def test_mutation_result_requires_consistent_error_evidence() -> None:
+    with pytest.raises(ValidationError, match="requires an error code"):
+        MutationResult(status="uncertain", operation="save")
+    with pytest.raises(ValidationError, match="cannot include"):
+        MutationResult(status="completed", operation="save", error_code="timeout")

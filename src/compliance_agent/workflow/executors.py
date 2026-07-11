@@ -19,6 +19,7 @@ from compliance_agent.schemas.hitl import ConfirmationRequest, ConfirmationRespo
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.preflight import PreflightResult
 from compliance_agent.schemas.results import RunResult
+from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.schemas.status import RunStatus
 from compliance_agent.workflow.messages import (
     ApprovedChangeMessage,
@@ -98,11 +99,21 @@ class PlanDecisionExecutor(Executor):
         """Translate the closed plan status to one fixed graph branch."""
 
         if message.plan.status == "clarification_needed":
-            assert message.plan.clarification_question is not None
+            question = message.plan.clarification_question
+            if question is None:
+                await ctx.send_message(
+                    WorkflowTerminalMessage(
+                        result=RunResult(
+                            status=RunStatus.FAILED_UNCHANGED,
+                            error_code="planner_clarification_missing_question",
+                        )
+                    )
+                )
+                return
             await ctx.send_message(
                 ClarificationPauseRequest(
                     original_request_text=message.request_text,
-                    question=message.plan.clarification_question,
+                    question=question,
                 )
             )
             return
@@ -170,13 +181,17 @@ class PreflightExecutor(Executor):
 
         result = await self._preflight.check()
         if result.status == "ready":
-            assert result.identity is not None
+            if result.identity is None:
+                await ctx.send_message(_failed_preflight("preflight_ready_missing_identity"))
+                return
             await ctx.send_message(
                 PreflightReadyMessage(plan=message.plan, identity=result.identity)
             )
             return
         if result.status == "login_required":
-            assert result.login_reason is not None
+            if result.login_reason is None:
+                await ctx.send_message(_failed_preflight("preflight_login_reason_missing"))
+                return
             await ctx.send_message(
                 LoginPauseRequest(
                     plan=message.plan,
@@ -185,14 +200,16 @@ class PreflightExecutor(Executor):
                 )
             )
             return
-        await ctx.send_message(
-            WorkflowTerminalMessage(
-                result=RunResult(
-                    status=RunStatus.FAILED_UNCHANGED,
-                    error_code=result.reason_code or "preflight_failed",
-                )
-            )
+        await ctx.send_message(_failed_preflight(result.reason_code or "preflight_failed"))
+
+
+def _failed_preflight(error_code: str) -> WorkflowTerminalMessage:
+    return WorkflowTerminalMessage(
+        result=RunResult(
+            status=RunStatus.FAILED_UNCHANGED,
+            error_code=error_code,
         )
+    )
 
 
 class LoginExecutor(Executor):
@@ -513,6 +530,7 @@ class ReconciliationExecutor(Executor):
         command = mutation.command
         prepared = command.approved_change.prepared_change
         observed_state = await self._reader.read_state()
+        confirmation_valid = _confirmation_remains_valid(command, observed_state)
         decision = reconcile_mutation(
             prepared.current_state,
             prepared.desired.desired_state,
@@ -520,9 +538,11 @@ class ReconciliationExecutor(Executor):
             ReconciliationContext(
                 retry_count=command.retry_count,
                 operation_is_idempotent=True,
-                ownership_confirmed=True,
-                root_ou_confirmed=prepared.identity.target_ou == "/",
-                confirmation_valid=True,
+                ownership_confirmed=confirmation_valid,
+                root_ou_confirmed=(
+                    prepared.identity.target_ou == "/" and observed_state.target_ou == "/"
+                ),
+                confirmation_valid=confirmation_valid,
             ),
         )
         if decision.outcome == "desired_state_present":
@@ -544,6 +564,16 @@ class ReconciliationExecutor(Executor):
                 )
             )
             return
+        if decision.outcome == "mutation_not_applied":
+            await ctx.send_message(
+                WorkflowTerminalMessage(
+                    result=RunResult(
+                        status=RunStatus.FAILED_UNCHANGED,
+                        error_code=decision.explanation_code,
+                    )
+                )
+            )
+            return
         status = (
             RunStatus.PARTIALLY_APPLIED
             if decision.outcome == "partially_applied"
@@ -554,6 +584,24 @@ class ReconciliationExecutor(Executor):
                 result=RunResult(status=status, error_code=decision.explanation_code)
             )
         )
+
+
+def _confirmation_remains_valid(
+    command: MutationCommandMessage,
+    observed_state: BlockedSenderState,
+) -> bool:
+    approved = command.approved_change
+    prepared = approved.prepared_change
+    try:
+        validate_confirmation(
+            approved.approval,
+            prepared.plan,
+            observed_state,
+            prepared.change_set,
+        )
+    except StaleConfirmation:
+        return False
+    return True
 
 
 class VerificationExecutor(Executor):

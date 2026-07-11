@@ -20,12 +20,16 @@ class RunAuditWriter:
         self._event_path = self.run_directory / "run.jsonl"
         self._last_sequence = 0
         self._last_hash: str | None = None
+        self._run_id: str | None = None
 
     def append(self, event: AuditEvent) -> AuditEvent:
         """Append a sequence-checked event with a computed previous/current hash chain."""
 
         if event.sequence != self._last_sequence + 1:
             message = f"expected audit sequence {self._last_sequence + 1}, got {event.sequence}"
+            raise AuditWriteFailure(message)
+        if self._run_id is not None and event.run_id != self._run_id:
+            message = f"audit event run ID changed from {self._run_id} to {event.run_id}"
             raise AuditWriteFailure(message)
         if event.previous_event_hash not in {None, self._last_hash}:
             message = "event supplied a previous hash that does not match the run chain"
@@ -46,6 +50,7 @@ class RunAuditWriter:
             raise AuditWriteFailure(message) from error
         self._last_sequence = finalized.sequence
         self._last_hash = event_hash
+        self._run_id = finalized.run_id
         return finalized
 
     @property
@@ -105,12 +110,19 @@ def verify_event_chain(event_path: Path) -> tuple[str, ...]:
         lines = event_path.read_text(encoding="utf-8").splitlines()
     except OSError as error:
         return (f"event stream cannot be read: {error}",)
+    if not lines:
+        return ("event stream is empty",)
+    expected_run_id: str | None = None
     for line_number, line in enumerate(lines, start=1):
         try:
             event = AuditEvent.model_validate_json(line)
         except ValueError as error:
             errors.append(f"line {line_number}: invalid event: {error}")
             continue
+        if expected_run_id is None:
+            expected_run_id = event.run_id
+        elif event.run_id != expected_run_id:
+            errors.append(f"line {line_number}: run ID mismatch")
         if event.sequence != expected_sequence:
             errors.append(f"line {line_number}: unexpected sequence {event.sequence}")
         if event.previous_event_hash != previous_hash:

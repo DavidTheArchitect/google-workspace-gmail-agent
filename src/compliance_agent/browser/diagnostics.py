@@ -1,19 +1,16 @@
 """Sanitization helpers for explicitly captured read-only UI evidence."""
 
-import re
+from urllib.parse import urlsplit, urlunsplit
 
+from compliance_agent.audit.html import sanitize_html
 from compliance_agent.audit.redaction import redact_text
 
-_SCRIPT = re.compile(r"<script\b[^>]*>.*?</script\s*>", re.IGNORECASE | re.DOTALL)
-_SENSITIVE_ATTRIBUTE = re.compile(
-    r"\s(?:value|nonce|data-token|data-auth|data-session)\s*=\s*(?:\"[^\"]*\"|'[^']*')",
-    re.IGNORECASE,
-)
+__all__ = ["sanitize_html", "sanitize_url"]
 
 
-def sanitize_html(html: str) -> str:
-    """Remove executable content, hidden values, tokens, cookies, and email local parts."""
+def sanitize_url(url: str) -> str:
+    """Remove query and fragment data before persisting a diagnostic URL."""
 
-    without_scripts = _SCRIPT.sub("", html)
-    without_values = _SENSITIVE_ATTRIBUTE.sub("", without_scripts)
-    return redact_text(without_values)
+    parsed = urlsplit(url)
+    without_sensitive_components = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    return redact_text(without_sensitive_components)

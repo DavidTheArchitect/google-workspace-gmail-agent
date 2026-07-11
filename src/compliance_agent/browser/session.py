@@ -1,5 +1,6 @@
 """Dedicated persistent headed-Chrome session lifecycle."""
 
+from contextlib import suppress
 from types import TracebackType
 
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
@@ -22,6 +23,7 @@ class BrowserSession:
         try:
             self._playwright = await async_playwright().start()
             self._settings.profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            self._settings.profile_dir.chmod(0o700)
             self._context = await self._playwright.chromium.launch_persistent_context(
                 user_data_dir=self._settings.profile_dir,
                 headless=self._settings.headless,
@@ -31,8 +33,10 @@ class BrowserSession:
             self._context.set_default_timeout(self._settings.action_timeout_ms)
             started_session = self
         except BaseException:
-            await self._stop()
-            self._run_lock.release()
+            with suppress(BaseException):
+                await self._stop()
+            with suppress(BaseException):
+                self._run_lock.release()
             raise
         else:
             return started_session
@@ -43,8 +47,10 @@ class BrowserSession:
         _exception: BaseException | None,
         _traceback: TracebackType | None,
     ) -> None:
-        await self._stop()
-        self._run_lock.release()
+        try:
+            await self._stop()
+        finally:
+            self._run_lock.release()
 
     @property
     def page(self) -> Page:
@@ -59,9 +65,13 @@ class BrowserSession:
         raise RuntimeError(message)
 
     async def _stop(self) -> None:
-        if self._context is not None:
-            await self._context.close()
-            self._context = None
-        if self._playwright is not None:
-            await self._playwright.stop()
-            self._playwright = None
+        context = self._context
+        playwright = self._playwright
+        self._context = None
+        self._playwright = None
+        try:
+            if context is not None:
+                await context.close()
+        finally:
+            if playwright is not None:
+                await playwright.stop()

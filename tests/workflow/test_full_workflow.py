@@ -397,7 +397,9 @@ async def test_state_drift_invalidates_approval_and_requires_a_new_confirmation(
 @pytest.mark.asyncio
 async def test_uncertain_write_with_desired_state_present_is_verified_without_retry() -> None:
     verification_reader = QueueReader(())
-    writer = QueueWriter((MutationResult(status="uncertain", operation="save"),))
+    writer = QueueWriter(
+        (MutationResult(status="uncertain", operation="save", error_code="timeout"),)
+    )
     dependencies, _, _ = _dependencies(
         planner=QueuePlanner((_add_plan(),)),
         preflight=QueuePreflight((_ready(),)),
@@ -450,8 +452,12 @@ async def test_uncertain_unchanged_write_gets_one_proven_safe_retry() -> None:
 async def test_second_uncertain_write_is_never_retried_again() -> None:
     writer = QueueWriter(
         (
-            MutationResult(status="uncertain", operation="save"),
-            MutationResult(status="uncertain", operation="save_retry"),
+            MutationResult(status="uncertain", operation="save", error_code="timeout"),
+            MutationResult(
+                status="uncertain",
+                operation="save_retry",
+                error_code="timeout",
+            ),
         )
     )
     dependencies, _, _ = _dependencies(
@@ -469,7 +475,7 @@ async def test_second_uncertain_write_is_never_retried_again() -> None:
     result = await workflow.run(responses={pending.request_id: _approval(request)})
     output = _only_output(result)
 
-    assert output.status == RunStatus.INDETERMINATE
+    assert output.status == RunStatus.FAILED_UNCHANGED
     assert output.error_code == "before_state_unchanged"
     assert len(writer.change_sets) == 2
 
@@ -501,7 +507,9 @@ async def test_partial_write_and_partial_reconciliation_are_reported_accurately(
         QueueReader((BlockedSenderState(),)),
     )
     reconciled_partial = await execute(
-        QueueWriter((MutationResult(status="uncertain", operation="create"),)),
+        QueueWriter(
+            (MutationResult(status="uncertain", operation="create", error_code="timeout"),)
+        ),
         QueueReader(()),
     )
 

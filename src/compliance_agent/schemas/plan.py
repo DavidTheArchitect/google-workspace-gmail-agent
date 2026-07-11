@@ -88,6 +88,12 @@ class TaskPlan(FrozenModel):
     @model_validator(mode="after")
     def validate_status_and_entries(self) -> Self:
         self._validate_status()
+        list_actions = [
+            action for action in self.actions if isinstance(action, ListBlockedSenderRules)
+        ]
+        if list_actions and len(self.actions) != 1:
+            message = "list_blocked_sender_rules must be the plan's only action"
+            raise ValueError(message)
         for action in self.actions:
             entries = getattr(action, "entries", ())
             if hasattr(action, "entries") and not entries:

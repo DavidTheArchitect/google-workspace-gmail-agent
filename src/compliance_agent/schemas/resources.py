@@ -34,6 +34,14 @@ class ManagedAddressList(FrozenModel):
     display_name: str = Field(min_length=1, max_length=200)
     entries: tuple[AddressEntry, ...] = ()
 
+    @model_validator(mode="after")
+    def reject_duplicate_entries(self) -> Self:
+        normalized_entries = [entry.normalized_value for entry in self.entries]
+        if len(normalized_entries) != len(set(normalized_entries)):
+            message = "managed address list contains duplicate normalized entries"
+            raise ValueError(message)
+        return self
+
 
 class ManagedBlockedSenderRule(FrozenModel):
     """A root-OU rule whose visible identity can be reconciled with local ownership."""
@@ -48,6 +56,9 @@ class ManagedBlockedSenderRule(FrozenModel):
     def validate_notice_and_lists(self) -> Self:
         if not self.address_list_names:
             message = "blocked-sender rule must reference at least one address list"
+            raise ValueError(message)
+        if len(self.address_list_names) != len(set(self.address_list_names)):
+            message = "blocked-sender rule contains duplicate address-list names"
             raise ValueError(message)
         if self.rejection_notice is not None:
             notice = self.rejection_notice.strip()

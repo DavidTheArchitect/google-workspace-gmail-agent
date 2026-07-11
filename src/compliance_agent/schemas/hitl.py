@@ -2,7 +2,9 @@
 
 from typing import Literal
 
-from compliance_agent.schemas.base import FrozenModel
+from pydantic import Field
+
+from compliance_agent.schemas.base import FrozenModel, Sha256Digest
 from compliance_agent.schemas.changes import ChangeSet
 
 
@@ -12,9 +14,9 @@ class ConfirmationRequest(FrozenModel):
     administrator_email: str
     workspace_domain: str
     target_ou: Literal["/"] = "/"
-    plan_hash: str
-    before_state_hash: str
-    change_set_hash: str
+    plan_hash: Sha256Digest
+    before_state_hash: Sha256Digest
+    change_set_hash: Sha256Digest
     change_set: ChangeSet
     notice_affected_entry_count: int = 0
     audit_directory: str
@@ -24,10 +26,10 @@ class ConfirmationResponse(FrozenModel):
     """Approval or rejection tied to the exact hashes shown to the operator."""
 
     approved: bool
-    approval_id: str
-    plan_hash: str
-    before_state_hash: str
-    change_set_hash: str
+    approval_id: str = Field(min_length=1, max_length=200)
+    plan_hash: Sha256Digest
+    before_state_hash: Sha256Digest
+    change_set_hash: Sha256Digest
 
 
 class LoginRequest(FrozenModel):

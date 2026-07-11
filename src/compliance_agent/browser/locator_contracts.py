@@ -12,6 +12,7 @@ from compliance_agent.schemas.base import FrozenModel
 
 LocatorKind = Literal["role", "label", "text", "aria_label", "stable_attribute", "css_read_only"]
 RoleName = Literal["button", "dialog", "heading", "textbox", "link", "row", "checkbox", "option"]
+PostResolutionAssertion = Literal["visible", "enabled"]
 
 
 class LocatorCandidate(FrozenModel):
@@ -29,6 +30,11 @@ class LocatorCandidate(FrozenModel):
             raise ValueError(message)
         if self.kind == "stable_attribute" and not self.attribute_name:
             message = "stable-attribute candidates require an attribute name"
+            raise ValueError(message)
+        if self.attribute_name and not re.fullmatch(
+            r"[A-Za-z_:][A-Za-z0-9_.:-]*", self.attribute_name
+        ):
+            message = "stable-attribute name contains unsupported selector characters"
             raise ValueError(message)
         if self.kind == "stable_attribute" and not re.fullmatch(r"[A-Za-z0-9_.:-]+", self.value):
             message = "stable-attribute value contains unsupported selector characters"
@@ -48,13 +54,17 @@ class LocatorContract(FrozenModel):
     expected_name_pattern: str | None = None
     container_role: RoleName | None = None
     container_name_pattern: str | None = None
-    post_resolution_assertions: tuple[str, ...] = ("visible",)
+    post_resolution_assertions: tuple[PostResolutionAssertion, ...] = ("visible",)
 
     @model_validator(mode="after")
     def reject_unsafe_mutation_candidates(self) -> Self:
         if not self.candidates:
             message = "locator contract requires at least one candidate"
             raise ValueError(message)
+        if not self.allowed_page_states:
+            message = "locator contract requires at least one allowed page state"
+            raise ValueError(message)
+        _validate_contract_patterns(self)
         if not self.mutation_capable:
             return self
         if self.container_role is None or self.container_name_pattern is None:
@@ -77,6 +87,25 @@ class LocatorContract(FrozenModel):
             message = "mutation contract requires a role candidate matching its role/name assertion"
             raise ValueError(message)
         return self
+
+
+def _validate_contract_patterns(contract: LocatorContract) -> None:
+    patterns = [
+        candidate.value
+        for candidate in contract.candidates
+        if candidate.kind in {"role", "label", "text", "aria_label"}
+    ]
+    patterns.extend(
+        pattern
+        for pattern in (contract.expected_name_pattern, contract.container_name_pattern)
+        if pattern is not None
+    )
+    try:
+        for pattern in patterns:
+            re.compile(pattern)
+    except re.error as error:
+        message = f"locator contract contains an invalid regular expression: {error}"
+        raise ValueError(message) from error
 
 
 class LocatorSafetyContext(FrozenModel):
@@ -136,7 +165,9 @@ async def _resolve_container(page: Page, contract: LocatorContract) -> Page | Lo
 def _candidate_locator(container: Page | Locator, candidate: LocatorCandidate) -> Locator:
     pattern = re.compile(candidate.value, re.IGNORECASE)
     if candidate.kind == "role":
-        assert candidate.role is not None
+        if candidate.role is None:
+            message = "validated role locator is missing its role"
+            raise SelectorNotFound(message)
         return container.get_by_role(candidate.role, name=pattern)
     if candidate.kind == "label":
         return container.get_by_label(pattern)
@@ -145,7 +176,9 @@ def _candidate_locator(container: Page | Locator, candidate: LocatorCandidate) -
     if candidate.kind == "aria_label":
         return container.get_by_label(pattern)
     if candidate.kind == "stable_attribute":
-        assert candidate.attribute_name is not None
+        if candidate.attribute_name is None:
+            message = "validated stable-attribute locator is missing its attribute name"
+            raise SelectorNotFound(message)
         safe_attribute = re.sub(r"[^a-zA-Z0-9_:-]", "", candidate.attribute_name)
         if safe_attribute != candidate.attribute_name:
             message = "stable attribute name contains unsupported characters"

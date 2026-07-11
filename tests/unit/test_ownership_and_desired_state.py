@@ -1,8 +1,9 @@
 """Dual ownership evidence and deterministic desired-state behavior."""
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from compliance_agent.domain.desired_state import calculate_desired_state
 from compliance_agent.domain.ownership import (
@@ -50,10 +51,8 @@ def test_missing_or_contradictory_ownership_evidence_is_read_only() -> None:
 
 def test_duplicate_local_ownership_records_are_rejected() -> None:
     record = registry_for().resources[0]
-    registry = OwnershipRegistry(resources=(record, record))
-
-    with pytest.raises(OwnershipNotEstablished, match="duplicate local"):
-        registry.find(OWNERSHIP_ID)
+    with pytest.raises(ValidationError, match="duplicate ownership"):
+        OwnershipRegistry(resources=(record, record))
 
 
 def test_add_to_exact_owned_rule_is_idempotent_and_sorted() -> None:
@@ -149,6 +148,26 @@ def test_new_rule_fails_deterministically_without_injected_identifier() -> None:
 
     with pytest.raises(ValueError, match="another injected"):
         calculate_desired_state(BlockedSenderState(), plan, OwnershipRegistry(), (), PREFIX)
+
+
+def test_new_rule_rejects_short_id_display_name_collision() -> None:
+    state = owned_state(notice="Existing")
+    plan = TaskPlan.model_validate(
+        {
+            "status": "plan",
+            "actions": [
+                {
+                    "type": "add_blocked_entries",
+                    "rejection_notice": "Different",
+                    "entries": [{"kind": "domain", "value": "new.example"}],
+                }
+            ],
+        }
+    )
+    colliding_id = UUID(f"{OWNERSHIP_ID.hex[:8]}-0000-4000-8000-000000000000")
+
+    with pytest.raises(AmbiguousTarget, match="display names"):
+        calculate_desired_state(state, plan, registry_for(), (colliding_id,), PREFIX)
 
 
 def test_ambiguous_matching_rules_require_explicit_target() -> None:

@@ -17,6 +17,9 @@ from compliance_agent.llm.prompts import PROMPT_TEMPLATE_VERSION, SYSTEM_PROMPT
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.plan import TaskPlan
 
+_MAX_PLANNER_RETRIES = 3
+_MAX_REQUEST_CHARACTERS = 10_000
+
 
 class CompletionClient(Protocol):
     """Minimal structured completion boundary used by the deterministic retry loop."""
@@ -92,14 +95,30 @@ class StructuredPlanner:
         temperature: float = 0,
         max_retries: int = 3,
     ) -> None:
+        if not model.strip():
+            message = "planner model tag cannot be blank"
+            raise ValueError(message)
+        if temperature != 0:
+            message = "planner temperature must be zero"
+            raise ValueError(message)
+        if not 0 <= max_retries <= _MAX_PLANNER_RETRIES:
+            message = "planner max_retries must be between zero and three"
+            raise ValueError(message)
         self._client = client
-        self._model = model
+        self._model = model.strip()
         self._temperature = temperature
         self._max_retries = max_retries
 
     async def plan(self, request: str) -> PlannerResult:
         """Return a validated plan or stop before any browser interaction."""
 
+        request = request.strip()
+        if not request:
+            message = "planner request cannot be blank"
+            raise PlannerFailure(message)
+        if len(request) > _MAX_REQUEST_CHARACTERS:
+            message = "planner request exceeds 10000 characters"
+            raise PlannerFailure(message)
         schema = TaskPlan.model_json_schema()
         messages = _initial_messages(request)
         attempts: list[PlannerAttempt] = []

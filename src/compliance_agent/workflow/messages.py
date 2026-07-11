@@ -2,7 +2,9 @@
 
 from typing import Literal
 
-from compliance_agent.schemas.base import FrozenModel
+from pydantic import Field
+
+from compliance_agent.schemas.base import FrozenModel, RequestText
 from compliance_agent.schemas.changes import ChangeSet, DesiredStateResult
 from compliance_agent.schemas.hitl import ConfirmationRequest, ConfirmationResponse
 from compliance_agent.schemas.plan import TaskPlan
@@ -14,22 +16,22 @@ from compliance_agent.schemas.state import BlockedSenderState
 class UserRequestMessage(FrozenModel):
     """Workflow entry or clarified request payload."""
 
-    request_text: str
+    request_text: RequestText
 
 
 class PlannedTaskMessage(FrozenModel):
     """Validated planner boundary output."""
 
-    request_text: str
+    request_text: RequestText
     plan: TaskPlan
 
 
 class ClarificationPauseRequest(FrozenModel):
     """Human clarification request retaining the original user text."""
 
-    original_request_text: str
+    original_request_text: RequestText
     reason_code: str = "planner_clarification_required"
-    question: str
+    question: str = Field(min_length=1, max_length=2_000)
 
 
 class PreflightRequestMessage(FrozenModel):

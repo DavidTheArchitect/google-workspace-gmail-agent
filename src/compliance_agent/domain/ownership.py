@@ -1,9 +1,10 @@
 """Dual-evidence ownership policy for application-managed resources."""
 
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Self
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from compliance_agent.exceptions import OwnershipNotEstablished
 from compliance_agent.schemas.base import FrozenModel
@@ -17,7 +18,14 @@ class OwnershipRecord(FrozenModel):
     rule_display_name: str = Field(min_length=1)
     address_list_display_name: str = Field(min_length=1)
     target_ou: Literal["/"] = "/"
-    created_at: str
+    created_at: datetime
+
+    @model_validator(mode="after")
+    def require_aware_creation_time(self) -> Self:
+        if self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
+            message = "ownership creation time must be timezone-aware"
+            raise ValueError(message)
+        return self
 
 
 class OwnershipRegistry(FrozenModel):
@@ -26,14 +34,21 @@ class OwnershipRegistry(FrozenModel):
     schema_version: Literal["1.0"] = "1.0"
     resources: tuple[OwnershipRecord, ...] = ()
 
+    @model_validator(mode="after")
+    def reject_duplicate_ownership_ids(self) -> Self:
+        ownership_ids = [record.ownership_id for record in self.resources]
+        if len(ownership_ids) != len(set(ownership_ids)):
+            message = "ownership registry contains duplicate ownership IDs"
+            raise ValueError(message)
+        return self
+
     def find(self, ownership_id: UUID) -> OwnershipRecord | None:
         """Return the exact record, rejecting duplicate local identities."""
 
-        matches = [record for record in self.resources if record.ownership_id == ownership_id]
-        if len(matches) > 1:
-            message = f"duplicate local ownership records for {ownership_id}"
-            raise OwnershipNotEstablished(message)
-        return matches[0] if matches else None
+        return next(
+            (record for record in self.resources if record.ownership_id == ownership_id),
+            None,
+        )
 
 
 def managed_resource_names(prefix: str, ownership_id: UUID) -> tuple[str, str]:

@@ -28,6 +28,7 @@ class OwnershipStore:
         """Atomically replace local evidence with a validated registry."""
 
         self._state_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._state_directory.chmod(0o700)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self._state_directory,
             prefix=".resources.",

@@ -54,6 +54,29 @@ def test_settings_reject_relative_or_overlapping_sensitive_paths(tmp_path: Path)
             audit_dir=tmp_path,
             state_dir=tmp_path / "state",
         )
+    with pytest.raises(ValidationError, match="non-overlapping"):
+        Settings(
+            profile_dir=tmp_path / "sensitive",
+            audit_dir=tmp_path / "sensitive" / "audit",
+            state_dir=tmp_path / "state",
+        )
+
+
+def test_settings_normalize_identity_and_restrict_security_sensitive_hosts(tmp_path: Path) -> None:
+    settings = Settings(
+        **_settings_paths(tmp_path),
+        expected_admin_email=" Admin@Example.COM ",
+        expected_workspace_domain=" Example.COM ",
+        managed_resource_prefix="  [Managed]  ",
+    )
+
+    assert settings.expected_admin_email == "admin@example.com"
+    assert settings.expected_workspace_domain == "example.com"
+    assert settings.managed_resource_prefix == "[Managed]"
+    with pytest.raises(ValidationError, match="loopback"):
+        Settings(**_settings_paths(tmp_path), ollama_base_url="https://ollama.example.com/v1")
+    with pytest.raises(ValidationError, match=r"admin\.google\.com"):
+        Settings(**_settings_paths(tmp_path), gmail_settings_url="https://example.com/settings")
 
 
 def test_ownership_store_round_trips_validated_registry(tmp_path: Path) -> None:
@@ -71,8 +94,11 @@ def test_process_lock_prohibits_concurrent_runs(tmp_path: Path) -> None:
     first = ProcessLock(path, run_id="one", started_at=started, application_version="0.1.0")
     second = ProcessLock(path, run_id="two", started_at=started, application_version="0.1.0")
 
-    with first, pytest.raises(RunLockUnavailable):
-        second.acquire()
+    with first:
+        with pytest.raises(RunLockUnavailable):
+            second.acquire()
+        with pytest.raises(RunLockUnavailable, match="already owns"):
+            first.acquire()
     record = json.loads(path.read_text(encoding="utf-8"))
     assert record["run_id"] == "one"
     second.acquire()

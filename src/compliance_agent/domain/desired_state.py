@@ -80,9 +80,10 @@ def calculate_desired_state(
                 ownership_registry,
                 managed_prefix,
             )
-        else:
-            assert isinstance(action, ListBlockedSenderRules)
+        elif isinstance(action, ListBlockedSenderRules):
+            continue
 
+    _require_unique_display_names(rules, address_lists, current_state.unmanaged_rule_names)
     desired = BlockedSenderState(
         rules=tuple(sorted(rules.values(), key=lambda rule: rule.ownership_id.hex)),
         address_lists=tuple(
@@ -292,3 +293,18 @@ def _require_rule_list(
 
 def _sorted_entries(entries: tuple[AddressEntry, ...]) -> tuple[AddressEntry, ...]:
     return tuple(sorted(entries, key=lambda entry: (entry.normalized_value, entry.kind)))
+
+
+def _require_unique_display_names(
+    rules: dict[UUID, ManagedBlockedSenderRule],
+    address_lists: dict[UUID, ManagedAddressList],
+    unmanaged_rule_names: tuple[str, ...],
+) -> None:
+    rule_names = [rule.display_name for rule in rules.values()] + list(unmanaged_rule_names)
+    if len(rule_names) != len(set(rule_names)):
+        message = "blocked-sender rule display names are ambiguous"
+        raise AmbiguousTarget(message)
+    list_names = [address_list.display_name for address_list in address_lists.values()]
+    if len(list_names) != len(set(list_names)):
+        message = "address-list display names are ambiguous"
+        raise AmbiguousTarget(message)

@@ -6,10 +6,16 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from compliance_agent.application.audit_service import AuditFinalizationService
 from compliance_agent.audit.export import export_redacted
-from compliance_agent.audit.manifest import RunManifest, digest_artifacts, verify_manifest
+from compliance_agent.audit.manifest import (
+    RunManifest,
+    RunManifestMetadata,
+    digest_artifacts,
+    verify_manifest,
+)
 from compliance_agent.audit.redaction import redact_text
 from compliance_agent.audit.report import render_report_json, render_report_markdown
 from compliance_agent.audit.writer import RunAuditWriter, verify_event_chain
@@ -31,9 +37,9 @@ def _event(sequence: int, *, previous_hash: str | None = None) -> AuditEvent:
     )
 
 
-def _manifest(run_directory: Path) -> RunManifest:
+def _manifest_metadata() -> RunManifestMetadata:
     start = datetime(2026, 7, 10, 18, 30, tzinfo=UTC)
-    return RunManifest(
+    return RunManifestMetadata(
         application_version="0.1.0",
         git_commit=None,
         dirty_working_tree=True,
@@ -47,7 +53,14 @@ def _manifest(run_directory: Path) -> RunManifest:
         model_digest=None,
         operating_system=platform.platform(),
         start_time=start,
-        end_time=start + timedelta(seconds=1),
+    )
+
+
+def _manifest(run_directory: Path) -> RunManifest:
+    metadata = _manifest_metadata()
+    return RunManifest(
+        **metadata.model_dump(),
+        end_time=metadata.start_time + timedelta(seconds=1),
         final_status=RunStatus.NO_CHANGE_REQUIRED,
         artifacts=digest_artifacts(run_directory),
     )
@@ -77,7 +90,7 @@ async def test_audit_finalizer_writes_reports_and_terminal_event(
     tmp_path: Path,
 ) -> None:
     writer = RunAuditWriter(tmp_path / "run")
-    service = AuditFinalizationService(writer, FixedClock(), "run-1")
+    service = AuditFinalizationService(writer, FixedClock(), "run-1", _manifest_metadata())
     result = RunResult(status=RunStatus.NO_CHANGE_REQUIRED)
 
     await service.finalize(result)
@@ -88,6 +101,11 @@ async def test_audit_finalizer_writes_reports_and_terminal_event(
     assert "no_change_required" in (writer.run_directory / "report.md").read_text()
     assert writer.next_sequence == 2
     assert not verify_event_chain(writer.run_directory / "run.jsonl")
+    manifest = RunManifest.model_validate_json(
+        (writer.run_directory / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest.final_status == RunStatus.NO_CHANGE_REQUIRED
+    assert not verify_manifest(writer.run_directory, manifest)
 
 
 def test_writer_rejects_sequence_hash_and_path_traversal(tmp_path: Path) -> None:
@@ -97,7 +115,9 @@ def test_writer_rejects_sequence_hash_and_path_traversal(tmp_path: Path) -> None
     first = writer.append(_event(1))
     assert first.event_hash
     with pytest.raises(AuditWriteFailure, match="previous hash"):
-        writer.append(_event(2, previous_hash="wrong"))
+        writer.append(_event(2, previous_hash="0" * 64))
+    with pytest.raises(AuditWriteFailure, match="run ID changed"):
+        writer.append(_event(2).model_copy(update={"run_id": "different-run"}))
     with pytest.raises(AuditWriteFailure, match="run-relative"):
         writer.write_text("../escape.txt", "no")
 
@@ -115,6 +135,9 @@ def test_event_chain_detects_tampering_and_invalid_json(tmp_path: Path) -> None:
     assert any("event hash mismatch" in error for error in errors)
     assert any("invalid event" in error for error in errors)
     assert verify_event_chain(tmp_path / "missing.jsonl")
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    assert verify_event_chain(empty) == ("event stream is empty",)
 
 
 def test_manifest_detects_changed_added_and_missing_artifacts(tmp_path: Path) -> None:
@@ -132,6 +155,21 @@ def test_manifest_detects_changed_added_and_missing_artifacts(tmp_path: Path) ->
     assert mismatches == ("extra.txt", "report.json")
 
 
+def test_manifest_rejects_duplicate_paths_and_invalid_timing(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "report.json").write_text("{}", encoding="utf-8")
+    manifest = _manifest(run)
+    payload = manifest.model_dump()
+    payload["artifacts"] = [manifest.artifacts[0], manifest.artifacts[0]]
+    with pytest.raises(ValidationError, match="duplicate artifact"):
+        RunManifest.model_validate(payload)
+    payload = manifest.model_dump()
+    payload["end_time"] = manifest.start_time - timedelta(seconds=1)
+    with pytest.raises(ValidationError, match="cannot precede"):
+        RunManifest.model_validate(payload)
+
+
 def test_redacted_export_does_not_copy_binary_or_authentication_material(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -140,6 +178,10 @@ def test_redacted_export_does_not_copy_binary_or_authentication_material(tmp_pat
         encoding="utf-8",
     )
     (source / "trace.zip").write_bytes(b"secret binary")
+    (source / "page.html").write_text(
+        '<script>secret()</script><div onload="secret()">admin@example.com</div>',
+        encoding="utf-8",
+    )
     destination = tmp_path / "export"
 
     export_redacted(source, destination)
@@ -147,13 +189,31 @@ def test_redacted_export_does_not_copy_binary_or_authentication_material(tmp_pat
     exported = (destination / "report.txt").read_text(encoding="utf-8")
     assert "secret" not in exported
     assert "a***@example.com" in exported
+    exported_html = (destination / "page.html").read_text(encoding="utf-8")
+    assert "script" not in exported_html
+    assert "onload" not in exported_html
     assert not (destination / "trace.zip").exists()
     with pytest.raises(AuditWriteFailure, match="already exists"):
         export_redacted(source, destination)
+    with pytest.raises(AuditWriteFailure, match="regular directory"):
+        export_redacted(tmp_path / "missing", tmp_path / "other")
+    with pytest.raises(AuditWriteFailure, match="inside"):
+        export_redacted(source, source / "nested-export")
 
 
 def test_redaction_handles_token_fields_and_reports_are_deterministic() -> None:
-    assert "secret" not in redact_text('{"access_token":"secret"}')
+    redacted_json = redact_text('{"access_token":"secret","next":"ok"}')
+    assert json.loads(redacted_json) == {"access_token": "[REDACTED]", "next": "ok"}
+    redacted_headers = redact_text(
+        '{"Authorization":"Bearer abc123","Cookie":"SID=secret","refresh_token":null}'
+    )
+    assert json.loads(redacted_headers) == {
+        "Authorization": "[REDACTED]",
+        "Cookie": "[REDACTED]",
+        "refresh_token": "[REDACTED]",
+    }
+    assert "abc123" not in redact_text("Authorization: Basic abc123")
+    assert "secret" not in redact_text("https://example.test/?access_token=secret&next=1")
     result = RunResult(
         status=RunStatus.APPLIED_PENDING_PROPAGATION,
         requested_changes=("add example.com",),

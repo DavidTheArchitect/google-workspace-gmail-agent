@@ -78,6 +78,23 @@ async def test_repeated_invalid_output_stops_before_browser_work() -> None:
 
 
 @pytest.mark.asyncio
+async def test_planner_rejects_blank_or_oversized_requests() -> None:
+    planner = StructuredPlanner(FakeCompletionClient([]), model="gemma")
+
+    with pytest.raises(PlannerFailure, match="blank"):
+        await planner.plan("   ")
+    with pytest.raises(PlannerFailure, match="10000"):
+        await planner.plan("x" * 10_001)
+
+
+def test_planner_constructor_rejects_nondeterministic_or_unbounded_configuration() -> None:
+    with pytest.raises(ValueError, match="temperature"):
+        StructuredPlanner(FakeCompletionClient([]), model="gemma", temperature=0.1)
+    with pytest.raises(ValueError, match="max_retries"):
+        StructuredPlanner(FakeCompletionClient([]), model="gemma", max_retries=4)
+
+
+@pytest.mark.asyncio
 async def test_ollama_connection_failure_recommends_direct_commands() -> None:
     request = httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
     client = FakeCompletionClient([APIConnectionError(request=request)])

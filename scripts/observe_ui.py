@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from compliance_agent.audit.redaction import redact_text
-from compliance_agent.browser.diagnostics import sanitize_html
+from compliance_agent.browser.diagnostics import sanitize_html, sanitize_url
 from compliance_agent.browser.pages.gmail_spam_settings import GmailSpamSettingsPage
 from compliance_agent.browser.pages.login import detect_authentication_state
 from compliance_agent.browser.session import BrowserSession
@@ -36,7 +36,7 @@ async def observe(output_directory: Path | None) -> None:
             else await GmailSpamSettingsPage(session.page).detect_state()
         )
         metadata = {
-            "url": redact_text(session.page.url),
+            "url": sanitize_url(session.page.url),
             "title": redact_text(await session.page.title()),
             "detected_state": state.value,
         }
@@ -62,12 +62,18 @@ def _write_evidence(
     aria: str,
 ) -> None:
     output_directory.mkdir(mode=0o700, parents=True, exist_ok=False)
-    (output_directory / "metadata.json").write_text(
+    output_directory.chmod(0o700)
+    _write_protected_text(
+        output_directory / "metadata.json",
         json.dumps(metadata, indent=2, sort_keys=True),
-        encoding="utf-8",
     )
-    (output_directory / "page.html").write_text(html, encoding="utf-8")
-    (output_directory / "aria.txt").write_text(aria, encoding="utf-8")
+    _write_protected_text(output_directory / "page.html", html)
+    _write_protected_text(output_directory / "aria.txt", aria)
+
+
+def _write_protected_text(path: Path, content: str) -> None:
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
 
 
 def main() -> None:

@@ -48,6 +48,19 @@ def test_canonical_hash_ignores_collection_order_and_normalizes_unicode() -> Non
     assert canonical_json(first) == canonical_json(second)
 
 
+def test_canonical_hash_preserves_semantic_action_order() -> None:
+    action_one = {
+        "type": "set_rejection_notice",
+        "target_rule_id": str(uuid4()),
+        "rejection_notice": "First",
+    }
+    action_two = {**action_one, "rejection_notice": "Second"}
+    first = TaskPlan.model_validate({"status": "plan", "actions": [action_one, action_two]})
+    second = TaskPlan.model_validate({"status": "plan", "actions": [action_two, action_one]})
+
+    assert canonical_hash(first) != canonical_hash(second)
+
+
 def test_confirmation_accepts_exact_current_hashes() -> None:
     state = owned_state()
     plan = TaskPlan(status="plan", actions=({"type": "list_blocked_sender_rules"},))

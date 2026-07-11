@@ -1,6 +1,6 @@
 # Implementation status
 
-Review date: 2026-07-10
+Review date: 2026-07-11
 
 ## Complete
 
@@ -14,8 +14,12 @@ Review date: 2026-07-10
 - Phase 7 deterministic orchestration: typed Agent Framework graph, clarification and login HITL,
   mandatory confirmation, fresh pre-write read, drift reconfirmation, mutation routing, uncertain
   result reconciliation, one safe retry, verification, and audit finalization.
-- Audit core: protected per-run writer, hash-chained events, deterministic reports, artifact
-  digests, manifest verification, redaction, and redacted export.
+- Audit core: protected per-run writer, run-consistent hash-chained events, deterministic reports,
+  streaming artifact digests, terminal manifest creation and verification, structure-preserving
+  redaction, and protected redacted export.
+- Repository-wide hardening review: order-sensitive plan hashing, non-overlapping sensitive paths,
+  strict result-evidence invariants, deterministic exhausted-retry status, failure-safe browser and
+  process-lock cleanup, inert diagnostic HTML, and browser safety code included in coverage.
 
 ## Implemented but awaiting live validation
 
@@ -25,6 +29,17 @@ Review date: 2026-07-10
 - Deterministic administrator, Workspace, privilege, Gmail-context, blocked-senders-context, and
   root-OU preflight policy.
 - Attended login and sanitized observation scripts.
+
+## Remaining integration work before live mutation enablement
+
+- Emit the complete request, plan, confirmation, before/desired/after, verification, and
+  per-operation event set through the protected audit writer; terminal reports and the manifest are
+  integrated, but the full workflow artifact set is not yet wired.
+- Add the production composition root that binds the fixed workflow to accepted browser readers,
+  writers, ownership persistence, runtime manifest metadata, and crash-safe adapter error mapping.
+- Update ownership records only after verified resource creation/removal and test interrupted
+  ownership-store transitions against supervised disposable resources.
+- Enforce configured audit retention through an explicit, separately tested maintenance command.
 
 ## Gated on supervised Admin console evidence
 
