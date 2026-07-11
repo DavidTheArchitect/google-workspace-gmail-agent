@@ -1,0 +1,20 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+playwright-report/
+test-results/
+
+# Never commit authentication material, ownership data, or audit packages.
+.compliance_agent/
+browser-profile/
+audit/
+state/

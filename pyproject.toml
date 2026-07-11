@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "google-workspace-gmail-agent"
+version = "0.1.0"
+description = "Human-approved, fail-closed automation for Google Workspace Gmail blocked senders"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "MIT" }
+authors = [{ name = "DavidTheArchitect" }]
+dependencies = [
+    "agent-framework-core==1.11.0",
+    "idna==3.18",
+    "openai==2.45.0",
+    "playwright==1.61.0",
+    "portalocker==3.2.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.14.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy==2.2.0",
+    "pip-audit==2.10.1",
+    "pre-commit==4.3.0",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "ruff==0.15.21",
+]
+
+[project.scripts]
+compliance-agent = "compliance_agent.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/compliance_agent"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W", "I", "N", "UP", "B", "A", "ASYNC", "C4", "C90",
+    "DTZ", "EM", "ERA", "EXE", "FA", "FLY", "FURB", "G", "ICN", "INP",
+    "LOG", "PIE", "PL", "PT", "PTH", "RET", "RSE", "RUF", "SIM", "SLOT",
+    "T10", "T20", "TCH", "TRY",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["PLR2004", "S101"]
+"scripts/**/*.py" = ["T201"]
+"src/compliance_agent/cli.py" = ["T201"]
+"src/compliance_agent/exceptions.py" = ["N818"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 10
+max-returns = 6
+max-statements = 40
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["compliance_agent"]
+mypy_path = "src"
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "agent_framework.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov=compliance_agent --cov-branch --cov-report=term-missing"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "live_read: supervised read-only Admin console test",
+    "live_write: supervised and confirmed Admin console mutation test",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["compliance_agent"]
+omit = [
+    "src/compliance_agent/browser/*",
+    "src/compliance_agent/browser/**/*",
+]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true
