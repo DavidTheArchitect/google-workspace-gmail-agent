@@ -24,6 +24,14 @@ Review date: 2026-07-11
   reconciliation/verification audit artifacts and events; post-mutation audit degradation;
   verified ownership-registry updates; expected adapter failure mapping; exclusive-lock composition
   with runtime manifest metadata; and explicit plan-first audit retention.
+- Operator experience: loopback-only FastAPI/HTMX console, one-time in-memory session bootstrap,
+  Host/Origin/CSRF/CSP controls, guided readiness, natural-language and deterministic planning,
+  typed run projections, impact assessment, expiring server-owned approvals, run control, contract
+  gate inspection, ownership registry view, audit explorer, retention confirmation, and propagation
+  follow-up.
+- Operational hardening: explicit run modes with legacy migration, writer-free dry-run composition,
+  dry-run audit manifests, reviewed contract-pack digests, inert fixture inspection, exact-evidence
+  ownership recovery service, and deterministic manifested redacted ZIP export.
 
 ## Implemented but awaiting live validation
 
@@ -43,6 +51,8 @@ Review date: 2026-07-11
 - Save-response observation and known-entry-point navigation details.
 - Sanitized HTML/ARIA fixtures for the current Admin console.
 - Supervised disposable-resource CRUD acceptance.
+- Injection of the accepted read adapters into the console dry-run coordinator.
+- Injection of the accepted live runner into the approval/execution control room.
 
 These items are not ordinary unfinished scaffolding. Implementing them from assumptions would
 violate the project's fail-closed selector policy. Run `scripts/login.py`, then

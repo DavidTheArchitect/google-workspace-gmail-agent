@@ -20,6 +20,15 @@ mapped to closed preflight, read, or uncertain-mutation outcomes before entering
 mutation-capable composition refuses plan-only or dry-run settings and independently rechecks the
 configured administrator and Workspace identities before any state read.
 
+The FastAPI/HTMX operator console is a loopback-only imperative shell over the same services. It
+stores active run projections and approval envelopes only in memory, derives terminal history from
+protected manifests, and uses atomic protected JSON only for small propagation indexes. Browser
+sessions remain in the dedicated Chrome profile and are never embedded into the console.
+
+`RunMode` replaces ambiguous combinations of plan-only and dry-run booleans. The dry-run
+composition has no mutation source in its dependency graph. Live composition requires an accepted
+`UiContractPack`, and both read/live manifests record the exact contract evidence digest.
+
 Gemma converts language into a `TaskPlan`. It cannot select a browser locator, choose a mutation
 handler, establish ownership, authorize a change, determine whether a save succeeded, or construct
 the authoritative status. Direct commands construct the same `TaskPlan` without a model.

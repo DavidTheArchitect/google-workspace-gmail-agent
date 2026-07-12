@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}UI contracts · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header narrow"><h1>UI contract evidence</h1><p>Semantic locator contracts advance only through reviewed fixtures and supervised acceptance.</p></header>
+<div class="gate-track">
+  {% set states = ['Draft', 'Fixture validated', 'Read live validated', 'Write live validated', 'Accepted'] %}
+  {% for state in states %}<div class="gate-step {% if loop.index <= contract_stage %}complete{% endif %}"><span>{{ loop.index }}</span><strong>{{ state }}</strong></div>{% endfor %}
+</div>
+{% if contract %}
+<section class="detail-list"><div><span>Status</span><strong>{{ contract.status.replace('_', ' ')|title }}</strong></div><div><span>Contract ID</span><strong>{{ contract.contract_id }}</strong></div><div><span>Fixtures</span><strong>{{ contract.fixture_hashes|length }}</strong></div><div><span>Reviewed contracts</span><strong>{{ contract.contract_names|length }}</strong></div>{% if contract.accepted_digest %}<div><span>Accepted digest</span><code>{{ contract.accepted_digest }}</code></div>{% endif %}</section>
+{% else %}
+<section class="empty-state"><div class="empty-symbol" aria-hidden="true">⌘</div><h2>No contract pack installed</h2><p>This is the expected safe state before supervised Admin-console evidence exists.</p></section>
+{% endif %}
+<section class="callout"><h2>Promotion cannot happen here</h2><p>The console can inspect evidence, but only reviewed repository changes and supervised tests can produce an accepted pack.</p><ol><li>Capture sanitized HTML and ARIA.</li><li>Validate missing and duplicate locator cases.</li><li>Complete read-only live acceptance.</li><li>Complete disposable-resource CRUD.</li><li>Review and commit the accepted pack.</li></ol></section>
+{% endblock %}

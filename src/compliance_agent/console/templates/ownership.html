@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Ownership · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header narrow"><h1>Ownership</h1><p>Local evidence is necessary but never sufficient; visible UI evidence must agree before mutation.</p></header>
+<div class="table-wrap">
+  <table><thead><tr><th>Ownership ID</th><th>Rule</th><th>Address list</th><th>Created</th><th>Local status</th></tr></thead><tbody>
+  {% for resource in resources %}<tr><td><code>{{ resource.ownership_id }}</code></td><td>{{ resource.rule_display_name }}</td><td>{{ resource.address_list_display_name }}</td><td>{{ resource.created_at.strftime('%Y-%m-%d') }}</td><td><span class="status-text completed">Recorded</span></td></tr>{% endfor %}
+  {% if not resources %}<tr><td colspan="5" class="empty-row">No local ownership records exist.</td></tr>{% endif %}
+  </tbody></table>
+</div>
+<section class="callout warning"><h2>Fresh UI comparison required</h2><p>Registry recovery and cleanup stay unavailable until an accepted read adapter can compare these records to current root-OU state. Display-name prefixes alone never establish ownership.</p></section>
+{% endblock %}

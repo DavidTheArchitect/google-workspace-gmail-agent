@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from compliance_agent.audit.manifest import RunManifestMetadata
+from compliance_agent.schemas.base import Sha256Digest
 from compliance_agent.settings import Settings
 from compliance_agent.version import __version__
 
@@ -16,6 +17,7 @@ def collect_manifest_metadata(
     start_time: datetime,
     settings: Settings,
     repository: Path | None = None,
+    ui_contract_digest: Sha256Digest | None = None,
 ) -> RunManifestMetadata:
     """Return available runtime facts without making missing optional tools fatal."""
 
@@ -32,6 +34,7 @@ def collect_manifest_metadata(
         ollama_version=None,
         model_tag=settings.ollama_model,
         model_digest=None,
+        ui_contract_digest=ui_contract_digest,
         operating_system=platform.platform(),
         start_time=start_time,
     )

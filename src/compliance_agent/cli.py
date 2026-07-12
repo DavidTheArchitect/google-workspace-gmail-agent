@@ -1,15 +1,20 @@
 """Deterministic command-line planning and audit utilities."""
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import importlib.metadata
 import json
 import platform
 import sys
-from collections.abc import Sequence
+import threading
+import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import UUID
 
+import uvicorn
 from pydantic import ValidationError
 
 from compliance_agent.application.planning_service import (
@@ -20,9 +25,10 @@ from compliance_agent.application.planning_service import (
     direct_set_notice_plan,
 )
 from compliance_agent.application.retention_service import AuditRetentionService
-from compliance_agent.audit.export import export_redacted
+from compliance_agent.audit.export import export_redacted, export_redacted_zip
 from compliance_agent.audit.manifest import RunManifest, verify_manifest
 from compliance_agent.audit.writer import verify_event_chain
+from compliance_agent.console import create_console_app
 from compliance_agent.exceptions import ComplianceAgentError
 from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.llm.planner import build_planner
@@ -30,6 +36,9 @@ from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.settings import Settings
 from compliance_agent.version import __version__
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -45,6 +54,9 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version", help="show exact runtime component versions")
     commands.add_parser("check-config", help="validate CA_ environment settings")
+    console = commands.add_parser("console", help="start the loopback-only operator console")
+    console.add_argument("--port", type=int)
+    console.add_argument("--no-open", action="store_true")
 
     natural = commands.add_parser("plan", help="create a typed plan with local Ollama")
     natural.add_argument("request")
@@ -72,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-plan", help="validate a TaskPlan JSON file")
     validate.add_argument("path", type=Path)
 
+    _add_audit_commands(commands)
+    return parser
+
+
+def _add_audit_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     audit = commands.add_parser("audit", help="audit integrity and redacted export utilities")
     audit_commands = audit.add_subparsers(dest="audit_command", required=True)
     verify = audit_commands.add_parser("verify", help="verify a run manifest")
@@ -79,12 +96,17 @@ def build_parser() -> argparse.ArgumentParser:
     export = audit_commands.add_parser("export-redacted", help="create a shareable text export")
     export.add_argument("run_directory", type=Path)
     export.add_argument("destination", type=Path)
+    export_zip = audit_commands.add_parser(
+        "export-redacted-zip",
+        help="create a deterministic shareable ZIP",
+    )
+    export_zip.add_argument("run_directory", type=Path)
+    export_zip.add_argument("destination", type=Path)
     prune = audit_commands.add_parser(
         "prune",
         help="list expired audit runs; delete only with --apply",
     )
     prune.add_argument("--apply", action="store_true")
-    return parser
 
 
 def run(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
@@ -100,6 +122,8 @@ def run(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
             settings = Settings()
             _print_json(_safe_settings(settings))
             return 0
+        if args.command == "console":
+            return _run_console(args)
         if args.command == "plan":
             return asyncio.run(_run_natural_language_plan(args.request))
         if args.command == "block":
@@ -174,6 +198,10 @@ def _run_audit(args: argparse.Namespace) -> int:
         exported = export_redacted(args.run_directory, args.destination)
         print(exported)
         return 0
+    if args.audit_command == "export-redacted-zip":
+        exported = export_redacted_zip(args.run_directory, args.destination)
+        print(exported)
+        return 0
     if args.audit_command == "prune":
         settings = Settings()
         service = AuditRetentionService(
@@ -206,6 +234,25 @@ def _run_audit(args: argparse.Namespace) -> int:
     return 1 if mismatches or event_errors else 0
 
 
+def _run_console(args: argparse.Namespace) -> int:
+    settings = Settings(console_port=args.port) if args.port is not None else Settings()
+    console = create_console_app(settings)
+    print(f"Local console: {console.security.bootstrap_url}")
+    if settings.console_open_browser and not args.no_open:
+        opener = threading.Timer(0.75, webbrowser.open, args=(console.security.bootstrap_url,))
+        opener.daemon = True
+        opener.start()
+    uvicorn.run(
+        console.app,
+        host="127.0.0.1",
+        port=settings.console_port,
+        access_log=False,
+        proxy_headers=False,
+        server_header=False,
+    )
+    return 0
+
+
 def _print_plan(plan: TaskPlan) -> None:
     print(plan.model_dump_json(indent=2))
 
@@ -226,12 +273,14 @@ def _safe_settings(settings: Settings) -> dict[str, object]:
         "valid": True,
         "dry_run": settings.dry_run,
         "plan_only": settings.plan_only,
+        "run_mode": settings.run_mode.value,
         "headless": settings.headless,
         "profile_dir": str(settings.profile_dir),
         "audit_dir": str(settings.audit_dir),
         "state_dir": str(settings.state_dir),
         "expected_admin_configured": bool(settings.expected_admin_email),
         "expected_workspace_configured": bool(settings.expected_workspace_domain),
+        "console_port": settings.console_port,
     }
 
 

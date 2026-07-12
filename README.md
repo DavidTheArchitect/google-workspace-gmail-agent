@@ -11,6 +11,10 @@ browser/session foundations. The workflow includes clarification, manual login, 
 confirmation, mandatory pre-write read-back, drift-driven reconfirmation, mutation reconciliation,
 one proven-safe retry, independent verification, and audit finalization.
 
+The loopback-only operator console adds guided readiness, natural-language and deterministic
+planning, run control, evidence-gate status, ownership inspection, audit history, integrity review,
+retention confirmation, and propagation follow-up without exposing a remote control plane.
+
 Live page parsers and mutation locators are intentionally gated on a supervised Admin console
 observation; the repository does not ship guessed write selectors.
 
@@ -34,6 +38,7 @@ uv sync --extra dev
 uv run compliance-agent version
 uv run compliance-agent block add --domain spammer.com --notice "Mail rejected."
 uv run compliance-agent block list
+uv run compliance-agent console
 uv run pytest
 ```
 
@@ -46,13 +51,20 @@ For natural-language planning:
 uv run compliance-agent plan "Block spammer.com with notice Mail rejected."
 ```
 
+Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
+`CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
+and new settings fails configuration validation. Browser-backed dry runs require supervised
+live-read contract evidence, and live composition requires an accepted contract-pack digest.
+
 Audit retention is non-destructive by default:
 
 ```powershell
 uv run compliance-agent audit prune
 uv run compliance-agent audit prune --apply
+uv run compliance-agent audit export-redacted-zip <run-directory> <destination.zip>
 ```
 
 See [docs/api-feasibility.md](docs/api-feasibility.md),
-[docs/architecture.md](docs/architecture.md), and [docs/live-test-procedure.md](docs/live-test-procedure.md)
+[docs/architecture.md](docs/architecture.md), [docs/operator-console.md](docs/operator-console.md),
+and [docs/live-test-procedure.md](docs/live-test-procedure.md)
 before enabling any live work.

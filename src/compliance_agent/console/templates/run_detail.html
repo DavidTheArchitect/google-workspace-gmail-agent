@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Run {{ run.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header run-header"><div><h1>{{ 'Review proposed change' if run.preview else 'Review typed plan' }}</h1><p>Run ID: {{ run.run_id[:8]|upper }} · {{ run.mode.value.replace('_', ' ')|title }}</p></div><span class="state-label {{ 'attention' if run.phase.value in ['blocked','awaiting_approval'] else 'verified' }}">{{ run.phase.value.replace('_', ' ') }}</span></header>
+<div class="workflow-track" aria-label="Run progress">
+  {% set phases = [('Plan', true), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
+  {% for label, active in phases %}<div class="workflow-step {{ 'complete' if active else 'locked' }}"><span>{{ '✓' if active else loop.index }}</span><strong>{{ label }}</strong></div>{% endfor %}
+</div>
+
+{% if run.error_code %}<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>{% endif %}
+
+<div class="run-layout">
+  <section class="run-main">
+    <section class="plan-review"><h2>Request</h2><p class="request-copy">{{ run.request_text }}</p>
+      {% if run.plan %}<h2>Validated actions</h2><div class="code-panel"><pre>{{ run.plan.model_dump_json(indent=2) }}</pre></div>{% endif %}
+    </section>
+    {% if run.preview and run.preview.change_set %}
+    <section><h2>Before and after</h2><div class="comparison"><div><h3>Before</h3><pre>{{ run.preview.current_state.model_dump_json(indent=2) }}</pre></div><div class="after"><h3>After</h3><pre>{{ run.preview.desired_state.model_dump_json(indent=2) }}</pre></div></div></section>
+    <section class="impact-strip"><div><strong>{{ run.preview.impact.level|title }}</strong><span>Impact</span></div><div><strong>{{ run.preview.impact.affected_entries }}</strong><span>Affected entries</span></div><div><strong>{{ 'Yes' if run.preview.impact.root_ou_confirmed else 'No' }}</strong><span>Root OU confirmed</span></div><div><strong>{{ 'Yes' if run.preview.impact.ownership_verified else 'No' }}</strong><span>Ownership verified</span></div></section>
+    {% endif %}
+    <section><h2>Audit event timeline</h2><div class="event-row"><span class="rail-icon ready" aria-hidden="true">✓</span><strong>{{ run.phase.value.replace('_', ' ')|title }}</strong><time>{{ run.updated_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</time></div></section>
+  </section>
+  <aside class="approval-rail">
+    <h2>Run control</h2><dl><dt>Administrator</dt><dd>{{ masked_admin }}</dd><dt>Workspace</dt><dd>{{ masked_workspace }}</dd></dl>
+    {% if approval %}<hr><p>Approval expires</p><strong class="expiry">{{ approval.expires_at.strftime('%H:%M:%S %Z') }}</strong><dl class="hash-list"><dt>Plan hash</dt><dd>{{ approval.plan_hash[:10] }}…</dd><dt>Before hash</dt><dd>{{ approval.before_state_hash[:10] }}…</dd><dt>Change hash</dt><dd>{{ approval.change_set_hash[:10] }}…</dd></dl><form method="post" action="/runs/{{ run.run_id }}/approve" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="check-control"><input type="checkbox" name="acknowledged" value="true" required><span>I reviewed the exact plan, state, and impact.</span></label><label for="approval-phrase">Type {{ approval.phrase }} to confirm</label><input id="approval-phrase" name="phrase" autocomplete="off" required><button class="button primary full" type="submit">Apply verified change</button></form><p class="attention-copy">Execution remains locked unless an accepted live runner is installed.</p>{% endif %}
+    {% if run.phase.value == 'plan_ready' and run.mode.value != 'plan_only' %}<form method="post" action="/runs/{{ run.run_id }}/preview"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary full" type="submit">Run safe preview</button></form>{% endif %}
+    {% if run.phase.value not in ['executing','verifying','completed','cancelled'] %}<form method="post" action="/runs/{{ run.run_id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button secondary full" type="submit">Cancel run</button></form>{% endif %}
+    <a class="button quiet full" href="/">Back to dashboard</a>
+  </aside>
+</div>
+{% endblock %}

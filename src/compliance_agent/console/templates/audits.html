@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Audit · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header split"><div><h1>Audit</h1><p>Protected terminal evidence and integrity status.</p></div><a class="button secondary" href="/">Dashboard</a></header>
+<div class="table-wrap"><table><thead><tr><th>Run</th><th>Started</th><th>Ended</th><th>Status</th><th>Integrity</th></tr></thead><tbody>
+{% for run in audit_runs %}<tr><td><a href="/audits/{{ run.run_id }}"><code>{{ run.run_id[:12] }}</code></a></td><td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ run.ended_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ run.status.value.replace('_',' ')|title }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Integrity error' }}</td></tr>{% endfor %}
+{% if not audit_runs %}<tr><td colspan="5" class="empty-row">No finalized audit runs were found.</td></tr>{% endif %}
+</tbody></table></div>
+<section class="callout"><h2>Retention is plan first</h2><p>Expired convention-named directories are revalidated immediately before deletion.</p><form method="post" action="/audits/prune" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="prune-confirmation">Type the exact phrase shown by the CLI retention plan</label><input id="prune-confirmation" name="confirmation" placeholder="DELETE 0 RUNS" required><button class="button danger-button" type="submit">Apply retention</button></form></section>
+{% endblock %}

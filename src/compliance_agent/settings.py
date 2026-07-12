@@ -4,12 +4,13 @@ import os
 import stat
 import unicodedata
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 from pydantic import Field, HttpUrl, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from compliance_agent.domain.normalization import normalize_domain, normalize_email
+from compliance_agent.schemas.operations import RunMode
 
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _MAX_PREFIX_CHARACTERS = 100
@@ -32,8 +33,9 @@ class Settings(BaseSettings):
     audit_dir: Path = Path.home() / ".compliance_agent" / "audit"
     state_dir: Path = Path.home() / ".compliance_agent" / "state"
     headless: bool = False
-    dry_run: bool = True
-    plan_only: bool = True
+    run_mode: RunMode = RunMode.PLAN_ONLY
+    dry_run: bool | None = None
+    plan_only: bool | None = None
     llm_max_retries: int = Field(default=3, ge=0, le=3)
     llm_temperature: float = Field(default=0, ge=0, le=0)
     navigation_timeout_ms: int = Field(default=30_000, ge=1_000, le=120_000)
@@ -45,9 +47,35 @@ class Settings(BaseSettings):
     expected_workspace_domain: str = ""
     google_admin_base_url: HttpUrl = HttpUrl("https://admin.google.com")
     gmail_settings_url: HttpUrl = HttpUrl("https://admin.google.com/ac/apps/gmail")
+    console_port: int = Field(default=8765, ge=1024, le=65_535)
+    console_open_browser: bool = True
+    approval_ttl_seconds: int = Field(default=600, ge=60, le=3_600)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_run_mode(cls, value: Any) -> Any:
+        """Translate the legacy booleans while rejecting mixed configuration styles."""
+
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        has_mode = data.get("run_mode") is not None
+        has_legacy = data.get("plan_only") is not None or data.get("dry_run") is not None
+        if has_mode and has_legacy:
+            message = "CA_RUN_MODE cannot be combined with CA_PLAN_ONLY or CA_DRY_RUN"
+            raise ValueError(message)
+        if has_legacy:
+            plan_only = bool(data.get("plan_only", True))
+            dry_run = bool(data.get("dry_run", True))
+            data["run_mode"] = (
+                RunMode.PLAN_ONLY if plan_only else RunMode.DRY_RUN if dry_run else RunMode.LIVE
+            )
+        return data
 
     @model_validator(mode="after")
     def enforce_live_safety(self) -> Self:
+        object.__setattr__(self, "plan_only", self.run_mode == RunMode.PLAN_ONLY)
+        object.__setattr__(self, "dry_run", self.run_mode != RunMode.LIVE)
         normalized_paths = _validated_sensitive_paths(self.sensitive_directories)
         object.__setattr__(self, "profile_dir", normalized_paths[0])
         object.__setattr__(self, "audit_dir", normalized_paths[1])
@@ -71,7 +99,7 @@ class Settings(BaseSettings):
         )
         object.__setattr__(self, "expected_admin_email", administrator_email)
         object.__setattr__(self, "expected_workspace_domain", workspace_domain)
-        if not self.dry_run and not self.plan_only:
+        if self.run_mode == RunMode.LIVE:
             if self.headless:
                 message = "live mutations require a headed browser"
                 raise ValueError(message)

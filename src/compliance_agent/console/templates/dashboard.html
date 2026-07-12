@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<div class="dashboard-layout">
+  <section class="content-column">
+    <header class="page-header">
+      <h1>Good afternoon</h1>
+      <p>Plan, preview, and supervise root-OU blocked-sender changes.</p>
+    </header>
+
+    <section aria-labelledby="attention-title">
+      <div class="section-heading"><h2 id="attention-title">What needs attention</h2><a href="/readiness">View readiness</a></div>
+      <div class="readiness-rail">
+        {% for item in readiness[:3] %}
+        <div class="rail-item {{ 'attention' if item.blocking else 'ready' }}">
+          <span class="rail-icon" aria-hidden="true">{{ '!' if item.blocking else '✓' }}</span>
+          <div><strong>{{ item.name }}</strong><span>{{ item.status.replace('_', ' ')|title }}</span></div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="plan-panel" aria-labelledby="plan-title">
+      <h2 id="plan-title">Plan a change</h2>
+      <div class="plan-grid">
+        <form method="post" action="/runs">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="mode" value="{{ run_mode.value }}">
+          <label for="dashboard-request">Describe the change in natural language</label>
+          <textarea id="dashboard-request" name="request_text" maxlength="2000" placeholder="Example: Block mail from spam.example and use the notice Mail rejected." required></textarea>
+          <div class="form-actions"><button class="button primary" type="submit">Review plan</button><span>Nothing is changed at this step.</span></div>
+        </form>
+        <div class="deterministic-path">
+          <h3>Use deterministic form</h3>
+          <p>Create a plan with guided, typed fields without Ollama.</p>
+          <a class="button secondary" href="/runs/new">Open change form</a>
+        </div>
+      </div>
+    </section>
+
+    <section aria-labelledby="recent-title">
+      <div class="section-heading"><h2 id="recent-title">Recent runs</h2><a href="/audits">View all runs</a></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Status</th><th>Request</th><th>Mode</th><th>Time</th><th>Integrity</th></tr></thead>
+          <tbody>
+          {% for run in runs %}
+            <tr><td><span class="status-text {{ run.phase.value }}">{{ run.phase.value.replace('_', ' ')|title }}</span></td><td><a href="/runs/{{ run.run_id }}">{{ run.request_text }}</a></td><td>{{ run.mode.value.replace('_', ' ')|title }}</td><td>{{ run.updated_at.strftime('%b %d, %H:%M') }}</td><td>Active</td></tr>
+          {% endfor %}
+          {% for run in audit_runs if not runs %}
+            <tr><td><span class="status-text completed">{{ run.status.value.replace('_', ' ')|title }}</span></td><td><a href="/audits/{{ run.run_id }}">Completed audit run</a></td><td>Recorded</td><td>{{ run.ended_at.strftime('%b %d, %H:%M') }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Error' }}</td></tr>
+          {% endfor %}
+          {% if not runs and not audit_runs %}
+            <tr><td colspan="5" class="empty-row">No runs yet. Your first plan will appear here.</td></tr>
+          {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <aside class="context-rail" aria-labelledby="safety-title">
+    <h2 id="safety-title">Safety summary</h2>
+    <div class="safety-item"><span class="safety-icon" aria-hidden="true">◇</span><div><strong>Root OU only</strong><p>Changes are limited to the positively confirmed root OU.</p></div></div>
+    <div class="safety-item"><span class="safety-icon" aria-hidden="true">✓</span><div><strong>Explicit approval</strong><p>Every mutation requires a current exact-hash approval.</p></div></div>
+    <div class="safety-item"><span class="safety-icon" aria-hidden="true">1</span><div><strong>One active run</strong><p>Concurrent browser-backed work is prohibited.</p></div></div>
+    <hr>
+    <h2>Live gate</h2>
+    {% if contract and contract.status == 'accepted' %}
+      <p class="verified"><strong>Contract accepted</strong></p><p>Live adapters may be composed from this reviewed pack.</p>
+    {% else %}
+      <p class="attention-copy"><strong>Evidence required</strong></p><p>Live mutation remains locked until supervised UI acceptance is complete.</p>
+    {% endif %}
+    <a class="button secondary full" href="/contracts">View live gate</a>
+  </aside>
+</div>
+{% endblock %}

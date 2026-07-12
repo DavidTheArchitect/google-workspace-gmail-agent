@@ -21,6 +21,7 @@ from compliance_agent.application.retention_service import (
     AuditRetentionService,
     RetentionCandidate,
 )
+from compliance_agent.application.ui_contract_service import contract_pack_digest
 from compliance_agent.application.workflow_audit_service import (
     PreparedChangeAudit,
     WorkflowAuditService,
@@ -40,6 +41,7 @@ from compliance_agent.exceptions import (
 )
 from compliance_agent.schemas.changes import DesiredStateResult
 from compliance_agent.schemas.hitl import ConfirmationResponse
+from compliance_agent.schemas.operations import UiContractPack
 from compliance_agent.schemas.preflight import PreflightIdentity, PreflightResult
 from compliance_agent.schemas.results import MutationResult
 from compliance_agent.schemas.state import BlockedSenderState
@@ -166,6 +168,18 @@ def _prepared_change() -> PreparedChangeAudit:
         before_state_hash=canonical_hash(before),
         change_set_hash=canonical_hash(change_set),
     )
+
+
+def _accepted_contract_pack() -> UiContractPack:
+    values = {
+        "contract_id": SECOND_ID,
+        "created_at": FixedClock().now(),
+        "status": "accepted",
+        "fixture_hashes": ("1" * 64,),
+        "contract_names": ("blocked_senders_root",),
+    }
+    unsigned = UiContractPack.model_construct(**values, accepted_digest=None)
+    return UiContractPack(**values, accepted_digest=contract_pack_digest(unsigned))
 
 
 def test_workflow_auditor_persists_complete_boundary_artifacts(tmp_path: Path) -> None:
@@ -383,6 +397,7 @@ def test_composition_builds_protected_runtime_without_selector_assumptions(tmp_p
             current_reader=StaticReader(),
             verification_reader=StaticReader(),
             writer=StaticWriter(),
+            contract_pack=_accepted_contract_pack(),
         ),
         clock=FixedClock(),
         identifiers=FixedIdentifiers(),
@@ -409,6 +424,7 @@ def test_composition_rejects_plan_only_runtime(tmp_path: Path) -> None:
         current_reader=StaticReader(),
         verification_reader=StaticReader(),
         writer=StaticWriter(),
+        contract_pack=_accepted_contract_pack(),
     )
 
     with pytest.raises(ValueError, match="PLAN_ONLY"):
@@ -429,6 +445,7 @@ def test_composition_rejects_dry_run_mutation_runtime(tmp_path: Path) -> None:
         current_reader=StaticReader(),
         verification_reader=StaticReader(),
         writer=StaticWriter(),
+        contract_pack=_accepted_contract_pack(),
     )
 
     with pytest.raises(ValueError, match="DRY_RUN"):

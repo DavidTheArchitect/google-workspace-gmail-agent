@@ -7,6 +7,7 @@ class RunStatus(StrEnum):
     """Authoritative outcomes; narrative text cannot change these values."""
 
     NO_CHANGE_REQUIRED = "no_change_required"
+    DRY_RUN_PREVIEW_READY = "dry_run_preview_ready"
     CONFIRMATION_REJECTED = "confirmation_rejected"
     APPLIED_UI_VERIFIED = "applied_ui_verified"
     APPLIED_PENDING_PROPAGATION = "applied_pending_propagation"

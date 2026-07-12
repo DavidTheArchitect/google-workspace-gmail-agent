@@ -41,6 +41,7 @@ class RunManifestMetadata(FrozenModel):
     ollama_version: str | None
     model_tag: str | None
     model_digest: str | None
+    ui_contract_digest: Sha256Digest | None = None
     operating_system: str
     start_time: datetime
 

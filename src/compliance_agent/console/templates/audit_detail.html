@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Audit {{ audit.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header split"><div><h1>Audit run {{ audit.run_id[:8]|upper }}</h1><p>{{ audit.started_at.strftime('%Y-%m-%d %H:%M:%S %Z') }} → {{ audit.ended_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</p></div><span class="state-label {{ 'verified' if audit.integrity_valid else 'danger' }}">{{ 'Integrity verified' if audit.integrity_valid else 'Integrity error' }}</span></header>
+{% if audit.integrity_errors %}<div class="alert error"><strong>Integrity findings</strong><ul>{% for error in audit.integrity_errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+<section><h2>Authoritative report</h2><div class="code-panel"><pre>{{ report }}</pre></div></section>
+<p><a href="/audits">← Back to audit history</a></p>
+{% endblock %}

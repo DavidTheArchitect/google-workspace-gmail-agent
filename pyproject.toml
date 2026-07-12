@@ -12,16 +12,21 @@ license = { text = "MIT" }
 authors = [{ name = "DavidTheArchitect" }]
 dependencies = [
     "agent-framework-core==1.11.0",
+    "fastapi==0.139.0",
     "idna==3.18",
+    "Jinja2==3.1.6",
     "openai==2.45.0",
     "playwright==1.61.0",
     "portalocker==3.2.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
+    "python-multipart==0.0.32",
+    "uvicorn==0.51.0",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "httpx2==2.5.0",
     "mypy==2.2.0",
     "pip-audit==2.10.1",
     "pre-commit==4.3.0",

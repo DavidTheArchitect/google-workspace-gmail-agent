@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}New change · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<header class="page-header narrow"><h1>New change</h1><p>Create a typed plan first. Preview and approval remain separate stages.</p></header>
+<section class="form-surface">
+  <form method="post" action="/runs">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field"><label for="request-text">Request</label><textarea id="request-text" name="request_text" maxlength="2000" required placeholder="Block spam.example with the rejection notice Mail rejected."></textarea><span class="help">Use an exact domain or email and describe the desired notice.</span></div>
+    <fieldset><legend>Run mode</legend>
+      <label class="radio-row"><input type="radio" name="mode" value="plan_only" {% if run_mode.value == 'plan_only' %}checked{% endif %}><span><strong>Plan only</strong><small>No browser access.</small></span></label>
+      <label class="radio-row"><input type="radio" name="mode" value="dry_run" {% if run_mode.value == 'dry_run' %}checked{% endif %}><span><strong>Dry run</strong><small>Read, calculate, and audit. No writer exists.</small></span></label>
+      <label class="radio-row"><input type="radio" name="mode" value="live" {% if run_mode.value == 'live' %}checked{% endif %}><span><strong>Live</strong><small>Requires accepted UI evidence and fresh approval.</small></span></label>
+    </fieldset>
+    <div class="form-actions"><button class="button primary" type="submit">Create typed plan</button><a class="button quiet" href="/">Cancel</a></div>
+  </form>
+</section>
+<section class="form-surface deterministic-form">
+  <h2>Deterministic add form</h2>
+  <p class="help">Construct the typed plan directly without calling Ollama.</p>
+  <form method="post" action="/runs/direct-add">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field"><label for="target-kind">Target type</label><select id="target-kind" name="target_kind"><option value="domain">Domain</option><option value="email">Email</option></select></div>
+    <div class="field"><label for="target">Exact target</label><input id="target" name="target" required placeholder="spam.example"></div>
+    <div class="field"><label for="notice">Rejection notice</label><textarea id="notice" name="notice" maxlength="1000" placeholder="Mail rejected."></textarea></div>
+    <div class="field"><label for="direct-mode">Run mode</label><select id="direct-mode" name="mode"><option value="plan_only">Plan only</option><option value="dry_run">Dry run</option><option value="live">Live</option></select></div>
+    <button class="button primary" type="submit">Create deterministic plan</button>
+  </form>
+</section>
+{% endblock %}
