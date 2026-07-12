@@ -25,7 +25,10 @@ from compliance_agent.application.ui_contract_service import (
     UiContractStore,
     contract_pack_digest,
 )
-from compliance_agent.application.workflow_audit_service import WorkflowAuditService
+from compliance_agent.application.workflow_audit_service import (
+    PreparedChangeAudit,
+    WorkflowAuditService,
+)
 from compliance_agent.audit.export import export_redacted_zip
 from compliance_agent.audit.manifest import RunManifestMetadata
 from compliance_agent.audit.writer import RunAuditWriter
@@ -121,6 +124,20 @@ class SuccessfulLiveRunner:
             status=RunStatus.APPLIED_PENDING_PROPAGATION,
             propagation_pending=True,
         )
+
+
+class FailingLiveRunner:
+    async def execute(self, _run, _confirmation) -> RunResult:
+        message = "controlled live runner interruption"
+        raise RuntimeError(message)
+
+
+class FixedResultLiveRunner:
+    def __init__(self, result: RunResult) -> None:
+        self.result = result
+
+    async def execute(self, _run, _confirmation) -> RunResult:
+        return self.result
 
 
 class MemoryOwnershipStore:
@@ -408,6 +425,35 @@ def test_propagation_records_are_atomic_and_mail_flow_requires_evidence(tmp_path
     assert service.list() == (verified,)
     with pytest.raises(ValueError, match="does not exist"):
         service.record_ui_recheck("f" * 32, "1" * 32, NOW)
+    with pytest.raises(ValueError, match="already exists"):
+        service.create_pending("0" * 32, NOW)
+    with pytest.raises(ValueError, match="invalid propagation transition"):
+        service.record_ui_recheck("0" * 32, "3" * 32, NOW)
+    with pytest.raises(ValueError, match="linked recheck"):
+        PropagationRecord(
+            run_id="3" * 32,
+            status="ui_reconfirmed",
+            created_at=NOW,
+            updated_at=NOW,
+            due_at=NOW + timedelta(hours=24),
+        )
+    with pytest.raises(ValueError, match="pending propagation"):
+        PropagationRecord(
+            run_id="4" * 32,
+            created_at=NOW,
+            updated_at=NOW,
+            due_at=NOW + timedelta(hours=24),
+            ui_recheck_run_id="5" * 32,
+        )
+    with pytest.raises(ValueError, match="verified propagation status"):
+        PropagationRecord(
+            run_id="6" * 32,
+            status="failed",
+            created_at=NOW,
+            updated_at=NOW,
+            due_at=NOW + timedelta(hours=24),
+            mail_flow_audit_run_id="7" * 32,
+        )
 
 
 def test_protected_json_rejects_non_collection_and_symlink(tmp_path: Path) -> None:
@@ -475,7 +521,31 @@ async def test_console_coordinator_advances_preview_and_closes_planner_failure(
     assert previewed.phase.value == "awaiting_approval"
     assert coordinator.pending_approval(created.run_id) is not None
     assert coordinator.list_runs() == (previewed,)
+
+    no_runner = await coordinator.create("Block another.example", RunMode.LIVE)
+    with pytest.raises(ValueError, match="another browser-backed run"):
+        await coordinator.preview(no_runner.run_id)
     assert coordinator.cancel(created.run_id).phase.value == "cancelled"
+    await coordinator.preview(no_runner.run_id)
+    pending = coordinator.pending_approval(no_runner.run_id)
+    assert pending is not None
+    blocked_runner = await coordinator.approve(
+        no_runner.run_id,
+        phrase=pending.phrase,
+        acknowledged=True,
+        approval_id="approval-no-runner",
+    )
+    assert blocked_runner.phase.value == "blocked"
+    assert blocked_runner.error_code == "accepted_live_runner_required"
+    with pytest.raises(ValueError, match="not ready for preview"):
+        await coordinator.preview(no_runner.run_id)
+    with pytest.raises(ValueError, match="not awaiting approval"):
+        await coordinator.approve(
+            no_runner.run_id,
+            phrase=pending.phrase,
+            acknowledged=True,
+            approval_id="approval-reused",
+        )
 
     failed = ConsoleCoordinator(
         ConsoleCoordinatorDependencies(
@@ -540,6 +610,124 @@ async def test_console_coordinator_approval_executes_only_injected_runner(tmp_pa
     assert len(runner.confirmations) == 1
     with pytest.raises(ValueError, match="cannot be cancelled"):
         coordinator.cancel(run.run_id)
+
+
+@pytest.mark.asyncio
+async def test_console_coordinator_expires_approval_and_records_execution_interruption(
+    tmp_path: Path,
+) -> None:
+    moment = [NOW]
+    dry_run = DryRunService(
+        DryRunDependencies(
+            preflight=ReadyPreflight(),
+            reader=StaticReader(),
+            change_service=ChangeService(FixedIdentifiers(), "[Compliance Agent]"),
+            ownership_store=MemoryOwnershipStore(),
+            auditor=WorkflowAuditService(
+                RunAuditWriter(tmp_path / "preview"),
+                FixedClock(),
+                "run",
+            ),
+            expected_admin_email="admin@example.com",
+            expected_workspace_domain="example.com",
+        )
+    )
+    coordinator = ConsoleCoordinator(
+        ConsoleCoordinatorDependencies(
+            planner=StaticPlanner(),
+            identifiers=FixedIdentifiers(UUID(int=4)),
+            clock=lambda: moment[0],
+            approval_service=ApprovalService(600),
+            dry_run_service=dry_run,
+            live_runner=FailingLiveRunner(),
+        )
+    )
+    run = await coordinator.create("Block new.example", RunMode.LIVE)
+    await coordinator.preview(run.run_id)
+    assert coordinator.pending_approval(run.run_id) is not None
+
+    moment[0] = NOW + timedelta(seconds=601)
+    assert coordinator.pending_approval(run.run_id) is None
+    expired = coordinator.get(run.run_id)
+    assert expired is not None
+    assert expired.phase.value == "plan_ready"
+    assert expired.error_code == "approval_expired"
+    assert expired.preview is None
+
+    moment[0] = NOW + timedelta(seconds=602)
+    await coordinator.preview(run.run_id)
+    pending = coordinator.pending_approval(run.run_id)
+    assert pending is not None
+    interrupted = await coordinator.approve(
+        run.run_id,
+        phrase=pending.phrase,
+        acknowledged=True,
+        approval_id="approval-interrupted",
+    )
+    assert interrupted.phase.value == "interrupted"
+    assert interrupted.error_code == "RuntimeError"
+    with pytest.raises(ValueError, match="cannot be cancelled"):
+        coordinator.cancel(run.run_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("result", "expected_phase"),
+    [
+        (
+            RunResult(status=RunStatus.INDETERMINATE, error_code="outcome_unknown"),
+            "interrupted",
+        ),
+        (
+            RunResult(status=RunStatus.FAILED_UNCHANGED, error_code="write_refused"),
+            "blocked",
+        ),
+    ],
+)
+async def test_console_coordinator_maps_non_success_results_to_safe_terminal_phases(
+    tmp_path: Path,
+    result: RunResult,
+    expected_phase: str,
+) -> None:
+    dry_run = DryRunService(
+        DryRunDependencies(
+            preflight=ReadyPreflight(),
+            reader=StaticReader(),
+            change_service=ChangeService(FixedIdentifiers(), "[Compliance Agent]"),
+            ownership_store=MemoryOwnershipStore(),
+            auditor=WorkflowAuditService(
+                RunAuditWriter(tmp_path / expected_phase),
+                FixedClock(),
+                "run",
+            ),
+            expected_admin_email="admin@example.com",
+            expected_workspace_domain="example.com",
+        )
+    )
+    coordinator = ConsoleCoordinator(
+        ConsoleCoordinatorDependencies(
+            planner=StaticPlanner(),
+            identifiers=FixedIdentifiers(UUID(int=5)),
+            clock=FixedClock().now,
+            approval_service=ApprovalService(600),
+            dry_run_service=dry_run,
+            live_runner=FixedResultLiveRunner(result),
+        )
+    )
+    run = await coordinator.create("Block new.example", RunMode.LIVE)
+    await coordinator.preview(run.run_id)
+    pending = coordinator.pending_approval(run.run_id)
+    assert pending is not None
+
+    terminal = await coordinator.approve(
+        run.run_id,
+        phrase=pending.phrase,
+        acknowledged=True,
+        approval_id=f"approval-{expected_phase}",
+    )
+
+    assert terminal.phase.value == expected_phase
+    assert terminal.result == result
 
 
 def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # noqa: PLR0915
@@ -612,7 +800,8 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
     preview = client.post(f"{run_url}/preview", data={"csrf_token": csrf})
     assert "ui contract pack required" in preview.text.lower()
     cancelled = client.post(f"{run_url}/cancel", data={"csrf_token": csrf})
-    assert "Cancelled" in cancelled.text
+    assert cancelled.status_code == 400
+    assert "cannot be cancelled from blocked" in cancelled.text
 
     for path, text in (
         ("/readiness", "Readiness"),
@@ -754,13 +943,28 @@ async def test_ownership_recovery_requires_intact_audit_and_exact_confirmation(
     run = tmp_path / "run"
     writer = RunAuditWriter(run)
     auditor = WorkflowAuditService(writer, FixedClock(), "recovery-run")
+    plan = direct_add_plan(state.address_lists[0].entries, state.rules[0].rejection_notice)
+    before = BlockedSenderState()
+    desired = DesiredStateResult(desired_state=state)
+    change_set = calculate_change_set(before, state)
+    auditor.record_prepared_change(
+        PreparedChangeAudit(
+            plan=plan,
+            current_state=before,
+            desired=desired,
+            change_set=change_set,
+            plan_hash=canonical_hash(plan),
+            before_state_hash=canonical_hash(before),
+            change_set_hash=canonical_hash(change_set),
+        )
+    )
     auditor.record_state("after", state)
     await AuditFinalizationService(
         writer,
         FixedClock(),
         "recovery-run",
         _metadata(),
-    ).finalize(RunResult(status=RunStatus.NO_CHANGE_REQUIRED))
+    ).finalize(RunResult(status=RunStatus.APPLIED_UI_VERIFIED))
     store = MemoryOwnershipStore()
     service = OwnershipRecoveryService(store)
 

@@ -22,7 +22,10 @@ from compliance_agent.application.ownership_console_service import (
     latest_observed_state,
 )
 from compliance_agent.application.planning_service import direct_add_plan
-from compliance_agent.application.workflow_audit_service import WorkflowAuditService
+from compliance_agent.application.workflow_audit_service import (
+    PreparedChangeAudit,
+    WorkflowAuditService,
+)
 from compliance_agent.audit.writer import RunAuditWriter
 from compliance_agent.console import create_console_app
 from compliance_agent.console.app import ConsoleApplication
@@ -31,9 +34,12 @@ from compliance_agent.console.coordinator import (
     ConsoleCoordinatorDependencies,
 )
 from compliance_agent.console.readiness import ReadinessCache, greeting_for_hour
+from compliance_agent.domain.diff import calculate_change_set
+from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import OwnershipRegistry
 from compliance_agent.exceptions import AuditRetentionFailure, AuditWriteFailure
 from compliance_agent.infrastructure.filesystem import OwnershipStore
+from compliance_agent.schemas.changes import DesiredStateResult
 from compliance_agent.schemas.operations import PhaseTransition, RunMode, RunPhase
 from compliance_agent.schemas.results import RunResult
 from compliance_agent.schemas.state import BlockedSenderState
@@ -58,6 +64,17 @@ from tests.unit.test_console_enhancements import (
 class HangingPlanner:
     async def create_plan(self, _request_text: str) -> None:
         await asyncio.Event().wait()
+
+
+class DelayedPlanner:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def create_plan(self, _request_text: str):
+        self.started.set()
+        await self.release.wait()
+        return direct_add_plan((domain("race.example"),), None)
 
 
 class SettableClock:
@@ -93,15 +110,35 @@ async def _finalized_observation(
     settings: Settings,
     run_id: str,
     state: BlockedSenderState,
+    *,
+    proves_creation: bool = False,
 ) -> Path:
     """Finalize a run that recorded an after-state observation."""
 
     run_directory = settings.audit_dir / "runs" / f"20260711T150000Z-{run_id}"
     writer = RunAuditWriter(run_directory)
     auditor = WorkflowAuditService(writer, FixedClock(), run_id)
+    status = RunStatus.NO_CHANGE_REQUIRED
+    if proves_creation:
+        plan = direct_add_plan(state.address_lists[0].entries, state.rules[0].rejection_notice)
+        before = BlockedSenderState()
+        desired = DesiredStateResult(desired_state=state)
+        change_set = calculate_change_set(before, state)
+        auditor.record_prepared_change(
+            PreparedChangeAudit(
+                plan=plan,
+                current_state=before,
+                desired=desired,
+                change_set=change_set,
+                plan_hash=canonical_hash(plan),
+                before_state_hash=canonical_hash(before),
+                change_set_hash=canonical_hash(change_set),
+            )
+        )
+        status = RunStatus.APPLIED_UI_VERIFIED
     auditor.record_state("after", state)
     await AuditFinalizationService(writer, FixedClock(), run_id, _metadata()).finalize(
-        RunResult(status=RunStatus.NO_CHANGE_REQUIRED)
+        RunResult(status=status)
     )
     return run_directory
 
@@ -266,6 +303,24 @@ async def test_coordinator_split_planning_records_history() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_background_plan_cannot_resurrect_run() -> None:
+    planner = DelayedPlanner()
+    coordinator = _coordinator(planner, 70)
+    started = coordinator.start("Block race.example", RunMode.PLAN_ONLY)
+
+    coordinator.schedule_planning(started.run_id)
+    await planner.started.wait()
+    cancelled = coordinator.cancel(started.run_id)
+    planner.release.set()
+    await coordinator.drain()
+
+    final = coordinator.get(started.run_id)
+    assert final == cancelled
+    assert final is not None
+    assert [item.phase for item in final.history] == [RunPhase.PLANNING, RunPhase.CANCELLED]
+
+
+@pytest.mark.asyncio
 async def test_coordinator_records_blocked_history_with_error_code() -> None:
     coordinator = _coordinator(FailingPlanner(), 8)
 
@@ -411,7 +466,7 @@ async def test_console_export_wraps_write_failures(
 async def test_ownership_console_service_marks_recoverable_findings(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     state = owned_state(ownership_id=SECOND_ID, entries=(domain("safe.example"),))
-    await _finalized_observation(settings, "9" * 32, state)
+    await _finalized_observation(settings, "9" * 32, state, proves_creation=True)
     catalog = AuditCatalog(settings.audit_dir)
 
     evidence = latest_observed_state(catalog)
@@ -424,10 +479,36 @@ async def test_ownership_console_service_marks_recoverable_findings(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_read_only_observation_cannot_establish_recovery_provenance(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    state = owned_state(ownership_id=SECOND_ID, entries=(domain("safe.example"),))
+    await _finalized_observation(settings, "7" * 32, state)
+
+    evidence = latest_observed_state(AuditCatalog(settings.audit_dir))
+    assert evidence is not None
+    findings = health_with_recoverability(evidence, OwnershipRegistry(), "[Compliance Agent]")
+
+    assert findings[0].status == "registry_missing"
+    assert not findings[0].recoverable_from_audit
+
+
+@pytest.mark.asyncio
+async def test_audit_catalog_ignores_integrity_valid_run_with_malformed_directory_name(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    state = owned_state(ownership_id=SECOND_ID, entries=(domain("safe.example"),))
+    run_directory = await _finalized_observation(settings, "6" * 32, state)
+    run_directory.rename(run_directory.parent / "malformed-run-name")
+
+    assert AuditCatalog(settings.audit_dir).list_runs() == ()
+
+
+@pytest.mark.asyncio
 async def test_ownership_page_supports_exact_recovery_flow(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     state = owned_state(ownership_id=SECOND_ID, entries=(domain("safe.example"),))
-    await _finalized_observation(settings, "8" * 32, state)
+    await _finalized_observation(settings, "8" * 32, state, proves_creation=True)
     console = create_console_app(settings, planner=StaticPlanner())
     client = _client(console)
     csrf = console.security.csrf_token()
@@ -553,11 +634,30 @@ def test_dashboard_shows_real_greeting_and_health_badge(tmp_path: Path) -> None:
     assert "needs attention" in dashboard.text  # exactly one blocking check: the UI contract
 
 
+def test_invalid_contract_evidence_fails_closed_without_taking_down_console(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    settings.state_dir.mkdir(parents=True)
+    (settings.state_dir / "ui-contract-pack.json").write_text("{broken", encoding="utf-8")
+    console = create_console_app(settings, planner=StaticPlanner())
+    client = _client(console)
+
+    dashboard = client.get("/")
+    contracts = client.get("/contracts")
+    readiness = client.get("/readiness")
+
+    assert dashboard.status_code == 200
+    assert "Evidence invalid" in dashboard.text
+    assert contracts.status_code == 200
+    assert "Contract evidence is invalid" in contracts.text
+    assert readiness.status_code == 200
+    assert "invalid" in readiness.text
+
+
 def test_enhancement_static_assets_are_served(tmp_path: Path) -> None:
     console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
     client = _client(console)
 
-    for asset in ("theme.js", "tables.js", "console.js", "styles.css"):
+    for asset in ("theme.js", "tables.js", "console.js", "styles.css", "favicon.svg"):
         response = client.get(f"/static/{asset}")
         assert response.status_code == 200
 

@@ -80,6 +80,10 @@ const initCountdowns = () => {
         if (approve) {
           approve.disabled = true;
         }
+        if (!node.dataset.expiryReloaded) {
+          node.dataset.expiryReloaded = "true";
+          window.location.reload();
+        }
         return;
       }
       const minutes = Math.floor(remaining / 60);

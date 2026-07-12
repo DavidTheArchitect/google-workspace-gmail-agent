@@ -2,7 +2,13 @@
   {% set phases = [('Plan', run.phase.value != 'planning'), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
   {% for label, active in phases %}<div class="workflow-step {{ 'complete' if active else 'locked' }}"><span>{{ '✓' if active else loop.index }}</span><strong>{{ label }}</strong></div>{% endfor %}
 </div>
-{% if run.error_code %}<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>{% endif %}
+{% if run.phase.value == 'interrupted' %}
+<div class="alert error"><strong>Execution outcome is uncertain</strong><p>{{ run.error_code.replace('_', ' ')|title if run.error_code else 'Unexpected execution interruption' }}. Do not retry until the audit evidence and current Admin-console state are reconciled.</p></div>
+{% elif run.error_code == 'approval_expired' %}
+<div class="alert"><strong>Approval expired</strong><p>Run a new preview to refresh the observed state, hashes, and approval window.</p></div>
+{% elif run.error_code %}
+<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>
+{% endif %}
 {% if run.phase.value == 'planning' %}
 <div class="planning-panel">
   <div class="spinner" aria-hidden="true"></div>

@@ -1,5 +1,6 @@
 """Read-only audit history projections for the local operator console."""
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from compliance_agent.audit.manifest import RunManifest, verify_manifest
 from compliance_agent.audit.writer import verify_event_chain
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.status import RunStatus
+
+_RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 
 
 class AuditRunSummary(FrozenModel):
@@ -50,7 +53,9 @@ class AuditCatalog:
         manifest_errors = verify_manifest(path, manifest)
         event_errors = verify_event_chain(path / "run.jsonl")
         errors = (*manifest_errors, *event_errors)
-        run_id = path.name.partition("-")[2]
+        _timestamp, separator, run_id = path.name.partition("-")
+        if not separator or _RUN_ID.fullmatch(run_id) is None:
+            return None
         return AuditRunSummary(
             run_id=run_id,
             run_directory=path,

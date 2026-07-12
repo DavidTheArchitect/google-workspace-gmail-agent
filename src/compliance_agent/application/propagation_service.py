@@ -7,6 +7,14 @@ from typing import cast
 from compliance_agent.infrastructure.protected_json import ProtectedJsonStore
 from compliance_agent.schemas.operations import PropagationRecord
 
+_ALLOWED_STATUS_TRANSITIONS = {
+    "pending": frozenset({"ui_reconfirmed", "mail_flow_verified", "expired", "failed"}),
+    "ui_reconfirmed": frozenset({"mail_flow_verified", "expired", "failed"}),
+    "mail_flow_verified": frozenset(),
+    "expired": frozenset(),
+    "failed": frozenset(),
+}
+
 
 class PropagationService:
     """Create and update evidence-linked propagation follow-up records."""
@@ -36,6 +44,9 @@ class PropagationService:
     ) -> PropagationRecord:
         loaded = cast("tuple[PropagationRecord, ...]", self._store.load(PropagationRecord))
         records = {record.run_id: record for record in loaded}
+        if run_id in records:
+            message = f"propagation record already exists: {run_id}"
+            raise ValueError(message)
         record = PropagationRecord(
             run_id=run_id,
             created_at=now,
@@ -81,6 +92,15 @@ class PropagationService:
         current = records.get(run_id)
         if current is None:
             message = f"propagation record does not exist: {run_id}"
+            raise ValueError(message)
+        target_status = changes.get("status")
+        if (
+            not isinstance(target_status, str)
+            or target_status not in _ALLOWED_STATUS_TRANSITIONS[current.status]
+        ):
+            message = (
+                f"invalid propagation transition: {current.status} -> {target_status or 'unknown'}"
+            )
             raise ValueError(message)
         updated = current.model_copy(update={"updated_at": now, **changes})
         updated = PropagationRecord.model_validate(updated.model_dump())

@@ -9,6 +9,10 @@
     <a class="button primary" href="/">Back to dashboard</a>
     <a class="button secondary" href="/audits">Audit history</a>
   </div>
-  <p class="help">No change was made. Every mutation requires an explicit preview and approval.</p>
+  {% if status_code >= 500 %}
+  <p class="help">Do not retry a live operation until its audit evidence and current state have been reconciled.</p>
+  {% else %}
+  <p class="help">No mutation was authorized by this request. Every mutation requires an explicit preview and approval.</p>
+  {% endif %}
 </div>
 {% endblock %}

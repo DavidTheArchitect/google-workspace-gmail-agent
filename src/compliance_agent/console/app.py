@@ -1,5 +1,6 @@
 """FastAPI composition for the loopback-only attended operator console."""
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ from compliance_agent.llm.planner import build_planner
 from compliance_agent.settings import Settings
 
 _CONSOLE_ROOT = Path(__file__).parent
+_LOGGER = logging.getLogger(__name__)
 _SECURITY_HEADERS = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
@@ -151,11 +153,16 @@ def _install_error_handlers(app: FastAPI, web: ConsoleWebContext) -> None:
         return _render(request, error.status_code, title, str(error.detail))
 
     @app.exception_handler(Exception)
-    async def unexpected_error(request: Request, _error: Exception) -> Response:
+    async def unexpected_error(request: Request, error: Exception) -> Response:
+        _LOGGER.error(
+            "Unexpected operator-console error",
+            exc_info=(type(error), error, error.__traceback__),
+        )
         return _render(
             request,
             500,
             "Unexpected error",
-            "The console hit an unexpected error and made no change. "
-            "Details are in the terminal that launched the console.",
+            "The console hit an unexpected error. If live execution had started, its outcome "
+            "may be uncertain; inspect the audit evidence and current Admin-console state before "
+            "retrying. Details are in the terminal that launched the console.",
         )

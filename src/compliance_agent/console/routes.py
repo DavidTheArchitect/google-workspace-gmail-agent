@@ -35,6 +35,7 @@ from compliance_agent.audit.export import export_redacted_zip
 from compliance_agent.console.coordinator import ConsoleCoordinator
 from compliance_agent.console.readiness import (
     ReadinessCache,
+    SystemHealth,
     collect_readiness,
     greeting_for_hour,
     mask_identity,
@@ -43,11 +44,12 @@ from compliance_agent.console.security import ConsoleSecurity
 from compliance_agent.exceptions import (
     AuditRetentionFailure,
     AuditWriteFailure,
+    ComplianceAgentError,
     OwnershipNotEstablished,
 )
 from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.infrastructure.filesystem import OwnershipStore
-from compliance_agent.schemas.operations import OwnershipHealth, RunMode, RunPhase
+from compliance_agent.schemas.operations import OwnershipHealth, RunMode, RunPhase, UiContractPack
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.settings import Settings
@@ -68,6 +70,10 @@ class ConsoleWebContext:
     health: ReadinessCache | None = None
 
     def template_values(self, request: Request, **values: object) -> dict[str, object]:
+        try:
+            system_health = self.health.health() if self.health is not None else None
+        except (ComplianceAgentError, OSError, TypeError, UnicodeError, ValueError):
+            system_health = SystemHealth(blocking_count=1, checked_at=self.clock.now())
         return {
             "request": request,
             "csrf_token": (
@@ -77,7 +83,7 @@ class ConsoleWebContext:
             "active_path": request.url.path,
             "masked_admin": mask_identity(self.settings.expected_admin_email),
             "masked_workspace": mask_identity(self.settings.expected_workspace_domain),
-            "system_health": self.health.health() if self.health is not None else None,
+            "system_health": system_health,
             **values,
         }
 
@@ -152,6 +158,7 @@ def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
 def _register_dashboard_routes(app: FastAPI, web: ConsoleWebContext) -> None:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request) -> Response:
+        contract, contract_error = _contract_for_display(web)
         return web.templates.TemplateResponse(
             request=request,
             name="dashboard.html",
@@ -161,7 +168,8 @@ def _register_dashboard_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 readiness=collect_readiness(web.settings),
                 runs=web.coordinator.list_runs(),
                 audit_runs=web.audits.list_runs()[:5],
-                contract=web.contracts.load(),
+                contract=contract,
+                contract_error=contract_error,
             ),
         )
 
@@ -221,13 +229,18 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 "No console run matches that identifier. "
                 "Runs live in memory and reset when the console restarts.",
             )
+        approval = web.coordinator.pending_approval(run_id)
+        run = web.coordinator.get(run_id)
+        if run is None:
+            message = "console run disappeared during rendering"
+            raise RuntimeError(message)
         return web.templates.TemplateResponse(
             request=request,
             name="run_detail.html",
             context=web.template_values(
                 request,
                 run=run,
-                approval=web.coordinator.pending_approval(run_id),
+                approval=approval,
             ),
         )
 
@@ -318,7 +331,7 @@ def _register_evidence_routes(app: FastAPI, web: ConsoleWebContext) -> None:
 def _register_contract_and_ownership_routes(app: FastAPI, web: ConsoleWebContext) -> None:
     @app.get("/contracts", response_class=HTMLResponse)
     async def contract_page(request: Request) -> Response:
-        contract = web.contracts.load()
+        contract, contract_error = _contract_for_display(web)
         stages = {
             "draft": 1,
             "fixture_validated": 2,
@@ -332,6 +345,7 @@ def _register_contract_and_ownership_routes(app: FastAPI, web: ConsoleWebContext
             context=web.template_values(
                 request,
                 contract=contract,
+                contract_error=contract_error,
                 contract_stage=stages.get(contract.status, 0) if contract else 0,
             ),
         )
@@ -497,6 +511,15 @@ def _retention_service(web: ConsoleWebContext) -> AuditRetentionService:
         web.clock,
         web.settings.audit_retention_days,
     )
+
+
+def _contract_for_display(
+    web: ConsoleWebContext,
+) -> tuple[UiContractPack | None, str | None]:
+    try:
+        return web.contracts.load(), None
+    except (ComplianceAgentError, OSError, UnicodeError, ValueError) as error:
+        return None, type(error).__name__
 
 
 def _authorize_post(request: Request, security: ConsoleSecurity, csrf_token: str) -> None:

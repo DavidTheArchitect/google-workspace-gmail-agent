@@ -31,7 +31,8 @@ Review date: 2026-07-11
   follow-up.
 - Operational hardening: explicit run modes with legacy migration, writer-free dry-run composition,
   dry-run audit manifests, reviewed contract-pack digests, inert fixture inspection, exact-evidence
-  ownership recovery service, and deterministic manifested redacted ZIP export.
+  ownership recovery service with verified creation provenance, guarded asynchronous run
+  transitions, monotonic propagation evidence, and deterministic manifested redacted ZIP export.
 
 ## Implemented but awaiting live validation
 
