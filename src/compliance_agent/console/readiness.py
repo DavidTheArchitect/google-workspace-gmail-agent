@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from compliance_agent.application.ui_contract_service import UiContractStore
+from compliance_agent.exceptions import ComplianceAgentError
 from compliance_agent.infrastructure.clock import Clock
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.settings import Settings
@@ -64,7 +65,12 @@ def greeting_for_hour(hour: int) -> str:
 def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:
     """Inspect local configuration without opening a browser or making a write."""
 
-    contract = UiContractStore(settings.state_dir).load()
+    contract_error: str | None = None
+    try:
+        contract = UiContractStore(settings.state_dir).load()
+    except (ComplianceAgentError, OSError, UnicodeError, ValueError) as error:
+        contract = None
+        contract_error = type(error).__name__
     return (
         ReadinessItem(
             name="Configuration",
@@ -97,13 +103,21 @@ def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:
         ),
         ReadinessItem(
             name="UI contract",
-            status="ready" if contract and contract.status == "accepted" else "evidence_required",
+            status=(
+                "invalid"
+                if contract_error
+                else "ready"
+                if contract and contract.status == "accepted"
+                else "evidence_required"
+            ),
             detail=(
-                "Accepted contract pack is available."
+                f"Contract evidence is invalid ({contract_error}); live behavior remains disabled."
+                if contract_error
+                else "Accepted contract pack is available."
                 if contract and contract.status == "accepted"
                 else "Capture sanitized evidence and complete supervised acceptance."
             ),
-            blocking=not bool(contract and contract.status == "accepted"),
+            blocking=bool(contract_error) or not bool(contract and contract.status == "accepted"),
         ),
     )
 

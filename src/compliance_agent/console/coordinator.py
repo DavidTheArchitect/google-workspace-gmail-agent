@@ -13,6 +13,45 @@ from compliance_agent.schemas.hitl import ConfirmationResponse
 from compliance_agent.schemas.operations import ConsoleRun, PhaseTransition, RunMode, RunPhase
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.results import RunResult
+from compliance_agent.schemas.status import RunStatus
+
+_ALLOWED_TRANSITIONS: dict[RunPhase, frozenset[RunPhase]] = {
+    RunPhase.PLANNING: frozenset({RunPhase.PLAN_READY, RunPhase.BLOCKED, RunPhase.CANCELLED}),
+    RunPhase.PLAN_READY: frozenset({RunPhase.PREFLIGHT, RunPhase.BLOCKED, RunPhase.CANCELLED}),
+    RunPhase.PREFLIGHT: frozenset(
+        {
+            RunPhase.PREVIEW_READY,
+            RunPhase.AWAITING_APPROVAL,
+            RunPhase.BLOCKED,
+            RunPhase.CANCELLED,
+        }
+    ),
+    RunPhase.PREVIEW_READY: frozenset(),
+    RunPhase.AWAITING_APPROVAL: frozenset(
+        {RunPhase.PLAN_READY, RunPhase.EXECUTING, RunPhase.BLOCKED, RunPhase.CANCELLED}
+    ),
+    RunPhase.EXECUTING: frozenset(
+        {RunPhase.VERIFYING, RunPhase.COMPLETED, RunPhase.BLOCKED, RunPhase.INTERRUPTED}
+    ),
+    RunPhase.VERIFYING: frozenset({RunPhase.COMPLETED, RunPhase.BLOCKED, RunPhase.INTERRUPTED}),
+    RunPhase.COMPLETED: frozenset(),
+    RunPhase.BLOCKED: frozenset(),
+    RunPhase.CANCELLED: frozenset(),
+    RunPhase.INTERRUPTED: frozenset(),
+}
+
+_INTERRUPTED_RESULTS = frozenset({RunStatus.PARTIALLY_APPLIED, RunStatus.INDETERMINATE})
+_BLOCKED_RESULTS = frozenset(
+    {RunStatus.CONFIRMATION_REJECTED, RunStatus.FAILED_UNCHANGED, RunStatus.UNSUPPORTED}
+)
+_BROWSER_ACTIVE_PHASES = frozenset(
+    {
+        RunPhase.PREFLIGHT,
+        RunPhase.AWAITING_APPROVAL,
+        RunPhase.EXECUTING,
+        RunPhase.VERIFYING,
+    }
+)
 
 
 class ConsolePlanner(Protocol):
@@ -80,11 +119,24 @@ class ConsoleCoordinator:
         """Resolve the planning phase for a previously started run."""
 
         run = self._require(run_id)
+        if run.phase != RunPhase.PLANNING:
+            message = "run is not awaiting planning"
+            raise ValueError(message)
         try:
             plan = await self._planner.create_plan(run.request_text)
         except Exception as error:
-            return self._advance(run, RunPhase.BLOCKED, error_code=type(error).__name__)
-        return self._advance(run, RunPhase.PLAN_READY, plan=plan)
+            current = self._require(run_id)
+            if current.phase != RunPhase.PLANNING:
+                return current
+            return self._advance(
+                current,
+                RunPhase.BLOCKED,
+                error_code=type(error).__name__,
+            )
+        current = self._require(run_id)
+        if current.phase != RunPhase.PLANNING:
+            return current
+        return self._advance(current, RunPhase.PLAN_READY, plan=plan)
 
     def schedule_planning(self, run_id: str) -> None:
         """Plan in the background so the request that started the run returns at once."""
@@ -120,13 +172,36 @@ class ConsoleCoordinator:
 
     async def preview(self, run_id: str) -> ConsoleRun:
         run = self._require(run_id)
+        if run.phase != RunPhase.PLAN_READY:
+            message = "run is not ready for preview"
+            raise ValueError(message)
         if run.plan is None or run.mode == RunMode.PLAN_ONLY:
             message = "run is not eligible for a browser-backed preview"
             raise ValueError(message)
+        self._require_browser_slot(run_id)
         if self._dry_run is None:
             return self._advance(run, RunPhase.BLOCKED, error_code="ui_contract_pack_required")
-        active = self._advance(run, RunPhase.PREFLIGHT)
-        result = await self._dry_run.preview(run.plan)
+        self._advance(
+            run,
+            RunPhase.PREFLIGHT,
+            preview=None,
+            result=None,
+            error_code=None,
+        )
+        try:
+            result = await self._dry_run.preview(run.plan)
+        except Exception as error:
+            current = self._require(run_id)
+            if current.phase != RunPhase.PREFLIGHT:
+                return current
+            return self._advance(
+                current,
+                RunPhase.BLOCKED,
+                error_code=type(error).__name__,
+            )
+        current = self._require(run_id)
+        if current.phase != RunPhase.PREFLIGHT:
+            return current
         phase = (
             RunPhase.AWAITING_APPROVAL
             if result.status == "preview_ready" and run.mode == RunMode.LIVE
@@ -134,7 +209,12 @@ class ConsoleCoordinator:
             if result.status != "blocked"
             else RunPhase.BLOCKED
         )
-        completed = self._advance(active, phase, preview=result, error_code=result.reason_code)
+        completed = self._advance(
+            current,
+            phase,
+            preview=result,
+            error_code=result.reason_code,
+        )
         if phase == RunPhase.AWAITING_APPROVAL:
             self._approvals.issue(run_id, result, self._clock())
         return completed
@@ -143,12 +223,21 @@ class ConsoleCoordinator:
         run = self._require(run_id)
         if run.phase != RunPhase.AWAITING_APPROVAL or run.preview is None:
             return None
-        return self._approvals.get(run_id, self._clock())
+        approval = self._approvals.get(run_id, self._clock())
+        if approval is None:
+            self._advance(
+                run,
+                RunPhase.PLAN_READY,
+                preview=None,
+                result=None,
+                error_code="approval_expired",
+            )
+        return approval
 
     def cancel(self, run_id: str) -> ConsoleRun:
         run = self._require(run_id)
-        if run.phase in {RunPhase.EXECUTING, RunPhase.VERIFYING, RunPhase.COMPLETED}:
-            message = "run cannot be cancelled after mutation begins"
+        if RunPhase.CANCELLED not in _ALLOWED_TRANSITIONS[run.phase]:
+            message = f"run cannot be cancelled from {run.phase.value}"
             raise ValueError(message)
         self._approvals.cancel(run_id)
         return self._advance(run, RunPhase.CANCELLED)
@@ -177,15 +266,43 @@ class ConsoleCoordinator:
         if self._live_runner is None:
             return self._advance(run, RunPhase.BLOCKED, error_code="accepted_live_runner_required")
         executing = self._advance(run, RunPhase.EXECUTING)
-        result = await self._live_runner.execute(executing, confirmation)
+        try:
+            result = await self._live_runner.execute(executing, confirmation)
+        except Exception as error:
+            current = self._require(run_id)
+            if current.phase != RunPhase.EXECUTING:
+                return current
+            return self._advance(
+                current,
+                RunPhase.INTERRUPTED,
+                error_code=type(error).__name__,
+            )
+        current = self._require(run_id)
+        if current.phase != RunPhase.EXECUTING:
+            return current
+        phase = (
+            RunPhase.INTERRUPTED
+            if result.status in _INTERRUPTED_RESULTS
+            else RunPhase.BLOCKED
+            if result.status in _BLOCKED_RESULTS
+            else RunPhase.COMPLETED
+        )
         return self._advance(
-            executing,
-            RunPhase.COMPLETED,
+            current,
+            phase,
             result=result,
-            error_code=result.error_code,
+            error_code=result.error_code
+            or (result.status.value if phase != RunPhase.COMPLETED else None),
         )
 
     def _advance(self, run: ConsoleRun, phase: RunPhase, **updates: object) -> ConsoleRun:
+        current = self._require(run.run_id)
+        if current != run:
+            message = f"run changed while transitioning from {run.phase.value}"
+            raise ValueError(message)
+        if phase not in _ALLOWED_TRANSITIONS[run.phase]:
+            message = f"invalid run transition: {run.phase.value} -> {phase.value}"
+            raise ValueError(message)
         now = self._clock()
         error_code = updates.get("error_code")
         transition = PhaseTransition(
@@ -210,3 +327,16 @@ class ConsoleCoordinator:
             message = f"console run does not exist: {run_id}"
             raise ValueError(message)
         return run
+
+    def _require_browser_slot(self, run_id: str) -> None:
+        conflicting = next(
+            (
+                run
+                for run in self._runs.values()
+                if run.run_id != run_id and run.phase in _BROWSER_ACTIVE_PHASES
+            ),
+            None,
+        )
+        if conflicting is not None:
+            message = f"another browser-backed run is active: {conflicting.run_id}"
+            raise ValueError(message)

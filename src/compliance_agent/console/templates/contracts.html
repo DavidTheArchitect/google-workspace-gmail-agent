@@ -6,7 +6,9 @@
   {% set states = ['Draft', 'Fixture validated', 'Read live validated', 'Write live validated', 'Accepted'] %}
   {% for state in states %}<div class="gate-step {% if loop.index <= contract_stage %}complete{% endif %}"><span>{{ loop.index }}</span><strong>{{ state }}</strong></div>{% endfor %}
 </div>
-{% if contract %}
+{% if contract_error %}
+<section class="callout warning"><h2>Contract evidence is invalid</h2><p>{{ contract_error }}. Live behavior remains disabled. Replace the protected pack only through the supervised acceptance workflow.</p></section>
+{% elif contract %}
 <section class="detail-list"><div><span>Status</span><strong>{{ contract.status.replace('_', ' ')|title }}</strong></div><div><span>Contract ID</span><strong>{{ contract.contract_id }}</strong></div><div><span>Fixtures</span><strong>{{ contract.fixture_hashes|length }}</strong></div><div><span>Reviewed contracts</span><strong>{{ contract.contract_names|length }}</strong></div>{% if contract.accepted_digest %}<div><span>Accepted digest</span><code>{{ contract.accepted_digest }}</code></div>{% endif %}</section>
 {% else %}
 <section class="empty-state"><div class="empty-symbol" aria-hidden="true">⌘</div><h2>No contract pack installed</h2><p>This is the expected safe state before supervised Admin-console evidence exists.</p></section>

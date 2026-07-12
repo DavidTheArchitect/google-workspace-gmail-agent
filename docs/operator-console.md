@@ -24,7 +24,9 @@ LAN service and must not be placed behind a proxy.
    resolution, desired-state calculation, deterministic diffing, and audit finalization. No writer
    exists in this composition.
 4. A live preview displays exact impact and server-owned hashes. Approval expires after ten minutes
-   and requires `APPLY <short-run-id>` plus an acknowledgement.
+   and requires `APPLY <short-run-id>` plus an acknowledgement. Expiry discards the stale preview
+   and requires a fresh read. Cancellation is authoritative even if background planning or preview
+   work completes later.
 5. Execution remains unavailable until a reviewed accepted contract pack and live runner are
    injected. A process restart or state drift always requires a new read and approval.
 
@@ -32,3 +34,9 @@ The console also exposes protected audit history, integrity state, local ownersh
 contract-gate status, explicit retention confirmation, and propagation follow-up. UI
 reconfirmation never claims mail-flow enforcement; a separately authorized mail-flow audit is
 required for that evidence level.
+
+Ownership recovery is fail-closed. An observed managed-looking name is insufficient: the selected
+audit must have intact manifest and event-chain integrity, an applied-and-verified terminal report,
+an exact creation in `change_set.json`, and a matching `after.json` rule/list pair. Future mutation
+still requires a fresh Admin-console read. Interrupted execution is treated as outcome-uncertain;
+operators must reconcile audit evidence and current state before retrying.

@@ -2,7 +2,7 @@
 
 from compliance_agent.application.audit_catalog import AuditCatalog, AuditRunSummary
 from compliance_agent.application.ownership_health_service import assess_ownership_health
-from compliance_agent.application.ownership_recovery_service import has_exact_pair
+from compliance_agent.application.ownership_recovery_service import has_verified_creation
 from compliance_agent.domain.ownership import OwnershipRegistry
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.operations import OwnershipHealth
@@ -45,7 +45,11 @@ def health_with_recoverability(
         if (
             finding.status == "registry_missing"
             and finding.ownership_id is not None
-            and has_exact_pair(evidence.state, finding.ownership_id)
+            and has_verified_creation(
+                evidence.run.run_directory,
+                evidence.state,
+                finding.ownership_id,
+            )
         )
         else finding
         for finding in findings

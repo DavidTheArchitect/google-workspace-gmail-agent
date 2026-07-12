@@ -213,4 +213,15 @@ class PropagationRecord(FrozenModel):
         if self.status == "mail_flow_verified" and self.mail_flow_audit_run_id is None:
             message = "mail-flow verification requires a linked audit run"
             raise ValueError(message)
+        if self.status == "ui_reconfirmed" and self.ui_recheck_run_id is None:
+            message = "UI reconfirmation requires a linked recheck run"
+            raise ValueError(message)
+        if self.status == "pending" and (
+            self.ui_recheck_run_id is not None or self.mail_flow_audit_run_id is not None
+        ):
+            message = "pending propagation cannot carry completed evidence"
+            raise ValueError(message)
+        if self.status != "mail_flow_verified" and self.mail_flow_audit_run_id is not None:
+            message = "mail-flow audit evidence requires verified propagation status"
+            raise ValueError(message)
         return self

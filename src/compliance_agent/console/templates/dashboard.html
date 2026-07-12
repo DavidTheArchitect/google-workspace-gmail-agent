@@ -66,7 +66,9 @@
     <div class="safety-item"><span class="safety-icon" aria-hidden="true">1</span><div><strong>One active run</strong><p>Concurrent browser-backed work is prohibited.</p></div></div>
     <hr>
     <h2>Live gate</h2>
-    {% if contract and contract.status == 'accepted' %}
+    {% if contract_error %}
+    <p class="attention-copy"><strong>Evidence invalid</strong></p><p>The protected contract pack could not be validated. Live behavior remains disabled.</p>
+    {% elif contract and contract.status == 'accepted' %}
       <p class="verified"><strong>Contract accepted</strong></p><p>Live adapters may be composed from this reviewed pack.</p>
     {% else %}
       <p class="attention-copy"><strong>Evidence required</strong></p><p>Live mutation remains locked until supervised UI acceptance is complete.</p>
