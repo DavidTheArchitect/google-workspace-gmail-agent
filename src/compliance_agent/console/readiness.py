@@ -1,8 +1,10 @@
 """Safe local readiness projections for the attended console."""
 
+from datetime import datetime
 from pathlib import Path
 
 from compliance_agent.application.ui_contract_service import UiContractStore
+from compliance_agent.infrastructure.clock import Clock
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.settings import Settings
 
@@ -12,6 +14,51 @@ class ReadinessItem(FrozenModel):
     status: str
     detail: str
     blocking: bool
+
+
+class SystemHealth(FrozenModel):
+    """Truthful sidebar health computed from real readiness checks."""
+
+    blocking_count: int
+    checked_at: datetime
+
+
+class ReadinessCache:
+    """Short-TTL readiness summary so every page renders honest chrome cheaply."""
+
+    def __init__(self, settings: Settings, clock: Clock, ttl_seconds: float = 30.0) -> None:
+        self._settings = settings
+        self._clock = clock
+        self._ttl_seconds = ttl_seconds
+        self._cached: SystemHealth | None = None
+
+    def health(self) -> SystemHealth:
+        now = self._clock.now()
+        cached = self._cached
+        if cached is not None and (now - cached.checked_at).total_seconds() < self._ttl_seconds:
+            return cached
+        items = collect_readiness(self._settings)
+        fresh = SystemHealth(
+            blocking_count=sum(1 for item in items if item.blocking),
+            checked_at=now,
+        )
+        self._cached = fresh
+        return fresh
+
+
+_MORNING_START_HOUR = 5
+_AFTERNOON_START_HOUR = 12
+_EVENING_START_HOUR = 18
+
+
+def greeting_for_hour(hour: int) -> str:
+    """Deterministic operator greeting for a local wall-clock hour."""
+
+    if _MORNING_START_HOUR <= hour < _AFTERNOON_START_HOUR:
+        return "Good morning"
+    if _AFTERNOON_START_HOUR <= hour < _EVENING_START_HOUR:
+        return "Good afternoon"
+    return "Good evening"
 
 
 def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:

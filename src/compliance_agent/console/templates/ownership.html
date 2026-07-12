@@ -2,11 +2,49 @@
 {% block title %}Ownership · Gmail Compliance Agent{% endblock %}
 {% block content %}
 <header class="page-header narrow"><h1>Ownership</h1><p>Local evidence is necessary but never sufficient; visible UI evidence must agree before mutation.</p></header>
+
+<section><h2>Local registry</h2>
 <div class="table-wrap">
-  <table><thead><tr><th>Ownership ID</th><th>Rule</th><th>Address list</th><th>Created</th><th>Local status</th></tr></thead><tbody>
-  {% for resource in resources %}<tr><td><code>{{ resource.ownership_id }}</code></td><td>{{ resource.rule_display_name }}</td><td>{{ resource.address_list_display_name }}</td><td>{{ resource.created_at.strftime('%Y-%m-%d') }}</td><td><span class="status-text completed">Recorded</span></td></tr>{% endfor %}
+  <table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Ownership ID</th><th data-sort="text">Rule</th><th data-sort="text">Address list</th><th data-sort="date">Created</th><th>Local status</th></tr></thead><tbody>
+  {% for resource in resources %}<tr><td><code>{{ resource.ownership_id }}</code></td><td>{{ resource.rule_display_name }}</td><td>{{ resource.address_list_display_name }}</td><td data-value="{{ resource.created_at.isoformat() }}">{{ resource.created_at.strftime('%Y-%m-%d') }}</td><td><span class="status-text completed">Recorded</span></td></tr>{% endfor %}
   {% if not resources %}<tr><td colspan="5" class="empty-row">No local ownership records exist.</td></tr>{% endif %}
   </tbody></table>
 </div>
-<section class="callout warning"><h2>Fresh UI comparison required</h2><p>Registry recovery and cleanup stay unavailable until an accepted read adapter can compare these records to current root-OU state. Display-name prefixes alone never establish ownership.</p></section>
+</section>
+
+<section><h2>Health against audited state</h2>
+{% if evidence %}
+<div class="alert"><strong>Assessed against audit run <code>{{ evidence.run.run_id[:12] }}</code></strong><p>Finalized {{ evidence.run.ended_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}. This reconciliation uses the newest integrity-valid audited observation — it is not a live read of the Admin console.</p></div>
+<div class="table-wrap">
+  <table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Resource</th><th data-sort="text">Status</th><th>Detail</th><th>Recovery</th></tr></thead><tbody>
+  {% for finding in health_findings %}
+  <tr>
+    <td>{{ finding.resource_name }}{% if finding.ownership_id %}<br><code>{{ finding.ownership_id.hex[:12] }}</code>{% endif %}</td>
+    <td><span class="state-label {{ 'verified' if finding.status == 'healthy' else 'danger' if finding.status in ['missing_in_ui', 'relationship_changed', 'partial_creation'] else 'attention' }}">{{ finding.status.replace('_', ' ') }}</span></td>
+    <td>{{ finding.detail }}</td>
+    <td>
+      {% if finding.recoverable_from_audit and finding.ownership_id %}
+      <form method="post" action="/ownership/{{ finding.ownership_id }}/recover" class="approval-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="evidence_run_id" value="{{ evidence.run.run_id }}">
+        <label for="recover-{{ finding.ownership_id.hex[:8] }}">Type <strong>RECOVER {{ finding.ownership_id.hex[:8]|upper }}</strong></label>
+        <input id="recover-{{ finding.ownership_id.hex[:8] }}" name="confirmation" autocomplete="off" placeholder="RECOVER {{ finding.ownership_id.hex[:8]|upper }}" required>
+        <button class="button secondary" type="submit">Recover record</button>
+      </form>
+      {% else %}
+      <span class="help">Not applicable</span>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  {% if not health_findings %}<tr><td colspan="4" class="empty-row">The audited state and local registry contain nothing to reconcile.</td></tr>{% endif %}
+  </tbody></table>
+</div>
+<p class="help">Recovery independently re-verifies the audit manifest, the hash-chained event stream, and the exact rule-to-list relationship before writing a registry record. It re-enables management only for resources this application demonstrably created.</p>
+{% else %}
+<section class="callout warning"><h2>No audited observation available</h2><p>Health assessment requires the after-state of an integrity-valid finalized run. Complete a supervised dry run to capture one; display-name prefixes alone never establish ownership.</p></section>
+{% endif %}
+</section>
+
+<section class="callout warning"><h2>Fresh UI comparison still required before mutation</h2><p>Audited evidence can age. Any write path re-reads the Admin console and re-verifies ownership immediately before acting, regardless of what this page shows.</p></section>
 {% endblock %}

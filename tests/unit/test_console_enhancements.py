@@ -605,7 +605,9 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
     )
     assert "direct.example" in direct.text
     events = client.get(f"{run_url}/events")
-    assert "event: status" in events.text
+    assert "event: phase" in events.text
+    assert "event: settled" in events.text
+    assert "workflow-track" in events.text
 
     preview = client.post(f"{run_url}/preview", data={"csrf_token": csrf})
     assert "ui contract pack required" in preview.text.lower()

@@ -3,35 +3,49 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="light dark">
   <title>{% block title %}Gmail Compliance Agent{% endblock %}</title>
+  <script src="{{ url_for('static', path='/theme.js') }}"></script>
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
   <script defer src="{{ url_for('static', path='/htmx.min.js') }}"></script>
   <script defer src="{{ url_for('static', path='/sse.js') }}"></script>
   <script defer src="{{ url_for('static', path='/console.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/tables.js') }}"></script>
 </head>
 <body>
+  {% include "partials/_icons.html" %}
   <a class="skip-link" href="#main-content">Skip to content</a>
   <header class="topbar">
     <a class="brand" href="/" aria-label="Gmail Compliance Agent dashboard">
       <span class="brand-mark" aria-hidden="true">✓</span>
       <span>Gmail Compliance Agent</span>
     </a>
-    <div class="topbar-status"><span class="status-dot"></span> Local only</div>
+    <div class="topbar-tools">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" aria-label="Switch color theme">
+        <svg class="icon icon-sun" aria-hidden="true"><use href="#icon-sun"/></svg>
+        <svg class="icon icon-moon" aria-hidden="true"><use href="#icon-moon"/></svg>
+        <span class="theme-label">Auto</span>
+      </button>
+      <div class="topbar-status"><span class="status-dot"></span> Local only</div>
+    </div>
   </header>
   <div class="app-shell">
     <nav class="sidebar" aria-label="Primary navigation">
       <div class="nav-primary">
-        <a href="/" class="nav-link {% if active_path == '/' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">⌂</span>Dashboard</a>
-        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">＋</span>New change</a>
-        <a href="/readiness" class="nav-link {% if active_path == '/readiness' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">✓</span>Readiness</a>
-        <a href="/contracts" class="nav-link {% if active_path == '/contracts' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">⌘</span>UI contracts</a>
-        <a href="/ownership" class="nav-link {% if active_path == '/ownership' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">◇</span>Ownership</a>
-        <a href="/audits" class="nav-link {% if active_path.startswith('/audits') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">▤</span>Audit</a>
-        <a href="/propagation" class="nav-link {% if active_path == '/propagation' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true">◉</span>Propagation</a>
+        <a href="/" class="nav-link {% if active_path == '/' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-home"/></svg></span>Dashboard</a>
+        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-plus"/></svg></span>New change</a>
+        <a href="/readiness" class="nav-link {% if active_path == '/readiness' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-check"/></svg></span>Readiness</a>
+        <a href="/contracts" class="nav-link {% if active_path == '/contracts' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-contract"/></svg></span>UI contracts</a>
+        <a href="/ownership" class="nav-link {% if active_path.startswith('/ownership') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-diamond"/></svg></span>Ownership</a>
+        <a href="/audits" class="nav-link {% if active_path.startswith('/audits') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-list"/></svg></span>Audit</a>
+        <a href="/propagation" class="nav-link {% if active_path == '/propagation' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-radar"/></svg></span>Propagation</a>
       </div>
       <div class="sidebar-foot">
+        {% if system_health is defined and system_health.blocking_count %}
+        <span class="system-state attention"><span class="status-dot"></span> {{ system_health.blocking_count }} check{{ 's' if system_health.blocking_count != 1 }} need attention</span>
+        {% else %}
         <span class="system-state"><span class="status-dot"></span> System healthy</span>
+        {% endif %}
       </div>
     </nav>
     <main id="main-content" class="main-content" tabindex="-1">

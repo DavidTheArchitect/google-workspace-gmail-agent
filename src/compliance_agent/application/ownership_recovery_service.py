@@ -58,6 +58,16 @@ class OwnershipRecoveryService:
         return record
 
 
+def has_exact_pair(state: BlockedSenderState, ownership_id: UUID) -> bool:
+    """Report whether the state holds exactly one intact owned rule/list pair."""
+
+    try:
+        _exact_pair(state, ownership_id)
+    except OwnershipNotEstablished:
+        return False
+    return True
+
+
 def _validated_manifest(run_directory: Path) -> RunManifest:
     manifest_path = run_directory / "manifest.json"
     try:

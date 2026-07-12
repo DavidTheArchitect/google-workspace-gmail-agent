@@ -1,0 +1,25 @@
+<div class="workflow-track" aria-label="Run progress">
+  {% set phases = [('Plan', run.phase.value != 'planning'), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
+  {% for label, active in phases %}<div class="workflow-step {{ 'complete' if active else 'locked' }}"><span>{{ '✓' if active else loop.index }}</span><strong>{{ label }}</strong></div>{% endfor %}
+</div>
+{% if run.error_code %}<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>{% endif %}
+{% if run.phase.value == 'planning' %}
+<div class="planning-panel">
+  <div class="spinner" aria-hidden="true"></div>
+  <strong>Planning with the local model…</strong>
+  <p>The plan is being drafted in the background. This page updates automatically; nothing is executed.</p>
+</div>
+{% endif %}
+<section><h2>Run timeline</h2>
+  <div class="phase-timeline">
+    {% for transition in run.history %}
+    <div class="timeline-row">
+      <span class="rail-icon {{ 'blocked' if transition.phase.value in ['blocked','cancelled'] else 'ready' }}" aria-hidden="true">{{ '✕' if transition.phase.value in ['blocked','cancelled'] else '✓' }}</span>
+      <span class="timeline-label"><strong>{{ transition.phase.value.replace('_', ' ')|title }}</strong>{% if transition.error_code %}<span class="chip danger">{{ transition.error_code.replace('_', ' ') }}</span>{% endif %}</span>
+      <time datetime="{{ transition.at.isoformat() }}">{{ transition.at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</time>
+    </div>
+    {% else %}
+    <div class="timeline-row"><span class="rail-icon ready" aria-hidden="true">✓</span><span class="timeline-label"><strong>{{ run.phase.value.replace('_', ' ')|title }}</strong></span><time datetime="{{ run.updated_at.isoformat() }}">{{ run.updated_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</time></div>
+    {% endfor %}
+  </div>
+</section>

@@ -4,10 +4,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from compliance_agent.application.approval_service import ApprovalService
 from compliance_agent.application.audit_catalog import AuditCatalog
@@ -19,6 +20,7 @@ from compliance_agent.console.coordinator import (
     ConsolePlanner,
 )
 from compliance_agent.console.planner import StructuredConsolePlanner
+from compliance_agent.console.readiness import ReadinessCache
 from compliance_agent.console.routes import ConsoleWebContext, register_console_routes
 from compliance_agent.console.security import ConsoleSecurity
 from compliance_agent.infrastructure.clock import SystemClock
@@ -34,7 +36,10 @@ _SECURITY_HEADERS = {
         "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
     ),
     "Cross-Origin-Opener-Policy": "same-origin",
-    "Referrer-Policy": "no-referrer",
+    # same-origin (not no-referrer): browsers serialize the Origin header as
+    # "null" on form POSTs under no-referrer, which breaks the exact loopback
+    # Origin check. Referrers still never leave this origin.
+    "Referrer-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
@@ -53,6 +58,8 @@ def create_console_app(
     settings: Settings,
     *,
     planner: ConsolePlanner | None = None,
+    sse_poll_seconds: float = 1.0,
+    sse_max_polls: int = 600,
 ) -> ConsoleApplication:
     """Create a secured local console without opening a network listener."""
 
@@ -74,21 +81,22 @@ def create_console_app(
         openapi_url=None,
     )
     app.mount("/static", StaticFiles(directory=_CONSOLE_ROOT / "static"), name="static")
-    _install_error_handlers(app)
-    _install_security_middleware(app, security)
-    register_console_routes(
-        app,
-        ConsoleWebContext(
-            settings=settings,
-            security=security,
-            coordinator=coordinator,
-            audits=AuditCatalog(settings.audit_dir),
-            propagation=PropagationService(settings.state_dir),
-            contracts=UiContractStore(settings.state_dir),
-            templates=Jinja2Templates(directory=_CONSOLE_ROOT / "templates"),
-            clock=clock,
-        ),
+    web = ConsoleWebContext(
+        settings=settings,
+        security=security,
+        coordinator=coordinator,
+        audits=AuditCatalog(settings.audit_dir),
+        propagation=PropagationService(settings.state_dir),
+        contracts=UiContractStore(settings.state_dir),
+        templates=Jinja2Templates(directory=_CONSOLE_ROOT / "templates"),
+        clock=clock,
+        sse_poll_seconds=sse_poll_seconds,
+        sse_max_polls=sse_max_polls,
+        health=ReadinessCache(settings, clock),
     )
+    _install_error_handlers(app, web)
+    _install_security_middleware(app, security)
+    register_console_routes(app, web)
     return ConsoleApplication(app=app, security=security, coordinator=coordinator)
 
 
@@ -118,11 +126,36 @@ def _install_security_middleware(app: FastAPI, security: ConsoleSecurity) -> Non
         return response
 
 
-def _install_error_handlers(app: FastAPI) -> None:
+def _install_error_handlers(app: FastAPI, web: ConsoleWebContext) -> None:
+    def _render(request: Request, status_code: int, title: str, detail: str) -> Response:
+        # The 500 handler runs outside the header middleware, so error pages
+        # apply the security headers themselves; the middleware overwrite is a no-op.
+        response = web.error_response(request, status_code, title, detail)
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
+
     @app.exception_handler(PermissionError)
-    async def permission_error(_request: Request, error: PermissionError) -> Response:
-        return HTMLResponse(str(error), status_code=403)
+    async def permission_error(request: Request, error: PermissionError) -> Response:
+        return _render(request, 403, "Not permitted", str(error))
 
     @app.exception_handler(ValueError)
-    async def value_error(_request: Request, error: ValueError) -> Response:
-        return HTMLResponse(str(error), status_code=400)
+    async def value_error(request: Request, error: ValueError) -> Response:
+        return _render(request, 400, "Request refused", str(error))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, error: StarletteHTTPException) -> Response:
+        title = (
+            "Page not found" if error.status_code == status.HTTP_404_NOT_FOUND else "Request failed"
+        )
+        return _render(request, error.status_code, title, str(error.detail))
+
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, _error: Exception) -> Response:
+        return _render(
+            request,
+            500,
+            "Unexpected error",
+            "The console hit an unexpected error and made no change. "
+            "Details are in the terminal that launched the console.",
+        )

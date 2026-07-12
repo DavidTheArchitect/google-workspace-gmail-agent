@@ -90,6 +90,21 @@ class DryRunResult(FrozenModel):
         return self
 
 
+class PhaseTransition(FrozenModel):
+    """One recorded operator-visible phase change with its wall-clock time."""
+
+    phase: RunPhase
+    at: datetime
+    error_code: str | None = None
+
+    @model_validator(mode="after")
+    def require_aware_timestamp(self) -> Self:
+        if self.at.tzinfo is None or self.at.utcoffset() is None:
+            message = "phase transition timestamps must be timezone-aware"
+            raise ValueError(message)
+        return self
+
+
 class ConsoleRun(FrozenModel):
     """Non-authoritative operator projection over a typed plan or workflow run."""
 
@@ -104,6 +119,7 @@ class ConsoleRun(FrozenModel):
     result: RunResult | None = None
     error_code: str | None = None
     source_run_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    history: tuple[PhaseTransition, ...] = ()
 
     @model_validator(mode="after")
     def require_aware_timestamps(self) -> Self:

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ status_code }} · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<div class="error-page">
+  <p class="error-code" aria-hidden="true">{{ status_code }}</p>
+  <h1>{{ error_title }}</h1>
+  <p class="error-detail">{{ error_detail }}</p>
+  <div class="form-actions">
+    <a class="button primary" href="/">Back to dashboard</a>
+    <a class="button secondary" href="/audits">Audit history</a>
+  </div>
+  <p class="help">No change was made. Every mutation requires an explicit preview and approval.</p>
+</div>
+{% endblock %}

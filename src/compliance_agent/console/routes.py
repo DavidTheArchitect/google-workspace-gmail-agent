@@ -1,30 +1,55 @@
 """Small route groups for the attended operator console."""
 
 import asyncio
-import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from compliance_agent.application.audit_catalog import AuditCatalog
+from compliance_agent.application.audit_inspection_service import inspect_audit_run
+from compliance_agent.application.ownership_console_service import (
+    health_with_recoverability,
+    latest_observed_state,
+)
+from compliance_agent.application.ownership_recovery_service import OwnershipRecoveryService
 from compliance_agent.application.planning_service import direct_add_plan
 from compliance_agent.application.propagation_service import PropagationService
 from compliance_agent.application.retention_service import AuditRetentionService
 from compliance_agent.application.ui_contract_service import UiContractStore
+from compliance_agent.audit.export import export_redacted_zip
 from compliance_agent.console.coordinator import ConsoleCoordinator
-from compliance_agent.console.readiness import collect_readiness, mask_identity
+from compliance_agent.console.readiness import (
+    ReadinessCache,
+    collect_readiness,
+    greeting_for_hour,
+    mask_identity,
+)
 from compliance_agent.console.security import ConsoleSecurity
+from compliance_agent.exceptions import (
+    AuditRetentionFailure,
+    AuditWriteFailure,
+    OwnershipNotEstablished,
+)
 from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.infrastructure.filesystem import OwnershipStore
-from compliance_agent.schemas.operations import RunMode, RunPhase
+from compliance_agent.schemas.operations import OwnershipHealth, RunMode, RunPhase
 from compliance_agent.schemas.resources import AddressEntry
+from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.settings import Settings
 
 
@@ -38,6 +63,9 @@ class ConsoleWebContext:
     contracts: UiContractStore
     templates: Jinja2Templates
     clock: SystemClock
+    sse_poll_seconds: float = 1.0
+    sse_max_polls: int = 600
+    health: ReadinessCache | None = None
 
     def template_values(self, request: Request, **values: object) -> dict[str, object]:
         return {
@@ -49,8 +77,33 @@ class ConsoleWebContext:
             "active_path": request.url.path,
             "masked_admin": mask_identity(self.settings.expected_admin_email),
             "masked_workspace": mask_identity(self.settings.expected_workspace_domain),
+            "system_health": self.health.health() if self.health is not None else None,
             **values,
         }
+
+    def error_response(
+        self,
+        request: Request,
+        status_code: int,
+        title: str,
+        detail: str,
+    ) -> Response:
+        return self.templates.TemplateResponse(
+            request=request,
+            name="error.html",
+            context=self.template_values(
+                request,
+                status_code=status_code,
+                error_title=title,
+                error_detail=detail,
+            ),
+            status_code=status_code,
+        )
+
+
+_SSE_ACTIVE_PHASES = frozenset(
+    {RunPhase.PLANNING, RunPhase.PREFLIGHT, RunPhase.EXECUTING, RunPhase.VERIFYING}
+)
 
 
 class DirectAddSubmission(BaseModel):
@@ -74,11 +127,17 @@ def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         return web.templates.TemplateResponse(request=request, name="bootstrap.html", context={})
 
     @app.post("/bootstrap")
-    async def bootstrap_session(token: Annotated[str, Form()]) -> Response:
+    async def bootstrap_session(request: Request, token: Annotated[str, Form()]) -> Response:
         try:
             session = web.security.bootstrap(token)
         except PermissionError:
-            return HTMLResponse("Invalid or expired launch token.", status_code=403)
+            return web.error_response(
+                request,
+                403,
+                "Invalid launch token",
+                "The one-time launch token is invalid or already used. "
+                "Restart the console to mint a fresh bootstrap link.",
+            )
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
             web.security.cookie_name,
@@ -98,6 +157,7 @@ def _register_dashboard_routes(app: FastAPI, web: ConsoleWebContext) -> None:
             name="dashboard.html",
             context=web.template_values(
                 request,
+                greeting=greeting_for_hour(web.clock.now().astimezone().hour),
                 readiness=collect_readiness(web.settings),
                 runs=web.coordinator.list_runs(),
                 audit_runs=web.audits.list_runs()[:5],
@@ -131,7 +191,8 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         csrf_token: Annotated[str, Form()],
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
-        run = await web.coordinator.create(request_text, mode)
+        run = web.coordinator.start(request_text, mode)
+        web.coordinator.schedule_planning(run.run_id)
         return RedirectResponse(f"/runs/{run.run_id}", status_code=303)
 
     @app.post("/runs/direct-add")
@@ -153,7 +214,13 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
     async def run_detail(request: Request, run_id: str) -> Response:
         run = web.coordinator.get(run_id)
         if run is None:
-            return HTMLResponse("Run not found.", status_code=404)
+            return web.error_response(
+                request,
+                404,
+                "Run not found",
+                "No console run matches that identifier. "
+                "Runs live in memory and reset when the console restarts.",
+            )
         return web.templates.TemplateResponse(
             request=request,
             name="run_detail.html",
@@ -208,12 +275,31 @@ def _register_run_actions(app: FastAPI, web: ConsoleWebContext) -> None:
     @app.get("/runs/{run_id}/events")
     async def run_events(run_id: str) -> Response:
         async def stream() -> AsyncIterator[str]:
-            run = web.coordinator.get(run_id)
-            if run is not None:
-                yield f"event: status\ndata: {_run_status_fragment(run.phase, run.updated_at)}\n\n"
-            await asyncio.sleep(0)
+            last_seen: datetime | None = None
+            for _ in range(web.sse_max_polls):
+                run = web.coordinator.get(run_id)
+                if run is None:
+                    yield "event: gone\ndata: gone\n\n"
+                    return
+                if run.updated_at != last_seen:
+                    last_seen = run.updated_at
+                    fragment = web.templates.get_template("partials/_run_status.html").render(
+                        run=run
+                    )
+                    data = "".join(f"data: {line}\n" for line in fragment.splitlines())
+                    yield f"event: phase\n{data}\n"
+                if run.phase not in _SSE_ACTIVE_PHASES:
+                    yield "event: settled\ndata: done\n\n"
+                    return
+                await asyncio.sleep(web.sse_poll_seconds)
+                yield ": keep-alive\n\n"
+            yield "event: settled\ndata: timeout\n\n"
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no"},
+        )
 
 
 def _register_evidence_routes(app: FastAPI, web: ConsoleWebContext) -> None:
@@ -253,33 +339,98 @@ def _register_contract_and_ownership_routes(app: FastAPI, web: ConsoleWebContext
     @app.get("/ownership", response_class=HTMLResponse)
     async def ownership_page(request: Request) -> Response:
         registry = OwnershipStore(web.settings.state_dir).load()
+        evidence = latest_observed_state(web.audits)
+        findings: tuple[OwnershipHealth, ...] = ()
+        if evidence is not None:
+            findings = health_with_recoverability(
+                evidence,
+                registry,
+                web.settings.managed_resource_prefix,
+            )
         return web.templates.TemplateResponse(
             request=request,
             name="ownership.html",
-            context=web.template_values(request, resources=registry.resources),
+            context=web.template_values(
+                request,
+                resources=registry.resources,
+                evidence=evidence,
+                health_findings=findings,
+            ),
         )
+
+    @app.post("/ownership/{ownership_id}/recover")
+    async def recover_ownership(
+        request: Request,
+        ownership_id: UUID,
+        confirmation: Annotated[str, Form()],
+        evidence_run_id: Annotated[str, Form()],
+        csrf_token: Annotated[str, Form()],
+    ) -> Response:
+        _authorize_post(request, web.security, csrf_token)
+        summary = web.audits.find(evidence_run_id)
+        if summary is None or not summary.integrity_valid:
+            return web.error_response(
+                request,
+                400,
+                "Recovery refused",
+                "The referenced audit run is missing or failed integrity verification.",
+            )
+        try:
+            state = BlockedSenderState.model_validate_json(
+                (summary.run_directory / "after.json").read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, ValueError):
+            return web.error_response(
+                request,
+                400,
+                "Recovery refused",
+                "The referenced audit run has no valid after-state observation.",
+            )
+        service = OwnershipRecoveryService(OwnershipStore(web.settings.state_dir))
+        try:
+            service.recover(ownership_id, state, summary.run_directory, confirmation)
+        except OwnershipNotEstablished as error:
+            return web.error_response(request, 400, "Recovery refused", str(error))
+        return RedirectResponse("/ownership", status_code=303)
 
 
 def _register_audit_routes(app: FastAPI, web: ConsoleWebContext) -> None:
     @app.get("/audits", response_class=HTMLResponse)
     async def audit_page(request: Request) -> Response:
+        candidates = _retention_service(web).find_expired()
         return web.templates.TemplateResponse(
             request=request,
             name="audits.html",
-            context=web.template_values(request, audit_runs=web.audits.list_runs()),
+            context=web.template_values(
+                request,
+                audit_runs=web.audits.list_runs(),
+                retention_candidates=candidates,
+                retention_phrase=f"DELETE {len(candidates)} RUNS",
+                retention_days=web.settings.audit_retention_days,
+            ),
         )
 
     @app.get("/audits/{run_id}", response_class=HTMLResponse)
     async def audit_detail(request: Request, run_id: str) -> Response:
         summary = web.audits.find(run_id)
         if summary is None:
-            return HTMLResponse("Audit run not found.", status_code=404)
-        report = _read_optional_text(summary.run_directory / "report.json")
+            return web.error_response(
+                request,
+                404,
+                "Audit run not found",
+                "No finalized audit run matches that identifier.",
+            )
         return web.templates.TemplateResponse(
             request=request,
             name="audit_detail.html",
-            context=web.template_values(request, audit=summary, report=report),
+            context=web.template_values(
+                request,
+                audit=summary,
+                inspection=inspect_audit_run(summary.run_directory),
+            ),
         )
+
+    _register_audit_export_route(app, web)
 
     @app.post("/audits/prune")
     async def prune_audits(
@@ -288,17 +439,64 @@ def _register_audit_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         csrf_token: Annotated[str, Form()],
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
-        service = AuditRetentionService(
-            web.settings.audit_dir,
-            web.clock,
-            web.settings.audit_retention_days,
-        )
+        service = _retention_service(web)
         candidates = service.find_expired()
         expected = f"DELETE {len(candidates)} RUNS"
         if confirmation.strip() != expected:
-            return HTMLResponse(f"Type {expected} exactly.", status_code=400)
-        service.delete_expired(candidates)
+            return web.error_response(
+                request,
+                400,
+                "Confirmation mismatch",
+                f"The current retention plan expects: {expected}. The plan may have "
+                "changed since the page loaded; review the audit page and retype "
+                "the exact phrase.",
+            )
+        try:
+            service.delete_expired(candidates)
+        except AuditRetentionFailure as error:
+            return web.error_response(request, 500, "Retention failed", str(error))
         return RedirectResponse("/audits", status_code=303)
+
+
+def _register_audit_export_route(app: FastAPI, web: ConsoleWebContext) -> None:
+    @app.post("/audits/{run_id}/export")
+    async def export_audit(
+        request: Request,
+        run_id: str,
+        csrf_token: Annotated[str, Form()],
+    ) -> Response:
+        _authorize_post(request, web.security, csrf_token)
+        summary = web.audits.find(run_id)
+        if summary is None:
+            return web.error_response(
+                request,
+                404,
+                "Audit run not found",
+                "No finalized audit run matches that identifier.",
+            )
+        destination = (
+            web.settings.audit_dir / "exports" / f"{summary.run_directory.name}-redacted.zip"
+        )
+        if not destination.exists():
+            # The export is deterministic for an immutable run, so an existing
+            # ZIP is byte-identical and safe to reuse.
+            try:
+                export_redacted_zip(summary.run_directory, destination)
+            except AuditWriteFailure as error:
+                return web.error_response(request, 500, "Export failed", str(error))
+        return FileResponse(
+            destination,
+            media_type="application/zip",
+            filename=destination.name,
+        )
+
+
+def _retention_service(web: ConsoleWebContext) -> AuditRetentionService:
+    return AuditRetentionService(
+        web.settings.audit_dir,
+        web.clock,
+        web.settings.audit_retention_days,
+    )
 
 
 def _authorize_post(request: Request, security: ConsoleSecurity, csrf_token: str) -> None:
@@ -306,17 +504,3 @@ def _authorize_post(request: Request, security: ConsoleSecurity, csrf_token: str
         message = "console session is not authenticated"
         raise PermissionError(message)
     security.require_csrf(csrf_token)
-
-
-def _run_status_fragment(phase: RunPhase, updated_at: datetime) -> str:
-    safe_phase = phase.value.replace("_", " ").title()
-    safe_time = updated_at.astimezone(UTC).strftime("%H:%M:%S UTC")
-    return f'<div class="live-status"><strong>{safe_phase}</strong><span>{safe_time}</span></div>'
-
-
-def _read_optional_text(path: Path) -> str:
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, ValueError):
-        return "Report is unavailable or invalid."
-    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)

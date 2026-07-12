@@ -4,7 +4,7 @@
 <div class="dashboard-layout">
   <section class="content-column">
     <header class="page-header">
-      <h1>Good afternoon</h1>
+      <h1>{{ greeting }}</h1>
       <p>Plan, preview, and supervise root-OU blocked-sender changes.</p>
     </header>
 
@@ -61,8 +61,8 @@
 
   <aside class="context-rail" aria-labelledby="safety-title">
     <h2 id="safety-title">Safety summary</h2>
-    <div class="safety-item"><span class="safety-icon" aria-hidden="true">◇</span><div><strong>Root OU only</strong><p>Changes are limited to the positively confirmed root OU.</p></div></div>
-    <div class="safety-item"><span class="safety-icon" aria-hidden="true">✓</span><div><strong>Explicit approval</strong><p>Every mutation requires a current exact-hash approval.</p></div></div>
+    <div class="safety-item"><span class="safety-icon" aria-hidden="true"><svg class="icon"><use href="#icon-diamond"/></svg></span><div><strong>Root OU only</strong><p>Changes are limited to the positively confirmed root OU.</p></div></div>
+    <div class="safety-item"><span class="safety-icon" aria-hidden="true"><svg class="icon"><use href="#icon-check"/></svg></span><div><strong>Explicit approval</strong><p>Every mutation requires a current exact-hash approval.</p></div></div>
     <div class="safety-item"><span class="safety-icon" aria-hidden="true">1</span><div><strong>One active run</strong><p>Concurrent browser-backed work is prohibited.</p></div></div>
     <hr>
     <h2>Live gate</h2>

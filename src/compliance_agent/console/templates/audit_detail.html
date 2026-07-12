@@ -1,8 +1,100 @@
 {% extends "base.html" %}
 {% block title %}Audit {{ audit.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
 {% block content %}
-<header class="page-header split"><div><h1>Audit run {{ audit.run_id[:8]|upper }}</h1><p>{{ audit.started_at.strftime('%Y-%m-%d %H:%M:%S %Z') }} → {{ audit.ended_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</p></div><span class="state-label {{ 'verified' if audit.integrity_valid else 'danger' }}">{{ 'Integrity verified' if audit.integrity_valid else 'Integrity error' }}</span></header>
+<header class="page-header split">
+  <div><h1>Audit run {{ audit.run_id[:8]|upper }}</h1><p>{{ audit.started_at.strftime('%Y-%m-%d %H:%M:%S %Z') }} → {{ audit.ended_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</p></div>
+  <div class="topbar-tools">
+    <form method="post" action="/audits/{{ audit.run_id }}/export">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="button secondary" type="submit" title="Creates a redacted, shareable ZIP; the original evidence is never modified"><svg class="icon" aria-hidden="true"><use href="#icon-download"/></svg>&nbsp;Redacted ZIP</button>
+    </form>
+    <span class="state-label {{ 'verified' if audit.integrity_valid else 'danger' }}">{{ 'Integrity verified' if audit.integrity_valid else 'Integrity error' }}</span>
+  </div>
+</header>
 {% if audit.integrity_errors %}<div class="alert error"><strong>Integrity findings</strong><ul>{% for error in audit.integrity_errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
-<section><h2>Authoritative report</h2><div class="code-panel"><pre>{{ report }}</pre></div></section>
+{% if inspection.stream_errors %}<div class="alert error"><strong>Event stream findings</strong><ul>{% for error in inspection.stream_errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+
+{% if inspection.manifest %}
+{% set m = inspection.manifest %}
+<section><h2>Environment manifest</h2>
+  <dl class="manifest-grid">
+    <div><dt>Application</dt><dd>{{ m.application_version }}</dd></div>
+    <div><dt>Git commit</dt><dd>{% if m.git_commit %}<code>{{ m.git_commit[:12] }}</code>{% if m.dirty_working_tree %} <span class="chip warning">dirty tree</span>{% endif %}{% else %}Unknown{% endif %}</dd></div>
+    <div><dt>Final status</dt><dd>{{ m.final_status.value.replace('_', ' ')|title }}</dd></div>
+    <div><dt>Python</dt><dd>{{ m.python_version }}</dd></div>
+    <div><dt>Agent framework</dt><dd>{{ m.agent_framework_version }}</dd></div>
+    <div><dt>Playwright</dt><dd>{{ m.playwright_version }}</dd></div>
+    <div><dt>Browser</dt><dd>{{ m.browser_version or 'Not launched' }}</dd></div>
+    <div><dt>Pydantic</dt><dd>{{ m.pydantic_version }}</dd></div>
+    <div><dt>Ollama</dt><dd>{{ m.ollama_version or 'Not used' }}</dd></div>
+    <div><dt>Model</dt><dd>{{ m.model_tag or 'Not used' }}{% if m.model_digest %} <code>{{ m.model_digest[:12] }}</code>{% endif %}</dd></div>
+    <div><dt>Contract digest</dt><dd>{% if m.ui_contract_digest %}<span class="hash-value"><code data-hash-full="{{ m.ui_contract_digest }}" title="Click to reveal the full digest">{{ m.ui_contract_digest[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ m.ui_contract_digest }}" aria-label="Copy contract digest"><svg class="icon"><use href="#icon-copy"/></svg></button></span>{% else %}None{% endif %}</dd></div>
+    <div><dt>Operating system</dt><dd>{{ m.operating_system }}</dd></div>
+    <div><dt>Started</dt><dd>{{ m.start_time.strftime('%Y-%m-%d %H:%M:%S %Z') }}</dd></div>
+    <div><dt>Ended</dt><dd>{{ m.end_time.strftime('%Y-%m-%d %H:%M:%S %Z') }}</dd></div>
+  </dl>
+</section>
+{% else %}
+<div class="alert error"><strong>Manifest unavailable</strong><p>manifest.json is missing or invalid, so environment facts cannot be shown for this run.</p></div>
+{% endif %}
+
+{% if inspection.manifest and inspection.manifest.artifacts %}
+<section><h2>Artifacts ({{ inspection.manifest.artifacts|length }})</h2>
+  <div class="table-wrap"><table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Path</th><th data-sort="num">Size</th><th>SHA-256</th></tr></thead><tbody>
+    {% for artifact in inspection.manifest.artifacts %}
+    <tr><td><code>{{ artifact.path }}</code></td><td data-value="{{ artifact.size_bytes }}">{{ '%.1f'|format(artifact.size_bytes / 1024) }} KB</td><td><span class="hash-value"><code data-hash-full="{{ artifact.sha256 }}" title="Click to reveal the full hash">{{ artifact.sha256[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ artifact.sha256 }}" aria-label="Copy hash for {{ artifact.path }}"><svg class="icon"><use href="#icon-copy"/></svg></button></span></td></tr>
+    {% endfor %}
+  </tbody></table></div>
+</section>
+{% endif %}
+
+<section><h2>Event timeline</h2>
+  {% if inspection.events %}
+  <div class="phase-timeline">
+    {% for view in inspection.events %}
+    <div class="timeline-row">
+      <span class="rail-icon {{ 'blocked' if view.errors or view.event is none else 'ready' }}" aria-hidden="true">{{ '✕' if view.errors or view.event is none else '✓' }}</span>
+      <span class="timeline-label">
+        {% if view.event %}
+        <strong>{{ view.event.event_type.replace('_', ' ')|title }}</strong>
+        <span class="chip">{{ view.event.component }}</span>
+        <span class="chip {{ 'success' if view.event.outcome in ['success', 'completed', 'verified'] else '' }}">{{ view.event.outcome.replace('_', ' ') }}</span>
+        {% if view.event.error_code %}<span class="chip danger">{{ view.event.error_code.replace('_', ' ') }}</span>{% endif %}
+        {% else %}
+        <strong>Unparseable event on line {{ view.line_number }}</strong>
+        {% endif %}
+        {% for error in view.errors %}<span class="chip danger">{{ error }}</span>{% endfor %}
+      </span>
+      {% if view.event %}<time datetime="{{ view.event.timestamp.isoformat() }}">#{{ view.event.sequence }} · {{ view.event.timestamp.strftime('%H:%M:%S') }}</time>{% else %}<time>line {{ view.line_number }}</time>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="help">No event stream is available for this run.</p>
+  {% endif %}
+</section>
+
+<section><h2>Authoritative report</h2>
+  {% if inspection.report %}
+  <div class="detail-list">
+    <div><span>Status</span><strong>{{ inspection.report.status.value.replace('_', ' ')|title }}</strong></div>
+    {% if inspection.report.error_code %}<div><span>Error code</span><code>{{ inspection.report.error_code }}</code></div>{% endif %}
+    <div><span>Requested changes</span><div>{% for change in inspection.report.requested_changes %}<p>{{ change }}</p>{% else %}<p class="help">None recorded.</p>{% endfor %}</div></div>
+    <div><span>Verified changes</span><div>{% for change in inspection.report.verified_changes %}<p>{{ change }}</p>{% else %}<p class="help">None recorded.</p>{% endfor %}</div></div>
+    {% if inspection.report.warnings %}<div><span>Warnings</span><div>{% for warning in inspection.report.warnings %}<p class="attention-copy">{{ warning }}</p>{% endfor %}</div></div>{% endif %}
+    <div><span>Propagation pending</span><strong>{{ 'Yes' if inspection.report.propagation_pending else 'No' }}</strong></div>
+  </div>
+  {% elif inspection.dry_run %}
+  <div class="detail-list">
+    <div><span>Preview status</span><strong>{{ inspection.dry_run.status.replace('_', ' ')|title }}</strong></div>
+    {% if inspection.dry_run.reason_code %}<div><span>Reason code</span><code>{{ inspection.dry_run.reason_code }}</code></div>{% endif %}
+    {% if inspection.dry_run.impact %}<div><span>Impact</span><strong>{{ inspection.dry_run.impact.level|title }} · {{ inspection.dry_run.impact.affected_entries }} affected entr{{ 'y' if inspection.dry_run.impact.affected_entries == 1 else 'ies' }}</strong></div>{% endif %}
+    <div><span>Plan hash</span><span class="hash-value"><code data-hash-full="{{ inspection.dry_run.plan_hash }}" title="Click to reveal the full hash">{{ inspection.dry_run.plan_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ inspection.dry_run.plan_hash }}" aria-label="Copy plan hash"><svg class="icon"><use href="#icon-copy"/></svg></button></span></div>
+  </div>
+  {% else %}
+  <p class="help">No structured report was found for this run.</p>
+  {% endif %}
+  <details class="raw-panel"><summary>Raw report JSON</summary><div class="code-panel"><pre>{{ inspection.raw_report or 'Report is unavailable or invalid.' }}</pre></div></details>
+</section>
 <p><a href="/audits">← Back to audit history</a></p>
 {% endblock %}

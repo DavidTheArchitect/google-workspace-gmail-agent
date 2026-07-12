@@ -2,12 +2,15 @@
 {% block title %}Run {{ run.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
 {% block content %}
 <header class="page-header run-header"><div><h1>{{ 'Review proposed change' if run.preview else 'Review typed plan' }}</h1><p>Run ID: {{ run.run_id[:8]|upper }} · {{ run.mode.value.replace('_', ' ')|title }}</p></div><span class="state-label {{ 'attention' if run.phase.value in ['blocked','awaiting_approval'] else 'verified' }}">{{ run.phase.value.replace('_', ' ') }}</span></header>
-<div class="workflow-track" aria-label="Run progress">
-  {% set phases = [('Plan', true), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
-  {% for label, active in phases %}<div class="workflow-step {{ 'complete' if active else 'locked' }}"><span>{{ '✓' if active else loop.index }}</span><strong>{{ label }}</strong></div>{% endfor %}
-</div>
 
-{% if run.error_code %}<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>{% endif %}
+{% if run.phase.value in ['planning', 'preflight', 'executing', 'verifying'] %}
+<div hx-ext="sse" sse-connect="/runs/{{ run.run_id }}/events" sse-close="settled">
+  <div id="run-status" sse-swap="phase">{% include "partials/_run_status.html" %}</div>
+  <div sse-swap="settled" class="visually-hidden" aria-hidden="true"></div>
+</div>
+{% else %}
+<div id="run-status">{% include "partials/_run_status.html" %}</div>
+{% endif %}
 
 <div class="run-layout">
   <section class="run-main">
@@ -16,13 +19,29 @@
     </section>
     {% if run.preview and run.preview.change_set %}
     <section><h2>Before and after</h2><div class="comparison"><div><h3>Before</h3><pre>{{ run.preview.current_state.model_dump_json(indent=2) }}</pre></div><div class="after"><h3>After</h3><pre>{{ run.preview.desired_state.model_dump_json(indent=2) }}</pre></div></div></section>
-    <section class="impact-strip"><div><strong>{{ run.preview.impact.level|title }}</strong><span>Impact</span></div><div><strong>{{ run.preview.impact.affected_entries }}</strong><span>Affected entries</span></div><div><strong>{{ 'Yes' if run.preview.impact.root_ou_confirmed else 'No' }}</strong><span>Root OU confirmed</span></div><div><strong>{{ 'Yes' if run.preview.impact.ownership_verified else 'No' }}</strong><span>Ownership verified</span></div></section>
+    <section>
+      <div class="section-heading"><h2>Impact</h2><span class="badge-level {{ run.preview.impact.level }}">{{ run.preview.impact.level }}</span></div>
+      <div class="impact-strip"><div><strong>{{ run.preview.impact.affected_entries }}</strong><span>Affected entries</span></div><div><strong>{{ run.preview.impact.rules_created + run.preview.impact.rules_updated + run.preview.impact.rules_removed }}</strong><span>Rules touched</span></div><div><strong>{{ 'Yes' if run.preview.impact.root_ou_confirmed else 'No' }}</strong><span>Root OU confirmed</span></div><div><strong>{{ 'Yes' if run.preview.impact.ownership_verified else 'No' }}</strong><span>Ownership verified</span></div></div>
+      {% set impact = run.preview.impact %}
+      {% set bars = [('Rules created', impact.rules_created, ''), ('Rules updated', impact.rules_updated, 'warning'), ('Rules removed', impact.rules_removed, 'danger'), ('Lists created', impact.address_lists_created, ''), ('Lists updated', impact.address_lists_updated, 'warning'), ('Lists removed', impact.address_lists_removed, 'danger')] %}
+      {% set peak = [impact.rules_created, impact.rules_updated, impact.rules_removed, impact.address_lists_created, impact.address_lists_updated, impact.address_lists_removed, 1]|max %}
+      <div class="impact-bars">
+        {% for label, count, tone in bars %}{% if count %}
+        <div class="impact-bar {{ tone }}"><span>{{ label }}</span><svg viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="{{ label }}: {{ count }}"><rect class="bar-track" width="100" height="8" rx="4"></rect><rect class="bar-fill" width="{{ ((count / peak) * 100)|round(1) }}" height="8" rx="4"></rect></svg><strong>{{ count }}</strong></div>
+        {% endif %}{% endfor %}
+      </div>
+    </section>
     {% endif %}
-    <section><h2>Audit event timeline</h2><div class="event-row"><span class="rail-icon ready" aria-hidden="true">✓</span><strong>{{ run.phase.value.replace('_', ' ')|title }}</strong><time>{{ run.updated_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</time></div></section>
   </section>
   <aside class="approval-rail">
     <h2>Run control</h2><dl><dt>Administrator</dt><dd>{{ masked_admin }}</dd><dt>Workspace</dt><dd>{{ masked_workspace }}</dd></dl>
-    {% if approval %}<hr><p>Approval expires</p><strong class="expiry">{{ approval.expires_at.strftime('%H:%M:%S %Z') }}</strong><dl class="hash-list"><dt>Plan hash</dt><dd>{{ approval.plan_hash[:10] }}…</dd><dt>Before hash</dt><dd>{{ approval.before_state_hash[:10] }}…</dd><dt>Change hash</dt><dd>{{ approval.change_set_hash[:10] }}…</dd></dl><form method="post" action="/runs/{{ run.run_id }}/approve" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="check-control"><input type="checkbox" name="acknowledged" value="true" required><span>I reviewed the exact plan, state, and impact.</span></label><label for="approval-phrase">Type {{ approval.phrase }} to confirm</label><input id="approval-phrase" name="phrase" autocomplete="off" required><button class="button primary full" type="submit">Apply verified change</button></form><p class="attention-copy">Execution remains locked unless an accepted live runner is installed.</p>{% endif %}
+    {% if approval %}<hr><p>Approval expires</p><strong class="expiry" data-countdown data-expires-at="{{ approval.expires_at.isoformat() }}">{{ approval.expires_at.strftime('%H:%M:%S %Z') }}</strong>
+    <dl class="hash-list">
+      <dt>Plan hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.plan_hash }}" title="Click to reveal the full hash">{{ approval.plan_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.plan_hash }}" aria-label="Copy full plan hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
+      <dt>Before hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.before_state_hash }}" title="Click to reveal the full hash">{{ approval.before_state_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.before_state_hash }}" aria-label="Copy full before-state hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
+      <dt>Change hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.change_set_hash }}" title="Click to reveal the full hash">{{ approval.change_set_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.change_set_hash }}" aria-label="Copy full change-set hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
+    </dl>
+    <form method="post" action="/runs/{{ run.run_id }}/approve" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="check-control"><input type="checkbox" name="acknowledged" value="true" required><span>I reviewed the exact plan, state, and impact.</span></label><label for="approval-phrase">Type {{ approval.phrase }} to confirm</label><input id="approval-phrase" name="phrase" autocomplete="off" required><button class="button primary full" type="submit">Apply verified change</button></form><p class="attention-copy">Execution remains locked unless an accepted live runner is installed.</p>{% endif %}
     {% if run.phase.value == 'plan_ready' and run.mode.value != 'plan_only' %}<form method="post" action="/runs/{{ run.run_id }}/preview"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary full" type="submit">Run safe preview</button></form>{% endif %}
     {% if run.phase.value not in ['executing','verifying','completed','cancelled'] %}<form method="post" action="/runs/{{ run.run_id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button secondary full" type="submit">Cancel run</button></form>{% endif %}
     <a class="button quiet full" href="/">Back to dashboard</a>

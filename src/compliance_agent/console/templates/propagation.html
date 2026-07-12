@@ -2,8 +2,8 @@
 {% block title %}Propagation · Gmail Compliance Agent{% endblock %}
 {% block content %}
 <header class="page-header narrow"><h1>Propagation follow-up</h1><p>UI persistence and Gmail mail-flow enforcement remain distinct evidence levels.</p></header>
-<div class="table-wrap"><table><thead><tr><th>Source run</th><th>Status</th><th>Created</th><th>Recheck due</th><th>Evidence</th></tr></thead><tbody>
-{% for record in records %}<tr><td><code>{{ record.run_id[:12] }}</code></td><td><span class="status-text {{ 'completed' if record.status != 'pending' else 'awaiting_approval' }}">{{ record.status.replace('_',' ')|title }}</span></td><td>{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ record.due_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ record.mail_flow_audit_run_id or record.ui_recheck_run_id or 'Pending' }}</td></tr>{% endfor %}
+<div class="table-wrap"><table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Source run</th><th data-sort="text">Status</th><th data-sort="date">Created</th><th data-sort="date">Recheck due</th><th>Evidence</th></tr></thead><tbody>
+{% for record in records %}<tr><td><code>{{ record.run_id[:12] }}</code></td><td><span class="status-text {{ 'completed' if record.status != 'pending' else 'awaiting_approval' }}">{{ record.status.replace('_',' ')|title }}</span></td><td data-value="{{ record.created_at.isoformat() }}">{{ record.created_at.strftime('%Y-%m-%d %H:%M') }}</td><td data-value="{{ record.due_at.isoformat() }}">{{ record.due_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ record.mail_flow_audit_run_id or record.ui_recheck_run_id or 'Pending' }}</td></tr>{% endfor %}
 {% if not records %}<tr><td colspan="5" class="empty-row">No applied runs are awaiting propagation follow-up.</td></tr>{% endif %}
 </tbody></table></div>
 <section class="callout warning"><h2>No implied enforcement</h2><p>Elapsed time and operator notes cannot clear propagation pending. Mail-flow verification remains separately configured and explicitly authorized for every send.</p></section>

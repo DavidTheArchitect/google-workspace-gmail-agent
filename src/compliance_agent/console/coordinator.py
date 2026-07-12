@@ -1,5 +1,6 @@
 """In-memory attended console run coordination over deterministic services."""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,7 +10,7 @@ from compliance_agent.application.approval_service import ApprovalService, Pendi
 from compliance_agent.application.dry_run_service import DryRunService
 from compliance_agent.infrastructure.identifiers import IdentifierGenerator
 from compliance_agent.schemas.hitl import ConfirmationResponse
-from compliance_agent.schemas.operations import ConsoleRun, RunMode, RunPhase
+from compliance_agent.schemas.operations import ConsoleRun, PhaseTransition, RunMode, RunPhase
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.results import RunResult
 
@@ -50,6 +51,7 @@ class ConsoleCoordinator:
         self._dry_run = dependencies.dry_run_service
         self._live_runner = dependencies.live_runner
         self._runs: dict[str, ConsoleRun] = {}
+        self._tasks: set[asyncio.Task[ConsoleRun]] = set()
 
     def list_runs(self) -> tuple[ConsoleRun, ...]:
         return tuple(sorted(self._runs.values(), key=lambda run: run.created_at, reverse=True))
@@ -57,7 +59,9 @@ class ConsoleCoordinator:
     def get(self, run_id: str) -> ConsoleRun | None:
         return self._runs.get(run_id)
 
-    async def create(self, request_text: str, mode: RunMode) -> ConsoleRun:
+    def start(self, request_text: str, mode: RunMode) -> ConsoleRun:
+        """Register a run in the planning phase without invoking the planner."""
+
         now = self._clock()
         run_id = self._identifiers.new().hex
         initial = ConsoleRun(
@@ -67,25 +71,35 @@ class ConsoleCoordinator:
             phase=RunPhase.PLANNING,
             created_at=now,
             updated_at=now,
+            history=(PhaseTransition(phase=RunPhase.PLANNING, at=now),),
         )
         self._runs[run_id] = initial
+        return initial
+
+    async def plan(self, run_id: str) -> ConsoleRun:
+        """Resolve the planning phase for a previously started run."""
+
+        run = self._require(run_id)
         try:
-            plan = await self._planner.create_plan(initial.request_text)
+            plan = await self._planner.create_plan(run.request_text)
         except Exception as error:
-            blocked = initial.model_copy(
-                update={
-                    "phase": RunPhase.BLOCKED,
-                    "updated_at": self._clock(),
-                    "error_code": type(error).__name__,
-                }
-            )
-            self._runs[run_id] = blocked
-            return blocked
-        ready = initial.model_copy(
-            update={"phase": RunPhase.PLAN_READY, "updated_at": self._clock(), "plan": plan}
-        )
-        self._runs[run_id] = ready
-        return ready
+            return self._advance(run, RunPhase.BLOCKED, error_code=type(error).__name__)
+        return self._advance(run, RunPhase.PLAN_READY, plan=plan)
+
+    def schedule_planning(self, run_id: str) -> None:
+        """Plan in the background so the request that started the run returns at once."""
+
+        task = asyncio.create_task(self.plan(run_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def drain(self) -> None:
+        """Await every scheduled background task; blocked runs stay recorded."""
+
+        await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+    async def create(self, request_text: str, mode: RunMode) -> ConsoleRun:
+        return await self.plan(self.start(request_text, mode).run_id)
 
     def create_from_plan(self, request_text: str, mode: RunMode, plan: TaskPlan) -> ConsoleRun:
         """Create a run from a deterministic typed form without invoking a model."""
@@ -99,6 +113,7 @@ class ConsoleCoordinator:
             created_at=now,
             updated_at=now,
             plan=plan,
+            history=(PhaseTransition(phase=RunPhase.PLAN_READY, at=now),),
         )
         self._runs[run.run_id] = run
         return run
@@ -109,17 +124,8 @@ class ConsoleCoordinator:
             message = "run is not eligible for a browser-backed preview"
             raise ValueError(message)
         if self._dry_run is None:
-            blocked = run.model_copy(
-                update={
-                    "phase": RunPhase.BLOCKED,
-                    "updated_at": self._clock(),
-                    "error_code": "ui_contract_pack_required",
-                }
-            )
-            self._runs[run_id] = blocked
-            return blocked
-        active = run.model_copy(update={"phase": RunPhase.PREFLIGHT, "updated_at": self._clock()})
-        self._runs[run_id] = active
+            return self._advance(run, RunPhase.BLOCKED, error_code="ui_contract_pack_required")
+        active = self._advance(run, RunPhase.PREFLIGHT)
         result = await self._dry_run.preview(run.plan)
         phase = (
             RunPhase.AWAITING_APPROVAL
@@ -128,15 +134,7 @@ class ConsoleCoordinator:
             if result.status != "blocked"
             else RunPhase.BLOCKED
         )
-        completed = active.model_copy(
-            update={
-                "phase": phase,
-                "updated_at": self._clock(),
-                "preview": result,
-                "error_code": result.reason_code,
-            }
-        )
-        self._runs[run_id] = completed
+        completed = self._advance(active, phase, preview=result, error_code=result.reason_code)
         if phase == RunPhase.AWAITING_APPROVAL:
             self._approvals.issue(run_id, result, self._clock())
         return completed
@@ -153,11 +151,7 @@ class ConsoleCoordinator:
             message = "run cannot be cancelled after mutation begins"
             raise ValueError(message)
         self._approvals.cancel(run_id)
-        cancelled = run.model_copy(
-            update={"phase": RunPhase.CANCELLED, "updated_at": self._clock()}
-        )
-        self._runs[run_id] = cancelled
-        return cancelled
+        return self._advance(run, RunPhase.CANCELLED)
 
     async def approve(
         self,
@@ -181,30 +175,34 @@ class ConsoleCoordinator:
             now=self._clock(),
         )
         if self._live_runner is None:
-            blocked = run.model_copy(
-                update={
-                    "phase": RunPhase.BLOCKED,
-                    "updated_at": self._clock(),
-                    "error_code": "accepted_live_runner_required",
-                }
-            )
-            self._runs[run_id] = blocked
-            return blocked
-        executing = run.model_copy(
-            update={"phase": RunPhase.EXECUTING, "updated_at": self._clock()}
-        )
-        self._runs[run_id] = executing
+            return self._advance(run, RunPhase.BLOCKED, error_code="accepted_live_runner_required")
+        executing = self._advance(run, RunPhase.EXECUTING)
         result = await self._live_runner.execute(executing, confirmation)
-        completed = executing.model_copy(
+        return self._advance(
+            executing,
+            RunPhase.COMPLETED,
+            result=result,
+            error_code=result.error_code,
+        )
+
+    def _advance(self, run: ConsoleRun, phase: RunPhase, **updates: object) -> ConsoleRun:
+        now = self._clock()
+        error_code = updates.get("error_code")
+        transition = PhaseTransition(
+            phase=phase,
+            at=now,
+            error_code=error_code if isinstance(error_code, str) else None,
+        )
+        advanced = run.model_copy(
             update={
-                "phase": RunPhase.COMPLETED,
-                "updated_at": self._clock(),
-                "result": result,
-                "error_code": result.error_code,
+                "phase": phase,
+                "updated_at": now,
+                "history": (*run.history, transition),
+                **updates,
             }
         )
-        self._runs[run_id] = completed
-        return completed
+        self._runs[advanced.run_id] = advanced
+        return advanced
 
     def _require(self, run_id: str) -> ConsoleRun:
         run = self._runs.get(run_id)

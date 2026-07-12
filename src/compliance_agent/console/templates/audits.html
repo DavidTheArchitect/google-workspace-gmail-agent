@@ -2,9 +2,29 @@
 {% block title %}Audit · Gmail Compliance Agent{% endblock %}
 {% block content %}
 <header class="page-header split"><div><h1>Audit</h1><p>Protected terminal evidence and integrity status.</p></div><a class="button secondary" href="/">Dashboard</a></header>
-<div class="table-wrap"><table><thead><tr><th>Run</th><th>Started</th><th>Ended</th><th>Status</th><th>Integrity</th></tr></thead><tbody>
-{% for run in audit_runs %}<tr><td><a href="/audits/{{ run.run_id }}"><code>{{ run.run_id[:12] }}</code></a></td><td>{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ run.ended_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ run.status.value.replace('_',' ')|title }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Integrity error' }}</td></tr>{% endfor %}
+<div class="table-wrap"><table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Run</th><th data-sort="date">Started</th><th data-sort="date">Ended</th><th data-sort="text">Status</th><th data-sort="text">Integrity</th></tr></thead><tbody>
+{% for run in audit_runs %}<tr><td><a href="/audits/{{ run.run_id }}"><code>{{ run.run_id[:12] }}</code></a></td><td data-value="{{ run.started_at.isoformat() }}">{{ run.started_at.strftime('%Y-%m-%d %H:%M') }}</td><td data-value="{{ run.ended_at.isoformat() }}">{{ run.ended_at.strftime('%Y-%m-%d %H:%M') }}</td><td>{{ run.status.value.replace('_',' ')|title }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Integrity error' }}</td></tr>{% endfor %}
 {% if not audit_runs %}<tr><td colspan="5" class="empty-row">No finalized audit runs were found.</td></tr>{% endif %}
 </tbody></table></div>
-<section class="callout"><h2>Retention is plan first</h2><p>Expired convention-named directories are revalidated immediately before deletion.</p><form method="post" action="/audits/prune" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="prune-confirmation">Type the exact phrase shown by the CLI retention plan</label><input id="prune-confirmation" name="confirmation" placeholder="DELETE 0 RUNS" required><button class="button danger-button" type="submit">Apply retention</button></form></section>
+<section class="callout {{ 'warning' if retention_candidates else '' }}">
+  <h2>Retention is plan first</h2>
+  {% if retention_candidates %}
+  <p>{{ retention_candidates|length }} run{{ 's are' if retention_candidates|length != 1 else ' is' }} older than {{ retention_days }} days and eligible for deletion. Every directory is revalidated immediately before removal.</p>
+  <div class="table-wrap"><table><thead><tr><th>Run directory</th><th>Created</th></tr></thead><tbody>
+    {% for candidate in retention_candidates %}<tr><td><code>{{ candidate.path.name }}</code></td><td>{{ candidate.created_at.strftime('%Y-%m-%d %H:%M %Z') }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <form method="post" action="/audits/prune" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="prune-confirmation">Type <strong>{{ retention_phrase }}</strong> to delete the runs listed above</label>
+    <input id="prune-confirmation" name="confirmation" placeholder="{{ retention_phrase }}" autocomplete="off" required>
+    <button class="button danger-button" type="submit">Apply retention</button>
+  </form>
+  {% else %}
+  <p>No runs are older than {{ retention_days }} days. Nothing is eligible for deletion, so retention cannot be applied.</p>
+  <form method="post" action="/audits/prune" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="button danger-button" type="submit" disabled>Apply retention</button>
+  </form>
+  {% endif %}
+</section>
 {% endblock %}
