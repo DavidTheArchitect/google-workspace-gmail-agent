@@ -42,7 +42,7 @@
       </div>
       <div class="sidebar-foot">
         {% if system_health is defined and system_health.blocking_count %}
-        <span class="system-state attention"><span class="status-dot"></span> {{ system_health.blocking_count }} check{{ 's' if system_health.blocking_count != 1 }} need attention</span>
+        <span class="system-state attention"><span class="status-dot"></span> {{ system_health.blocking_count }} check{{ 's need' if system_health.blocking_count != 1 else ' needs' }} attention</span>
         {% else %}
         <span class="system-state"><span class="status-dot"></span> System healthy</span>
         {% endif %}

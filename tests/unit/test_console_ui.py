@@ -550,7 +550,7 @@ def test_dashboard_shows_real_greeting_and_health_badge(tmp_path: Path) -> None:
     dashboard = client.get("/")
 
     assert "Good " in dashboard.text
-    assert "need attention" in dashboard.text
+    assert "needs attention" in dashboard.text  # exactly one blocking check: the UI contract
 
 
 def test_enhancement_static_assets_are_served(tmp_path: Path) -> None:
