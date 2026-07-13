@@ -3,8 +3,21 @@
 Start the console with:
 
 ```powershell
-uv run compliance-agent console
+uv run gmail-agent
 ```
+
+On Windows, double-click `Setup-Gmail-Agent.cmd` once, then use `Start-Gmail-Agent.cmd`. Setup
+creates the safe `.env`, installs or repairs the locked environment, and runs `compliance-agent
+doctor`. The regular launcher repeats the non-mutating checks, waits until the server is ready,
+then opens and exchanges the one-time bootstrap link automatically. You should not need to copy or
+enter a token. Keep the launcher window open; press `Ctrl+C` there to stop the console.
+
+If the configured port is already occupied, a normal launch tries the next 20 loopback ports and
+prints the selected address. An explicitly supplied `--port` remains exact and fails with a clear
+message when occupied.
+
+`uv run compliance-agent console` remains available for advanced use, including `--port` and
+`--no-open`.
 
 It binds only to `127.0.0.1` on `CA_CONSOLE_PORT` (default `8765`). The per-launch 256-bit token is
 printed locally and placed after `#` in the bootstrap URL. A small local script posts the fragment

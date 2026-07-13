@@ -11,8 +11,12 @@
   </div>
   {% if status_code >= 500 %}
   <p class="help">Do not retry a live operation until its audit evidence and current state have been reconciled.</p>
+  {% elif status_code == 403 %}
+  <p class="help">Return to the dashboard and try once more. If the console asks you to reconnect, restart it with the automatic launcher.</p>
+  {% elif status_code == 400 %}
+  <p class="help">Review the requested values above, correct the form, and submit it again.</p>
   {% else %}
-  <p class="help">No mutation was authorized by this request. Every mutation requires an explicit preview and approval.</p>
+  <p class="help">Use the links above to return to a valid console page.</p>
   {% endif %}
 </div>
 {% endblock %}

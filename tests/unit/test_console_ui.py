@@ -40,7 +40,7 @@ from compliance_agent.console.readiness import ReadinessCache, collect_readiness
 from compliance_agent.domain.diff import calculate_change_set
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import OwnershipRegistry
-from compliance_agent.exceptions import AuditRetentionFailure, AuditWriteFailure
+from compliance_agent.exceptions import AuditRetentionFailure, AuditWriteFailure, PlannerFailure
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.schemas.changes import DesiredStateResult
 from compliance_agent.schemas.operations import PhaseTransition, RunMode, RunPhase
@@ -67,6 +67,12 @@ from tests.unit.test_console_enhancements import (
 class HangingPlanner:
     async def create_plan(self, _request_text: str) -> None:
         await asyncio.Event().wait()
+
+
+class UnavailablePlanner:
+    async def create_plan(self, _request_text: str) -> None:
+        message = "Ollama is unavailable"
+        raise PlannerFailure(message)
 
 
 class DelayedPlanner:
@@ -185,7 +191,9 @@ def test_error_pages_render_app_chrome_with_security_headers(tmp_path: Path) -> 
     assert missing_page.status_code == 404
     assert "Page not found" in missing_page.text
     assert forbidden.status_code == 403
-    assert "Not permitted" in forbidden.text
+    assert "Session expired" in forbidden.text
+    assert "earlier console session" in forbidden.text
+    assert "No mutation was authorized" not in forbidden.text
     assert bad_value.status_code == 400
     assert "Request refused" in bad_value.text
 
@@ -331,6 +339,21 @@ async def test_coordinator_records_blocked_history_with_error_code() -> None:
 
     assert run.phase == RunPhase.BLOCKED
     assert run.history[-1].error_code == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_planner_failure_renders_actionable_no_ollama_recovery(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=UnavailablePlanner())
+    client = _client(console)
+    run = await console.coordinator.create("Block new.example", RunMode.PLAN_ONLY)
+
+    detail = client.get(f"/runs/{run.run_id}")
+
+    assert run.error_code == "planner_unavailable"
+    assert "Natural-language planner unavailable" in detail.text
+    assert "does not require Ollama" in detail.text
+    assert "Open deterministic form" in detail.text
+    assert "No mutation was authorized" not in detail.text
 
 
 def test_phase_transition_requires_timezone_aware_timestamp() -> None:
@@ -838,6 +861,9 @@ def test_bootstrap_page_is_theme_aware_and_shows_mode(tmp_path: Path) -> None:
     assert "theme.js" in page.text
     assert "icon-check" in page.text
     assert "mode-chip" in page.text
+    assert "Opening your local console" in page.text
+    assert "Start-Gmail-Agent.cmd" in page.text
+    assert 'id="bootstrap-form" hidden' in page.text
     assert "works exactly once" in page.text
     assert "ad•••@example.com" not in page.text
 
@@ -854,6 +880,21 @@ def test_empty_states_offer_guided_next_steps(tmp_path: Path) -> None:
     assert 'href="/runs/new"' in audits.text
     assert 'href="/audits"' in ownership.text
     assert "after a verified live apply" in propagation.text
+
+
+def test_new_change_leads_with_deterministic_path_and_fixed_launch_mode(
+    tmp_path: Path,
+) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(console)
+
+    page = client.get("/runs/new")
+
+    assert page.text.index("Blocked sender") < page.text.index("Use natural language")
+    assert "This deterministic path is available immediately" in page.text
+    assert "cannot access or change Google Workspace" in page.text
+    assert 'name="mode" value="plan_only"' in page.text
+    assert 'name="mode" value="live"' not in page.text
 
 
 def test_readiness_items_expose_hints_and_actions(tmp_path: Path) -> None:

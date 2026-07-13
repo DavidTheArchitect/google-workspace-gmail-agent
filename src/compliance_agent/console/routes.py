@@ -45,6 +45,7 @@ from compliance_agent.console.readiness import (
     greeting_for_hour,
     mask_identity,
 )
+from compliance_agent.console.run_status import resolve_run_status
 from compliance_agent.console.security import ConsoleSecurity
 from compliance_agent.exceptions import (
     AuditRetentionFailure,
@@ -259,6 +260,7 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 run=run,
                 approval=approval,
                 list_deltas=list_deltas,
+                run_message=resolve_run_status(run.error_code),
             ),
         )
 
@@ -315,7 +317,8 @@ def _register_run_actions(app: FastAPI, web: ConsoleWebContext) -> None:
                 if run.updated_at != last_seen:
                     last_seen = run.updated_at
                     fragment = web.templates.get_template("partials/_run_status.html").render(
-                        run=run
+                        run=run,
+                        run_message=resolve_run_status(run.error_code),
                     )
                     data = "".join(f"data: {line}\n" for line in fragment.splitlines())
                     yield f"event: phase\n{data}\n"
@@ -545,6 +548,8 @@ def _contract_for_display(
 
 def _authorize_post(request: Request, security: ConsoleSecurity, csrf_token: str) -> None:
     if not security.authenticated(request):
-        message = "console session is not authenticated"
+        message = (
+            "Your local console session has ended. Relaunch the console and submit the form again."
+        )
         raise PermissionError(message)
     security.require_csrf(csrf_token)

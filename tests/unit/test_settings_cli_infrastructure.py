@@ -1,13 +1,17 @@
 """Configuration, direct commands, ownership persistence, locks, and injected adapters."""
 
 import json
+import socket
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from pydantic import ValidationError
 
-from compliance_agent.cli import run
+from compliance_agent import launcher
+from compliance_agent.cli import _open_console_when_ready, run
 from compliance_agent.domain.ownership import OwnershipRegistry
 from compliance_agent.exceptions import RunLockUnavailable
 from compliance_agent.infrastructure.clock import SystemClock
@@ -15,7 +19,17 @@ from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.infrastructure.identifiers import Uuid4Generator
 from compliance_agent.infrastructure.process_lock import ProcessLock
 from compliance_agent.settings import Settings
+from compliance_agent.startup import (
+    choose_console_port,
+    collect_startup_checks,
+    format_startup_checks,
+    ollama_available,
+    port_available,
+)
 from tests.conftest import OWNERSHIP_ID, registry_for
+
+if TYPE_CHECKING:
+    import uvicorn
 
 
 def _settings_paths(tmp_path: Path) -> dict[str, Path]:
@@ -180,6 +194,179 @@ def test_cli_reports_invalid_direct_input_without_opening_browser(
     assert "URL schemes" in capsys.readouterr().err
     assert run(["block", "add"]) == 2
     assert "provide at least one" in capsys.readouterr().err
+
+
+def test_startup_checks_explain_port_fallback_and_optional_ollama(tmp_path: Path) -> None:
+    settings = Settings(console_port=8765, **_settings_paths(tmp_path))
+
+    selected = choose_console_port(8765, available=lambda port: port == 8767)
+    checks = collect_startup_checks(
+        settings,
+        available=lambda port: port == 8767,
+        ollama_probe=lambda _settings: False,
+    )
+    report = format_startup_checks(checks)
+
+    assert selected == 8767
+    assert "8765 is busy; startup will use 8767 automatically" in report
+    assert "primary deterministic form will still work" in report
+    assert "Ready to start" in report
+
+
+def test_startup_checks_cover_available_services_and_disabled_browser(tmp_path: Path) -> None:
+    settings = Settings(
+        console_port=8765,
+        console_open_browser=False,
+        **_settings_paths(tmp_path),
+    )
+
+    checks = collect_startup_checks(
+        settings,
+        available=lambda port: port == 8765,
+        ollama_probe=lambda _settings: True,
+    )
+    report = format_startup_checks(checks)
+
+    assert "127.0.0.1:8765 is available" in report
+    assert "Local natural-language planning is available" in report
+    assert "Automatic browser opening is disabled" in report
+
+
+def test_socket_probes_detect_busy_port_and_local_ollama(tmp_path: Path) -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = int(listener.getsockname()[1])
+        settings = Settings(
+            ollama_base_url=f"http://127.0.0.1:{port}/v1",
+            **_settings_paths(tmp_path),
+        )
+
+        assert not port_available(port)
+        assert ollama_available(settings)
+
+    assert port_available(port)
+    assert not ollama_available(settings)
+
+
+def test_port_selection_fails_after_bounded_search() -> None:
+    with pytest.raises(OSError, match="no free console port"):
+        choose_console_port(65_535, available=lambda _port: False)
+
+
+def test_doctor_command_prints_human_readable_report(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, path in _settings_paths(tmp_path).items():
+        monkeypatch.setenv(f"CA_{name.upper()}", str(path))
+    monkeypatch.setenv("CA_CONSOLE_PORT", "65432")
+
+    assert run(["doctor"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Gmail Compliance Agent startup check" in output
+    assert "[PASS] Configuration" in output
+    assert "[WARN] Ollama" in output or "[PASS] Ollama" in output
+
+
+def test_console_uses_automatic_port_fallback(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeServer:
+        started = False
+        should_exit = False
+
+        def __init__(self, config: object) -> None:
+            captured["config"] = config
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setattr("compliance_agent.cli.choose_console_port", lambda _port: 8766)
+    monkeypatch.setattr("compliance_agent.cli.uvicorn.Server", FakeServer)
+
+    assert run(["console", "--no-open"]) == 0
+
+    assert captured["ran"] is True
+    assert cast("uvicorn.Config", captured["config"]).port == 8766
+    assert "using 8766 instead" in capsys.readouterr().out
+
+
+def test_explicit_busy_console_port_has_clear_recovery(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("compliance_agent.cli.port_available", lambda _port: False)
+
+    assert run(["console", "--port", "8765", "--no-open"]) == 2
+
+    assert "omit --port" in capsys.readouterr().err
+
+
+def test_console_opener_waits_for_ready_server_and_uses_new_tab(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = cast(
+        "uvicorn.Server",
+        SimpleNamespace(started=True, should_exit=False),
+    )
+    opened: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        "compliance_agent.cli.webbrowser.open",
+        lambda url, new=0: opened.append((url, new)) or True,
+    )
+
+    _open_console_when_ready(server, "http://127.0.0.1:8765/bootstrap#secret")
+
+    assert opened == [("http://127.0.0.1:8765/bootstrap#secret", 2)]
+
+
+def test_console_opener_stops_without_opening_when_server_exits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = cast(
+        "uvicorn.Server",
+        SimpleNamespace(started=False, should_exit=True),
+    )
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "compliance_agent.cli.webbrowser.open",
+        lambda url, new=0: opened.append(url) or True,
+    )
+
+    _open_console_when_ready(server, "http://127.0.0.1:8765/bootstrap#secret")
+
+    assert not opened
+
+
+def test_console_opener_reports_browser_failure(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = cast(
+        "uvicorn.Server",
+        SimpleNamespace(started=True, should_exit=False),
+    )
+    monkeypatch.setattr("compliance_agent.cli.webbrowser.open", lambda url, new=0: False)
+
+    _open_console_when_ready(server, "http://127.0.0.1:8765/bootstrap#secret")
+
+    assert "secure fallback link" in capsys.readouterr().err
+
+
+def test_short_launcher_starts_console(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(launcher, "run", lambda args: calls.append(args) or 0)
+
+    with pytest.raises(SystemExit, match="0"):
+        launcher.main()
+
+    assert calls == [["console"]]
 
 
 def test_cli_audit_prune_defaults_to_plan_and_requires_apply(

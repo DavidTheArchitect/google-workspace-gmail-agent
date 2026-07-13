@@ -38,6 +38,11 @@ dev = [
 
 [project.scripts]
 compliance-agent = "compliance_agent.cli:main"
+gmail-agent = "compliance_agent.launcher:main"
+
+[tool.uv]
+# The repository is commonly used from OneDrive on Windows, where hardlinks can fail.
+link-mode = "copy"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/compliance_agent"]

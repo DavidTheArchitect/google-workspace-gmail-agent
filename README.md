@@ -33,12 +33,38 @@ observation; the repository does not ship guessed write selectors.
 
 Python 3.12 and 3.13 are supported. Dependencies are exact-pinned and resolved by `uv`.
 
+### Start the console
+
+For the first run on Windows, double-click [`Setup-Gmail-Agent.cmd`](Setup-Gmail-Agent.cmd). It:
+
+1. creates a safe plan-only `.env` without overwriting an existing one;
+2. offers to install `uv` from the official `astral-sh.uv` WinGet package when needed;
+3. creates or repairs the exact locked project environment;
+4. runs a human-readable startup check; and
+5. offers to launch the console immediately.
+
+After setup, double-click [`Start-Gmail-Agent.cmd`](Start-Gmail-Agent.cmd). Keep its terminal window
+open while using the agent. The launcher repairs a missing environment, checks startup readiness,
+waits for the local server, opens the secure one-time URL, and signs the browser in automatically—
+there is no token to copy or type. It uses a local, OneDrive-safe `uv` cache and copy mode. If the
+configured port is busy, the console selects the next free loopback port automatically.
+
+The equivalent terminal command is:
+
+```powershell
+uv run gmail-agent
+```
+
+If dependencies have not been installed yet, `uv` resolves them on the first launch. Press
+`Ctrl+C` in the launcher window to stop the console.
+
 ```powershell
 uv sync --extra dev
+uv run compliance-agent doctor
 uv run compliance-agent version
 uv run compliance-agent block add --domain spammer.com --notice "Mail rejected."
 uv run compliance-agent block list
-uv run compliance-agent console
+uv run gmail-agent
 uv run pytest
 ```
 
@@ -55,6 +81,7 @@ Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
 `CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
 and new settings fails configuration validation. Browser-backed dry runs require supervised
 live-read contract evidence, and live composition requires an accepted contract-pack digest.
+Edit `.env` to change local configuration; `.env.example` documents the safe starting values.
 
 Audit retention is non-destructive by default:
 
