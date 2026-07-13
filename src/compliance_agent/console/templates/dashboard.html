@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard · Gmail Compliance Agent{% endblock %}
 {% block content %}
+{% import "partials/_macros.html" as ui %}
 <div class="dashboard-layout">
   <section class="content-column">
     <header class="page-header">
@@ -45,13 +46,13 @@
           <thead><tr><th>Status</th><th>Request</th><th>Mode</th><th>Time</th><th>Integrity</th></tr></thead>
           <tbody>
           {% for run in runs %}
-            <tr><td><span class="status-text {{ run.phase.value }}">{{ run.phase.value.replace('_', ' ')|title }}</span></td><td><a href="/runs/{{ run.run_id }}">{{ run.request_text }}</a></td><td>{{ run.mode.value.replace('_', ' ')|title }}</td><td>{{ run.updated_at.strftime('%b %d, %H:%M') }}</td><td>Active</td></tr>
+            <tr><td><span class="status-text {{ run.phase.value }}">{{ run.phase.value.replace('_', ' ')|title }}</span></td><td><a href="/runs/{{ run.run_id }}">{{ run.request_text }}</a></td><td>{{ run.mode.value.replace('_', ' ')|title }}</td><td data-value="{{ run.updated_at.isoformat() }}">{{ ui.timestamp(run.updated_at) }}</td><td>Active</td></tr>
           {% endfor %}
           {% for run in audit_runs if not runs %}
-            <tr><td><span class="status-text completed">{{ run.status.value.replace('_', ' ')|title }}</span></td><td><a href="/audits/{{ run.run_id }}">Completed audit run</a></td><td>Recorded</td><td>{{ run.ended_at.strftime('%b %d, %H:%M') }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Error' }}</td></tr>
+            <tr><td><span class="status-text completed">{{ run.status.value.replace('_', ' ')|title }}</span></td><td><a href="/audits/{{ run.run_id }}">Completed audit run</a></td><td>Recorded</td><td data-value="{{ run.ended_at.isoformat() }}">{{ ui.timestamp(run.ended_at) }}</td><td class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Error' }}</td></tr>
           {% endfor %}
           {% if not runs and not audit_runs %}
-            <tr><td colspan="5" class="empty-row">No runs yet. Your first plan will appear here.</td></tr>
+            <tr><td colspan="5" class="empty-row"><div class="empty-cell"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg><p><strong>No runs yet.</strong> Your first plan will appear here.</p><a class="button secondary" href="/runs/new">Open change form</a></div></td></tr>
           {% endif %}
           </tbody>
         </table>

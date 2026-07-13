@@ -1,0 +1,43 @@
+{% macro entry_chips(entries) %}
+<div class="entry-chips">
+  {% for entry in entries %}
+  <span class="chip entry-chip"><svg class="icon" aria-hidden="true"><use href="#icon-{{ 'mail' if entry.kind == 'email' else 'globe' }}"/></svg>{{ entry.value }}</span>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro rule_ref(rule_id) %}<code class="rule-ref" title="{{ rule_id }}">{{ rule_id.hex[:8] }}</code>{% endmacro %}
+
+{% macro action_card(action) %}
+<article class="action-card">
+  {% if action.type == 'add_blocked_entries' %}
+    {% set n = action.entries|length %}
+    <h3>Block {{ n }} sender{{ 's' if n != 1 }}</h3>
+    {{ entry_chips(action.entries) }}
+    {% if action.target_rule_id %}<p class="action-meta">Into rule {{ rule_ref(action.target_rule_id) }}</p>{% endif %}
+  {% elif action.type == 'remove_blocked_entries' %}
+    {% set n = action.entries|length %}
+    <h3>Unblock {{ n }} sender{{ 's' if n != 1 }}</h3>
+    {{ entry_chips(action.entries) }}
+    {% if action.target_rule_id %}<p class="action-meta">From rule {{ rule_ref(action.target_rule_id) }}</p>{% endif %}
+  {% elif action.type == 'set_rejection_notice' %}
+    <h3>Set rejection notice</h3>
+    {% if action.target_rule_id %}<p class="action-meta">On rule {{ rule_ref(action.target_rule_id) }}</p>{% endif %}
+  {% elif action.type == 'create_blocked_sender_rule' %}
+    {% set n = action.entries|length %}
+    <h3>Create a blocked-sender rule ({{ n }} entr{{ 'y' if n == 1 else 'ies' }})</h3>
+    {{ entry_chips(action.entries) }}
+  {% elif action.type == 'remove_blocked_sender_rule' %}
+    <h3>Remove blocked-sender rule {{ rule_ref(action.target_rule_id) }}</h3>
+    {% if action.remove_owned_address_list %}<span class="chip danger">also removes its owned address list</span>{% endif %}
+  {% elif action.type == 'list_blocked_sender_rules' %}
+    <h3>List blocked sender rules</h3>
+    <p class="action-meta">Read-only observation; nothing changes.</p>
+  {% else %}
+    <h3>{{ action.type.replace('_', ' ')|title }}</h3>
+  {% endif %}
+  {% if action.rejection_notice is defined and action.rejection_notice %}
+  <blockquote class="notice-quote">{{ action.rejection_notice }}</blockquote>
+  {% endif %}
+</article>
+{% endmacro %}

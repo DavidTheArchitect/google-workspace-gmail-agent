@@ -15,10 +15,21 @@
 <div class="run-layout">
   <section class="run-main">
     <section class="plan-review"><h2>Request</h2><p class="request-copy">{{ run.request_text }}</p>
-      {% if run.plan %}<h2>Validated actions</h2><div class="code-panel"><pre>{{ run.plan.model_dump_json(indent=2) }}</pre></div>{% endif %}
+      {% if run.plan %}
+      {% import "partials/_plan_summary.html" as plan_summary %}
+      <h2>Validated actions</h2>
+      <div class="plan-actions">{% for action in run.plan.actions %}{{ plan_summary.action_card(action) }}{% endfor %}</div>
+      <details class="raw-panel"><summary>Raw plan JSON</summary><div class="code-panel"><pre>{{ run.plan.model_dump_json(indent=2) }}</pre></div></details>
+      {% endif %}
     </section>
     {% if run.preview and run.preview.change_set %}
-    <section><h2>Before and after</h2><div class="comparison"><div><h3>Before</h3><pre>{{ run.preview.current_state.model_dump_json(indent=2) }}</pre></div><div class="after"><h3>After</h3><pre>{{ run.preview.desired_state.model_dump_json(indent=2) }}</pre></div></div></section>
+    {% import "partials/_change_summary.html" as change_summary %}
+    <section><h2>What will change</h2>
+      {{ change_summary.summary(run.preview.change_set, list_deltas) }}
+      <details class="raw-panel"><summary>Raw state JSON (before and after)</summary>
+        <div class="comparison"><div><h3>Before</h3><pre>{{ run.preview.current_state.model_dump_json(indent=2) }}</pre></div><div class="after"><h3>After</h3><pre>{{ run.preview.desired_state.model_dump_json(indent=2) }}</pre></div></div>
+      </details>
+    </section>
     <section>
       <div class="section-heading"><h2>Impact</h2><span class="badge-level {{ run.preview.impact.level }}">{{ run.preview.impact.level }}</span></div>
       <div class="impact-strip"><div><strong>{{ run.preview.impact.affected_entries }}</strong><span>Affected entries</span></div><div><strong>{{ run.preview.impact.rules_created + run.preview.impact.rules_updated + run.preview.impact.rules_removed }}</strong><span>Rules touched</span></div><div><strong>{{ 'Yes' if run.preview.impact.root_ou_confirmed else 'No' }}</strong><span>Root OU confirmed</span></div><div><strong>{{ 'Yes' if run.preview.impact.ownership_verified else 'No' }}</strong><span>Ownership verified</span></div></div>
