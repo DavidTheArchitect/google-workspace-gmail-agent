@@ -1,0 +1,44 @@
+{% import "partials/_plan_summary.html" as plan_summary %}
+
+{% macro rule_row(rule, tone, marker) %}
+<div class="change-row {{ tone }}">
+  <span class="change-marker" aria-hidden="true">{{ marker }}</span>
+  <div class="change-body">
+    <strong>{{ rule.display_name }}</strong>
+    <span class="change-kind">Rule · root OU · lists: {{ rule.address_list_names|join(', ') }}</span>
+    {% if rule.rejection_notice %}<blockquote class="notice-quote">{{ rule.rejection_notice }}</blockquote>{% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro list_row(address_list, tone, marker, delta=none) %}
+<div class="change-row {{ tone }}">
+  <span class="change-marker" aria-hidden="true">{{ marker }}</span>
+  <div class="change-body">
+    <strong>{{ address_list.display_name }}</strong>
+    <span class="change-kind">Address list · {{ address_list.entries|length }} entr{{ 'y' if address_list.entries|length == 1 else 'ies' }} after this change</span>
+    {% if delta %}
+      {% if delta.added %}<div class="delta-line added"><span class="delta-sign" aria-hidden="true">+</span>{{ plan_summary.entry_chips(delta.added) }}</div>{% endif %}
+      {% if delta.removed %}<div class="delta-line removed"><span class="delta-sign" aria-hidden="true">−</span>{{ plan_summary.entry_chips(delta.removed) }}</div>{% endif %}
+    {% elif tone == 'create' %}
+      {{ plan_summary.entry_chips(address_list.entries) }}
+    {% endif %}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro summary(change_set, list_deltas) %}
+{% if change_set.rules_to_create or change_set.rules_to_update or change_set.rules_to_remove %}
+<h3 class="change-group-title">Rule changes</h3>
+{% for rule in change_set.rules_to_create %}{{ rule_row(rule, 'create', '+') }}{% endfor %}
+{% for rule in change_set.rules_to_update %}{{ rule_row(rule, 'update', '~') }}{% endfor %}
+{% for rule in change_set.rules_to_remove %}{{ rule_row(rule, 'remove', '−') }}{% endfor %}
+{% endif %}
+{% if change_set.address_lists_to_create or change_set.address_lists_to_update or change_set.address_lists_to_remove %}
+<h3 class="change-group-title">Address list changes</h3>
+{% for lst in change_set.address_lists_to_create %}{{ list_row(lst, 'create', '+') }}{% endfor %}
+{% for lst in change_set.address_lists_to_update %}{{ list_row(lst, 'update', '~', list_deltas.get(lst.ownership_id.hex)) }}{% endfor %}
+{% for lst in change_set.address_lists_to_remove %}{{ list_row(lst, 'remove', '−') }}{% endfor %}
+{% endif %}
+{% if not change_set.has_mutations %}<p class="help">This change set contains no external writes.</p>{% endif %}
+{% endmacro %}

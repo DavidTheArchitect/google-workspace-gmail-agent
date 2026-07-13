@@ -3,14 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
   <title>Connect · Gmail Compliance Agent</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <script src="/static/theme.js"></script>
   <link rel="stylesheet" href="/static/styles.css">
   <script defer src="/static/bootstrap.js"></script>
 </head>
 <body class="bootstrap-page">
+  {% include "partials/_icons.html" %}
   <main class="bootstrap-panel">
-    <span class="brand-mark large" aria-hidden="true">✓</span>
+    <span class="brand-mark large" aria-hidden="true"><svg class="icon"><use href="#icon-check"/></svg></span>
+    {% set mode_tone = {'plan_only': 'accent', 'dry_run': 'warning', 'live': 'danger'} %}
+    <div><span class="chip mode-chip {{ mode_tone[run_mode.value] }}">{{ run_mode.value.replace('_', ' ')|title }} mode</span></div>
     <h1>Connect to your local console</h1>
     <p>The launch token stays on this device and is exchanged once for an attended session.</p>
     <form method="post" action="/bootstrap" id="bootstrap-form">
@@ -18,6 +23,10 @@
       <input id="bootstrap-token" name="token" type="password" autocomplete="off" required>
       <button class="button primary" type="submit">Open console</button>
     </form>
+    <ul class="bootstrap-notes">
+      <li>The token works exactly once; restart the console for a fresh link.</li>
+      <li>Your session lives in memory only and ends when the console stops.</li>
+    </ul>
   </main>
 </body>
 </html>

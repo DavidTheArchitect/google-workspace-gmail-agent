@@ -15,6 +15,9 @@ class ReadinessItem(FrozenModel):
     status: str
     detail: str
     blocking: bool
+    code_hint: str | None = None
+    action_href: str | None = None
+    action_label: str | None = None
 
 
 class SystemHealth(FrozenModel):
@@ -87,9 +90,10 @@ def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:
             detail=(
                 "Expected administrator is configured."
                 if settings.expected_admin_email
-                else "Set CA_EXPECTED_ADMIN_EMAIL before browser-backed work."
+                else "Set this environment variable before browser-backed work:"
             ),
             blocking=not bool(settings.expected_admin_email),
+            code_hint=None if settings.expected_admin_email else "CA_EXPECTED_ADMIN_EMAIL",
         ),
         ReadinessItem(
             name="Workspace identity",
@@ -97,9 +101,12 @@ def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:
             detail=(
                 "Expected Workspace is configured."
                 if settings.expected_workspace_domain
-                else "Set CA_EXPECTED_WORKSPACE_DOMAIN before browser-backed work."
+                else "Set this environment variable before browser-backed work:"
             ),
             blocking=not bool(settings.expected_workspace_domain),
+            code_hint=(
+                None if settings.expected_workspace_domain else "CA_EXPECTED_WORKSPACE_DOMAIN"
+            ),
         ),
         ReadinessItem(
             name="UI contract",
@@ -118,6 +125,16 @@ def collect_readiness(settings: Settings) -> tuple[ReadinessItem, ...]:
                 else "Capture sanitized evidence and complete supervised acceptance."
             ),
             blocking=bool(contract_error) or not bool(contract and contract.status == "accepted"),
+            action_href=(
+                None
+                if contract and contract.status == "accepted" and not contract_error
+                else "/contracts"
+            ),
+            action_label=(
+                None
+                if contract and contract.status == "accepted" and not contract_error
+                else "View contract evidence"
+            ),
         ),
     )
 

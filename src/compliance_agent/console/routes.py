@@ -22,6 +22,10 @@ from pydantic import BaseModel, Field
 
 from compliance_agent.application.audit_catalog import AuditCatalog
 from compliance_agent.application.audit_inspection_service import inspect_audit_run
+from compliance_agent.application.change_presentation import (
+    AddressListDelta,
+    address_list_deltas,
+)
 from compliance_agent.application.ownership_console_service import (
     health_with_recoverability,
     latest_observed_state,
@@ -33,6 +37,7 @@ from compliance_agent.application.retention_service import AuditRetentionService
 from compliance_agent.application.ui_contract_service import UiContractStore
 from compliance_agent.audit.export import export_redacted_zip
 from compliance_agent.console.coordinator import ConsoleCoordinator
+from compliance_agent.console.notices import resolve_notice
 from compliance_agent.console.readiness import (
     ReadinessCache,
     SystemHealth,
@@ -84,6 +89,7 @@ class ConsoleWebContext:
             "masked_admin": mask_identity(self.settings.expected_admin_email),
             "masked_workspace": mask_identity(self.settings.expected_workspace_domain),
             "system_health": system_health,
+            "notice": resolve_notice(request.query_params),
             **values,
         }
 
@@ -130,7 +136,13 @@ def register_console_routes(app: FastAPI, web: ConsoleWebContext) -> None:
 def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
     @app.get("/bootstrap", response_class=HTMLResponse)
     async def bootstrap_page(request: Request) -> Response:
-        return web.templates.TemplateResponse(request=request, name="bootstrap.html", context={})
+        # Deliberately minimal context: no identities, health, or CSRF exist
+        # before authentication; the page only needs the configured run mode.
+        return web.templates.TemplateResponse(
+            request=request,
+            name="bootstrap.html",
+            context={"run_mode": web.settings.run_mode},
+        )
 
     @app.post("/bootstrap")
     async def bootstrap_session(request: Request, token: Annotated[str, Form()]) -> Response:
@@ -234,6 +246,11 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         if run is None:
             message = "console run disappeared during rendering"
             raise RuntimeError(message)
+        list_deltas: dict[str, AddressListDelta] = (
+            address_list_deltas(run.preview.change_set)
+            if run.preview is not None and run.preview.change_set is not None
+            else {}
+        )
         return web.templates.TemplateResponse(
             request=request,
             name="run_detail.html",
@@ -241,6 +258,7 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 request,
                 run=run,
                 approval=approval,
+                list_deltas=list_deltas,
             ),
         )
 
@@ -405,7 +423,7 @@ def _register_contract_and_ownership_routes(app: FastAPI, web: ConsoleWebContext
             service.recover(ownership_id, state, summary.run_directory, confirmation)
         except OwnershipNotEstablished as error:
             return web.error_response(request, 400, "Recovery refused", str(error))
-        return RedirectResponse("/ownership", status_code=303)
+        return RedirectResponse("/ownership?notice=ownership_recovered", status_code=303)
 
 
 def _register_audit_routes(app: FastAPI, web: ConsoleWebContext) -> None:
@@ -466,10 +484,13 @@ def _register_audit_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 "the exact phrase.",
             )
         try:
-            service.delete_expired(candidates)
+            deleted = service.delete_expired(candidates)
         except AuditRetentionFailure as error:
             return web.error_response(request, 500, "Retention failed", str(error))
-        return RedirectResponse("/audits", status_code=303)
+        return RedirectResponse(
+            f"/audits?notice=retention_applied&count={len(deleted)}",
+            status_code=303,
+        )
 
 
 def _register_audit_export_route(app: FastAPI, web: ConsoleWebContext) -> None:

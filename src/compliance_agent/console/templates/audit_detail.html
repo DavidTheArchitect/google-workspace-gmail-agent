@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Audit {{ audit.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
 {% block content %}
+{% import "partials/_macros.html" as ui %}
 <header class="page-header split">
-  <div><h1>Audit run {{ audit.run_id[:8]|upper }}</h1><p>{{ audit.started_at.strftime('%Y-%m-%d %H:%M:%S %Z') }} → {{ audit.ended_at.strftime('%Y-%m-%d %H:%M:%S %Z') }}</p></div>
+  <div><h1>Audit run {{ audit.run_id[:8]|upper }}</h1><p>{{ ui.timestamp(audit.started_at) }} → {{ ui.timestamp(audit.ended_at) }}</p></div>
   <div class="topbar-tools">
     <form method="post" action="/audits/{{ audit.run_id }}/export">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -30,8 +31,8 @@
     <div><dt>Model</dt><dd>{{ m.model_tag or 'Not used' }}{% if m.model_digest %} <code>{{ m.model_digest[:12] }}</code>{% endif %}</dd></div>
     <div><dt>Contract digest</dt><dd>{% if m.ui_contract_digest %}<span class="hash-value"><code data-hash-full="{{ m.ui_contract_digest }}" title="Click to reveal the full digest">{{ m.ui_contract_digest[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ m.ui_contract_digest }}" aria-label="Copy contract digest"><svg class="icon"><use href="#icon-copy"/></svg></button></span>{% else %}None{% endif %}</dd></div>
     <div><dt>Operating system</dt><dd>{{ m.operating_system }}</dd></div>
-    <div><dt>Started</dt><dd>{{ m.start_time.strftime('%Y-%m-%d %H:%M:%S %Z') }}</dd></div>
-    <div><dt>Ended</dt><dd>{{ m.end_time.strftime('%Y-%m-%d %H:%M:%S %Z') }}</dd></div>
+    <div><dt>Started</dt><dd>{{ ui.timestamp(m.start_time) }}</dd></div>
+    <div><dt>Ended</dt><dd>{{ ui.timestamp(m.end_time) }}</dd></div>
   </dl>
 </section>
 {% else %}

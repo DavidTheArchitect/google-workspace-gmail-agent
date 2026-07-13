@@ -13,6 +13,7 @@
   <script defer src="{{ url_for('static', path='/sse.js') }}"></script>
   <script defer src="{{ url_for('static', path='/console.js') }}"></script>
   <script defer src="{{ url_for('static', path='/tables.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/relative-time.js') }}"></script>
 </head>
 <body>
   {% include "partials/_icons.html" %}
@@ -29,6 +30,12 @@
         <span class="theme-label">Auto</span>
       </button>
       <div class="topbar-status"><span class="status-dot"></span> Local only</div>
+      {% set mode_tone = {'plan_only': 'accent', 'dry_run': 'warning', 'live': 'danger'} %}
+      {% set mode_title = {
+        'plan_only': 'Plan only: plans are drafted and reviewed; nothing is previewed or executed.',
+        'dry_run': 'Dry run: read-only previews observe the Admin console; no mutation occurs.',
+        'live': 'Live: approved changes can modify the Admin console.'} %}
+      <span class="chip mode-chip {{ mode_tone[run_mode.value] }}" title="{{ mode_title[run_mode.value] }}">{{ run_mode.value.replace('_', ' ')|title }}</span>
     </div>
   </header>
   <div class="app-shell">
@@ -51,6 +58,13 @@
       </div>
     </nav>
     <main id="main-content" class="main-content" tabindex="-1">
+      {% if notice %}
+      <div class="notice-banner" role="status" aria-live="polite">
+        <svg class="icon" aria-hidden="true"><use href="#icon-check"/></svg>
+        <span class="notice-text">{{ notice }}</span>
+        <button type="button" class="icon-button" data-dismiss aria-label="Dismiss notification"><svg class="icon"><use href="#icon-close"/></svg></button>
+      </div>
+      {% endif %}
       {% block content %}{% endblock %}
     </main>
   </div>

@@ -40,8 +40,13 @@ const announce = (message) => {
   region.textContent = message;
 };
 
-// Copy-to-clipboard buttons and truncated-hash reveal toggles.
+// Copy-to-clipboard buttons, truncated-hash reveal toggles, and notice dismissal.
 document.addEventListener("click", (event) => {
+  const dismiss = event.target instanceof Element ? event.target.closest("[data-dismiss]") : null;
+  if (dismiss) {
+    dismiss.closest(".notice-banner")?.remove();
+    return;
+  }
   const copyButton = event.target instanceof Element ? event.target.closest("[data-copy]") : null;
   if (copyButton && navigator.clipboard) {
     navigator.clipboard.writeText(copyButton.dataset.copy).then(() => {

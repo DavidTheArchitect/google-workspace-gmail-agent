@@ -8,12 +8,14 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from compliance_agent.application.approval_service import ApprovalService
 from compliance_agent.application.audit_catalog import AuditCatalog
 from compliance_agent.application.audit_inspection_service import inspect_audit_run
 from compliance_agent.application.audit_service import AuditFinalizationService
+from compliance_agent.application.change_presentation import address_list_deltas
 from compliance_agent.application.change_service import ChangeService
 from compliance_agent.application.dry_run_audit_service import DryRunAuditFinalizationService
 from compliance_agent.application.dry_run_service import DryRunDependencies, DryRunService
@@ -33,7 +35,8 @@ from compliance_agent.console.coordinator import (
     ConsoleCoordinator,
     ConsoleCoordinatorDependencies,
 )
-from compliance_agent.console.readiness import ReadinessCache, greeting_for_hour
+from compliance_agent.console.notices import resolve_notice
+from compliance_agent.console.readiness import ReadinessCache, collect_readiness, greeting_for_hour
 from compliance_agent.domain.diff import calculate_change_set
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import OwnershipRegistry
@@ -657,9 +660,240 @@ def test_enhancement_static_assets_are_served(tmp_path: Path) -> None:
     console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
     client = _client(console)
 
-    for asset in ("theme.js", "tables.js", "console.js", "styles.css", "favicon.svg"):
+    assets = (
+        "theme.js",
+        "tables.js",
+        "console.js",
+        "styles.css",
+        "favicon.svg",
+        "relative-time.js",
+    )
+    for asset in assets:
         response = client.get(f"/static/{asset}")
         assert response.status_code == 200
 
     for page in ("/audits", "/ownership", "/propagation"):
         assert "data-enhance" in client.get(page).text
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ({"notice": "ownership_recovered"}, "Ownership record recovered from audited evidence."),
+        ({"notice": "retention_applied", "count": "1"}, "Retention applied — 1 audit run deleted."),
+        (
+            {"notice": "retention_applied", "count": "2"},
+            "Retention applied — 2 audit runs deleted.",
+        ),
+        ({"notice": "retention_applied"}, None),
+        ({"notice": "retention_applied", "count": "many"}, None),
+        ({"notice": "retention_applied", "count": "-1"}, None),
+        ({"notice": "retention_applied", "count": "999999999"}, None),
+        ({"notice": "unknown_key"}, None),
+        ({}, None),
+    ],
+)
+def test_resolve_notice_is_allow_listed(params: dict[str, str], expected: str | None) -> None:
+    assert resolve_notice(params) == expected
+
+
+def test_notice_banner_renders_for_allow_listed_keys_only(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(console)
+
+    shown = client.get("/audits?notice=retention_applied&count=2")
+    ignored = client.get("/audits?notice=totally_unknown")
+
+    assert "notice-banner" in shown.text
+    assert "2 audit runs deleted" in shown.text
+    assert "data-dismiss" in shown.text
+    assert "notice-banner" not in ignored.text
+
+
+def test_prune_and_recover_redirects_carry_notice_params(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    (settings.audit_dir / "runs" / f"20000101T000000Z-{'0' * 32}").mkdir(parents=True)
+    console = create_console_app(settings, planner=StaticPlanner())
+    client = _client(console)
+
+    applied = client.post(
+        "/audits/prune",
+        data={"csrf_token": console.security.csrf_token(), "confirmation": "DELETE 1 RUNS"},
+        follow_redirects=False,
+    )
+
+    assert applied.status_code == 303
+    assert applied.headers["location"] == "/audits?notice=retention_applied&count=1"
+    landed = client.get(applied.headers["location"])
+    assert "1 audit run deleted" in landed.text
+
+
+@pytest.mark.asyncio
+async def test_recovery_redirect_lands_on_success_banner(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    state = owned_state(ownership_id=SECOND_ID, entries=(domain("safe.example"),))
+    await _finalized_observation(settings, "5" * 32, state, proves_creation=True)
+    console = create_console_app(settings, planner=StaticPlanner())
+    client = _client(console)
+
+    recovered = client.post(
+        f"/ownership/{SECOND_ID}/recover",
+        data={
+            "csrf_token": console.security.csrf_token(),
+            "evidence_run_id": "5" * 32,
+            "confirmation": f"RECOVER {SECOND_ID.hex[:8].upper()}",
+        },
+        follow_redirects=False,
+    )
+
+    assert recovered.status_code == 303
+    assert recovered.headers["location"] == "/ownership?notice=ownership_recovered"
+    landed = client.get(recovered.headers["location"])
+    assert "Ownership record recovered" in landed.text
+
+
+def test_run_detail_renders_plan_summary_cards(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(console)
+    csrf = console.security.csrf_token()
+
+    created = client.post(
+        "/runs",
+        data={"request_text": "Block new.example", "mode": "plan_only", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    detail = client.get(created.headers["location"])
+
+    assert "Validated actions" in detail.text
+    assert "Block 1 sender" in detail.text
+    assert "entry-chip" in detail.text
+    assert "Raw plan JSON" in detail.text
+    assert "add_blocked_entries" in detail.text  # regression guard for the mega-test
+
+
+def test_change_summary_macro_renders_created_and_updated_resources() -> None:
+    before = owned_state(ownership_id=SECOND_ID, entries=(domain("keep.example"),))
+    after_list = before.address_lists[0].model_copy(
+        update={"entries": (domain("keep.example"), domain("new.example"))}
+    )
+    after = before.model_copy(update={"address_lists": (after_list,)})
+    change_set = calculate_change_set(before, after)
+    deltas = address_list_deltas(change_set)
+
+    templates = Jinja2Templates(directory=Path("src/compliance_agent/console/templates"))
+    module = templates.env.get_template("partials/_change_summary.html").module
+    html = str(module.summary(change_set, deltas))
+
+    assert "Address list changes" in html
+    assert "change-row update" in html
+    assert "new.example" in html
+    assert "delta-line added" in html
+
+
+def test_address_list_deltas_computes_added_and_removed() -> None:
+    before = owned_state(
+        ownership_id=SECOND_ID,
+        entries=(domain("old.example"), domain("keep.example")),
+    )
+    updated_list = before.address_lists[0].model_copy(
+        update={"entries": (domain("keep.example"), domain("new.example"))}
+    )
+    change_set = calculate_change_set(
+        before,
+        before.model_copy(update={"address_lists": (updated_list,)}),
+    )
+
+    deltas = address_list_deltas(change_set)
+    delta = deltas[SECOND_ID.hex]
+
+    assert [entry.value for entry in delta.added] == ["new.example"]
+    assert [entry.value for entry in delta.removed] == ["old.example"]
+    assert address_list_deltas(calculate_change_set(before, before)) == {}
+
+
+def test_topbar_shows_run_mode_chip_on_every_page(tmp_path: Path) -> None:
+    plan_only = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(plan_only)
+    dashboard = client.get("/")
+
+    assert "mode-chip" in dashboard.text
+    assert "Plan Only" in dashboard.text
+    assert "accent" in dashboard.text
+
+    dry_run = create_console_app(
+        _settings(tmp_path / "dry", RunMode.DRY_RUN),
+        planner=StaticPlanner(),
+    )
+    dry_client = _client(dry_run)
+    assert "Dry Run" in dry_client.get("/audits").text
+
+
+def test_bootstrap_page_is_theme_aware_and_shows_mode(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = TestClient(console.app, base_url="http://127.0.0.1:8765")
+
+    page = client.get("/bootstrap")
+
+    assert page.status_code == 200
+    assert "theme.js" in page.text
+    assert "icon-check" in page.text
+    assert "mode-chip" in page.text
+    assert "works exactly once" in page.text
+    assert "ad•••@example.com" not in page.text
+
+
+def test_empty_states_offer_guided_next_steps(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(console)
+
+    audits = client.get("/audits")
+    ownership = client.get("/ownership")
+    propagation = client.get("/propagation")
+
+    assert "empty-cell" in audits.text
+    assert 'href="/runs/new"' in audits.text
+    assert 'href="/audits"' in ownership.text
+    assert "after a verified live apply" in propagation.text
+
+
+def test_readiness_items_expose_hints_and_actions(tmp_path: Path) -> None:
+    settings = Settings(
+        profile_dir=tmp_path / "profile",
+        audit_dir=tmp_path / "audit",
+        state_dir=tmp_path / "state",
+        expected_admin_email="",
+        expected_workspace_domain="example.com",
+    )
+    items = {item.name: item for item in collect_readiness(settings)}
+
+    assert items["Administrator identity"].code_hint == "CA_EXPECTED_ADMIN_EMAIL"
+    assert items["Workspace identity"].code_hint is None
+    assert items["UI contract"].action_href == "/contracts"
+
+    console = create_console_app(settings, planner=StaticPlanner())
+    client = _client(console)
+    page = client.get("/readiness")
+
+    assert "env-hint" in page.text
+    assert "CA_EXPECTED_ADMIN_EMAIL" in page.text
+    assert 'href="/contracts"' in page.text
+    assert 'data-copy="uv run python scripts/observe_ui.py' in page.text
+
+
+def test_timestamps_render_as_relative_time_elements(tmp_path: Path) -> None:
+    console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
+    client = _client(console)
+    csrf = console.security.csrf_token()
+
+    created = client.post(
+        "/runs",
+        data={"request_text": "Block new.example", "mode": "plan_only", "csrf_token": csrf},
+        follow_redirects=False,
+    )
+    run_url = created.headers["location"]
+    dashboard = client.get("/")
+    events = client.get(f"{run_url}/events")
+
+    assert "data-relative" in dashboard.text
+    assert 'data-value="20' in dashboard.text  # ISO sort key kept for tables.js
+    assert "data-relative" in events.text  # macro renders in the standalone SSE fragment

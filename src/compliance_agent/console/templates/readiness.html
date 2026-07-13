@@ -6,10 +6,16 @@
   {% for item in readiness %}
   <article class="check-row">
     <span class="rail-icon {{ 'attention' if item.blocking else 'ready' }}" aria-hidden="true">{{ '!' if item.blocking else '✓' }}</span>
-    <div><h2>{{ item.name }}</h2><p>{{ item.detail }}</p></div>
+    <div>
+      <h2>{{ item.name }}</h2>
+      <p>{{ item.detail }}{% if item.code_hint %} <code class="env-hint">{{ item.code_hint }}</code>{% endif %}</p>
+      {% if item.action_href %}<a class="button secondary check-action" href="{{ item.action_href }}">{{ item.action_label }}</a>{% endif %}
+    </div>
     <span class="state-label {{ 'attention' if item.blocking else 'verified' }}">{{ item.status.replace('_', ' ') }}</span>
   </article>
   {% endfor %}
 </section>
-<section class="callout"><h2>Supervised browser gate</h2><p>Use the existing login and observation scripts to collect sanitized evidence. Authentication pages are never captured.</p><code>uv run python scripts/observe_ui.py --output-directory &lt;protected-path&gt;</code></section>
+<section class="callout"><h2>Supervised browser gate</h2><p>Use the existing login and observation scripts to collect sanitized evidence. Authentication pages are never captured.</p>
+  <div class="command-row"><code>uv run python scripts/observe_ui.py --output-directory &lt;protected-path&gt;</code><button type="button" class="icon-button" data-copy="uv run python scripts/observe_ui.py --output-directory <protected-path>" aria-label="Copy observation command"><svg class="icon"><use href="#icon-copy"/></svg></button></div>
+</section>
 {% endblock %}
