@@ -16,13 +16,18 @@
     <span class="brand-mark large" aria-hidden="true"><svg class="icon"><use href="#icon-check"/></svg></span>
     {% set mode_tone = {'plan_only': 'accent', 'dry_run': 'warning', 'live': 'danger'} %}
     <div><span class="chip mode-chip {{ mode_tone[run_mode.value] }}">{{ run_mode.value.replace('_', ' ')|title }} mode</span></div>
-    <h1>Connect to your local console</h1>
-    <p>The launch token stays on this device and is exchanged once for an attended session.</p>
-    <form method="post" action="/bootstrap" id="bootstrap-form">
+    <h1>Opening your local console</h1>
+    <p id="bootstrap-status" role="status" aria-live="polite">Securely connecting this browser…</p>
+    <form method="post" action="/bootstrap" id="bootstrap-form" hidden>
       <label for="bootstrap-token">Launch token</label>
       <input id="bootstrap-token" name="token" type="password" autocomplete="off" required>
       <button class="button primary" type="submit">Open console</button>
     </form>
+    <div id="bootstrap-help" hidden>
+      <p>This tab was not opened with its one-time launch link.</p>
+      <p>Close it, then run <code>Start-Gmail-Agent.cmd</code> or <code>uv run gmail-agent</code>. The authenticated console will open automatically.</p>
+      <button class="button secondary" type="button" id="manual-token-button">Use a token manually</button>
+    </div>
     <ul class="bootstrap-notes">
       <li>The token works exactly once; restart the console for a fresh link.</li>
       <li>Your session lives in memory only and ends when the console stops.</li>

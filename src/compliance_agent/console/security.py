@@ -48,14 +48,17 @@ class ConsoleSecurity:
 
     def csrf_token(self) -> str:
         if self._session is None:
-            message = "console session has not been established"
+            message = "Your local console session has ended. Relaunch the console and try again."
             raise PermissionError(message)
         return self._session.csrf_token
 
     def require_csrf(self, supplied: str) -> None:
         expected = self.csrf_token()
         if not hmac.compare_digest(supplied, expected):
-            message = "invalid console CSRF token"
+            message = (
+                "This form belongs to an earlier console session. Return to the dashboard and "
+                "submit it again."
+            )
             raise PermissionError(message)
 
     def origin_allowed(self, request: Request) -> bool:

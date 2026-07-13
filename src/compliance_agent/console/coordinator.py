@@ -8,6 +8,7 @@ from typing import Protocol
 
 from compliance_agent.application.approval_service import ApprovalService, PendingApproval
 from compliance_agent.application.dry_run_service import DryRunService
+from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.infrastructure.identifiers import IdentifierGenerator
 from compliance_agent.schemas.hitl import ConfirmationResponse
 from compliance_agent.schemas.operations import ConsoleRun, PhaseTransition, RunMode, RunPhase
@@ -131,7 +132,11 @@ class ConsoleCoordinator:
             return self._advance(
                 current,
                 RunPhase.BLOCKED,
-                error_code=type(error).__name__,
+                error_code=(
+                    "planner_unavailable"
+                    if isinstance(error, PlannerFailure)
+                    else type(error).__name__
+                ),
             )
         current = self._require(run_id)
         if current.phase != RunPhase.PLANNING:

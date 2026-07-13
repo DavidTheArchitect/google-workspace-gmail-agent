@@ -5,10 +5,8 @@
 </div>
 {% if run.phase.value == 'interrupted' %}
 <div class="alert error"><strong>Execution outcome is uncertain</strong><p>{{ run.error_code.replace('_', ' ')|title if run.error_code else 'Unexpected execution interruption' }}. Do not retry until the audit evidence and current Admin-console state are reconciled.</p></div>
-{% elif run.error_code == 'approval_expired' %}
-<div class="alert"><strong>Approval expired</strong><p>Run a new preview to refresh the observed state, hashes, and approval window.</p></div>
-{% elif run.error_code %}
-<div class="alert error"><strong>Run blocked</strong><p>{{ run.error_code.replace('_', ' ')|title }}. No mutation was authorized.</p></div>
+{% elif run_message %}
+<div class="alert error"><strong>{{ run_message.title }}</strong><p>{{ run_message.detail }}</p>{% if run_message.action_href %}<a class="button secondary" href="{{ run_message.action_href }}">{{ run_message.action_label }}</a>{% endif %}</div>
 {% endif %}
 {% if run.phase.value == 'planning' %}
 <div class="planning-panel">

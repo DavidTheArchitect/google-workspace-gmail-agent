@@ -9,6 +9,7 @@ import json
 import platform
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -35,6 +36,12 @@ from compliance_agent.llm.planner import build_planner
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.settings import Settings
+from compliance_agent.startup import (
+    choose_console_port,
+    collect_startup_checks,
+    format_startup_checks,
+    port_available,
+)
 from compliance_agent.version import __version__
 
 if TYPE_CHECKING:
@@ -54,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("version", help="show exact runtime component versions")
     commands.add_parser("check-config", help="validate CA_ environment settings")
+    commands.add_parser("doctor", help="check startup requirements with human-readable guidance")
     console = commands.add_parser("console", help="start the loopback-only operator console")
     console.add_argument("--port", type=int)
     console.add_argument("--no-open", action="store_true")
@@ -118,10 +126,8 @@ def run(arguments: Sequence[str] | None = None) -> int:  # noqa: PLR0911
         if args.command == "version":
             _print_json(_version_data())
             return 0
-        if args.command == "check-config":
-            settings = Settings()
-            _print_json(_safe_settings(settings))
-            return 0
+        if args.command in {"check-config", "doctor"}:
+            return _run_settings_command(args.command)
         if args.command == "console":
             return _run_console(args)
         if args.command == "plan":
@@ -151,6 +157,15 @@ def main() -> None:
     """Console-script entry point."""
 
     raise SystemExit(run())
+
+
+def _run_settings_command(command: str) -> int:
+    settings = Settings()
+    if command == "doctor":
+        print(format_startup_checks(collect_startup_checks(settings)))
+    else:
+        _print_json(_safe_settings(settings))
+    return 0
 
 
 async def _run_natural_language_plan(request: str) -> int:
@@ -236,13 +251,19 @@ def _run_audit(args: argparse.Namespace) -> int:
 
 def _run_console(args: argparse.Namespace) -> int:
     settings = Settings(console_port=args.port) if args.port is not None else Settings()
+    preferred_port = settings.console_port
+    if args.port is not None and not port_available(preferred_port):
+        message = (
+            f"console port {preferred_port} is already in use; omit --port to select the next "
+            "available port automatically"
+        )
+        raise ValueError(message)
+    selected_port = preferred_port if args.port is not None else choose_console_port(preferred_port)
+    if selected_port != preferred_port:
+        print(f"Console port {preferred_port} is busy; using {selected_port} instead.")
+        settings = Settings(console_port=selected_port)
     console = create_console_app(settings)
-    print(f"Local console: {console.security.bootstrap_url}")
-    if settings.console_open_browser and not args.no_open:
-        opener = threading.Timer(0.75, webbrowser.open, args=(console.security.bootstrap_url,))
-        opener.daemon = True
-        opener.start()
-    uvicorn.run(
+    config = uvicorn.Config(
         console.app,
         host="127.0.0.1",
         port=settings.console_port,
@@ -250,7 +271,38 @@ def _run_console(args: argparse.Namespace) -> int:
         proxy_headers=False,
         server_header=False,
     )
+    server = uvicorn.Server(config)
+    print("Starting the local Gmail Compliance Agent console.")
+    print("Your browser will open automatically when the console is ready.")
+    print(f"Secure fallback link: {console.security.bootstrap_url}")
+    if settings.console_open_browser and not args.no_open:
+        opener = threading.Thread(
+            target=_open_console_when_ready,
+            args=(server, console.security.bootstrap_url),
+            daemon=True,
+            name="console-browser-opener",
+        )
+        opener.start()
+    server.run()
     return 0
+
+
+def _open_console_when_ready(server: uvicorn.Server, bootstrap_url: str) -> None:
+    """Open the one-time launch URL only after Uvicorn has completed startup."""
+
+    while not server.started:
+        if server.should_exit:
+            return
+        time.sleep(0.05)
+    try:
+        opened = webbrowser.open(bootstrap_url, new=2)
+    except (OSError, webbrowser.Error):
+        opened = False
+    if not opened:
+        print(
+            "The browser could not be opened automatically. Use the secure fallback link above.",
+            file=sys.stderr,
+        )
 
 
 def _print_plan(plan: TaskPlan) -> None:

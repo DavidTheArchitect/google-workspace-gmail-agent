@@ -139,7 +139,7 @@ def _install_error_handlers(app: FastAPI, web: ConsoleWebContext) -> None:
 
     @app.exception_handler(PermissionError)
     async def permission_error(request: Request, error: PermissionError) -> Response:
-        return _render(request, 403, "Not permitted", str(error))
+        return _render(request, 403, "Session expired", str(error))
 
     @app.exception_handler(ValueError)
     async def value_error(request: Request, error: ValueError) -> Response:
