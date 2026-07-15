@@ -15,11 +15,14 @@ from compliance_agent.application.approval_service import ApprovalService
 from compliance_agent.application.audit_catalog import AuditCatalog
 from compliance_agent.application.propagation_service import PropagationService
 from compliance_agent.application.ui_contract_service import UiContractStore
+from compliance_agent.console.capabilities import resolve_capabilities
+from compliance_agent.console.configuration import LocalConfigurationStore
 from compliance_agent.console.coordinator import (
     ConsoleCoordinator,
     ConsoleCoordinatorDependencies,
     ConsolePlanner,
 )
+from compliance_agent.console.journal import ConsoleRunJournal
 from compliance_agent.console.planner import StructuredConsolePlanner
 from compliance_agent.console.readiness import ReadinessCache
 from compliance_agent.console.routes import ConsoleWebContext, register_console_routes
@@ -62,18 +65,30 @@ def create_console_app(
     planner: ConsolePlanner | None = None,
     sse_poll_seconds: float = 1.0,
     sse_max_polls: int = 600,
+    configuration_file: Path | None = None,
 ) -> ConsoleApplication:
     """Create a secured local console without opening a network listener."""
 
     security = ConsoleSecurity(settings.console_port)
     actual_planner = planner or StructuredConsolePlanner(build_planner(settings))
     clock = SystemClock()
+    capabilities = resolve_capabilities(settings)
+    journal = ConsoleRunJournal(settings.state_dir)
+    initial_runs = journal.load(clock.now())
+    try:
+        journal.save(initial_runs)
+    except OSError:
+        _LOGGER.warning("Unable to persist restored console runs", exc_info=True)
     coordinator = ConsoleCoordinator(
         ConsoleCoordinatorDependencies(
             planner=actual_planner,
             identifiers=Uuid4Generator(),
             clock=clock.now,
             approval_service=ApprovalService(settings.approval_ttl_seconds),
+            dry_run_service=capabilities.preview_service,
+            live_runner=capabilities.live_runner,
+            journal=journal,
+            initial_runs=initial_runs,
         )
     )
     app = FastAPI(
@@ -94,7 +109,9 @@ def create_console_app(
         clock=clock,
         sse_poll_seconds=sse_poll_seconds,
         sse_max_polls=sse_max_polls,
-        health=ReadinessCache(settings, clock),
+        health=ReadinessCache(settings, clock, capabilities=capabilities),
+        configuration=LocalConfigurationStore(configuration_file or Path.cwd() / ".env"),
+        capabilities=capabilities,
     )
     _install_error_handlers(app, web)
     _install_security_middleware(app, security)

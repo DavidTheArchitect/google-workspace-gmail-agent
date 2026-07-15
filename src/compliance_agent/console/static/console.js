@@ -1,12 +1,24 @@
 "use strict";
 
 document.addEventListener("htmx:responseError", (event) => {
-  const message = event.detail?.xhr?.responseText || "The local request could not be completed.";
-  const region = document.createElement("div");
-  region.className = "alert error";
-  region.setAttribute("role", "alert");
-  region.textContent = message;
-  document.querySelector("main")?.prepend(region);
+  if (![400, 422].includes(event.detail?.xhr?.status)) {
+    window.consoleToasts?.push("The local request could not be completed.", "error");
+  }
+});
+
+document.addEventListener("htmx:beforeSwap", (event) => {
+  if ([400, 422].includes(event.detail?.xhr?.status) && event.detail?.target?.matches?.("form")) {
+    event.detail.shouldSwap = true;
+    event.detail.isError = false;
+  }
+});
+
+document.addEventListener("htmx:afterSwap", (event) => {
+  const root = event.detail?.elt || event.detail?.target;
+  const invalid = root?.matches?.("[aria-invalid='true']")
+    ? root
+    : root?.querySelector?.("[aria-invalid='true']");
+  invalid?.focus();
 });
 
 // A run's SSE stream emits `settled` once it leaves an active phase; reload so
@@ -40,19 +52,57 @@ const announce = (message) => {
   region.textContent = message;
 };
 
-// Copy-to-clipboard buttons, truncated-hash reveal toggles, and notice dismissal.
+const fallbackCopy = (value) => {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.append(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch (error) {
+    copied = false;
+  }
+  textarea.remove();
+  return copied;
+};
+
+const copyValue = async (value) => {
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (error) {
+      // Continue to the legacy fallback for restricted browser contexts.
+    }
+  }
+  return fallbackCopy(value);
+};
+
+// Copy-to-clipboard buttons, truncated-hash reveal toggles, and toast dismissal.
 document.addEventListener("click", (event) => {
   const dismiss = event.target instanceof Element ? event.target.closest("[data-dismiss]") : null;
   if (dismiss) {
-    dismiss.closest(".notice-banner")?.remove();
+    dismiss.closest(".toast, .notice-banner")?.remove();
     return;
   }
   const copyButton = event.target instanceof Element ? event.target.closest("[data-copy]") : null;
-  if (copyButton && navigator.clipboard) {
-    navigator.clipboard.writeText(copyButton.dataset.copy).then(() => {
-      copyButton.classList.add("copied");
-      announce("Copied to clipboard");
-      window.setTimeout(() => copyButton.classList.remove("copied"), 1600);
+  if (copyButton) {
+    copyValue(copyButton.dataset.copy || "").then((copied) => {
+      if (copied) {
+        copyButton.classList.add("copied");
+        announce("Copied to clipboard");
+        window.consoleToasts?.push("Copied to clipboard", "success");
+        window.setTimeout(() => copyButton.classList.remove("copied"), 1600);
+        return;
+      }
+      const hash = copyButton.closest(".hash-value")?.querySelector("[data-hash-full]");
+      if (hash) hash.textContent = hash.dataset.hashFull;
+      announce("Clipboard unavailable. The full hash is shown for manual copying.");
+      window.consoleToasts?.push("Clipboard unavailable. The full hash is shown.", "error");
     });
     return;
   }

@@ -1,21 +1,27 @@
 {% extends "base.html" %}
-{% block title %}Readiness · Gmail Compliance Agent{% endblock %}
+{% block title %}Local diagnostics · Gmail Compliance Agent{% endblock %}
 {% block content %}
-<header class="page-header narrow"><h1>Readiness</h1><p>Local checks only. No browser is opened and no Google setting is changed.</p></header>
-<section class="open-list" aria-label="Readiness checks">
-  {% for item in readiness %}
-  <article class="check-row">
-    <span class="rail-icon {{ 'attention' if item.blocking else 'ready' }}" aria-hidden="true">{{ '!' if item.blocking else '✓' }}</span>
+{% set blockers = readiness|selectattr('blocking')|list %}
+<div class="content-page diagnostics-page">
+  <a class="back-link" href="/setup">← Back to settings</a>
+  <header class="page-header"><h1>Local diagnostics</h1><p>Technical checks for this process. These checks do not sign in to Google or enable missing integration.</p></header>
+  <section class="diagnostic-summary {{ 'attention' if blockers else 'ready' }}">
+    <span class="summary-symbol" aria-hidden="true">{{ '!' if blockers else '✓' }}</span>
     <div>
-      <h2>{{ item.name }}</h2>
-      <p>{{ item.detail }}{% if item.code_hint %} <code class="env-hint">{{ item.code_hint }}</code>{% endif %}</p>
-      {% if item.action_href %}<a class="button secondary check-action" href="{{ item.action_href }}">{{ item.action_label }}</a>{% endif %}
+      <h2>{{ blockers|length ~ ' current-mode blocker' ~ ('' if blockers|length == 1 else 's') if blockers else 'Planning diagnostics passed' }}</h2>
+      <p>{% if blockers %}The current launch asks for capabilities this build does not contain. Switch to planning mode to use the available workflow.{% else %}You can create and review a plan now. Optional Google Admin checks below do not block planning.{% endif %}</p>
     </div>
-    <span class="state-label {{ 'attention' if item.blocking else 'verified' }}">{{ item.status.replace('_', ' ') }}</span>
-  </article>
-  {% endfor %}
-</section>
-<section class="callout"><h2>Supervised browser gate</h2><p>Use the existing login and observation scripts to collect sanitized evidence. Authentication pages are never captured.</p>
-  <div class="command-row"><code>uv run python scripts/observe_ui.py --output-directory &lt;protected-path&gt;</code><button type="button" class="icon-button" data-copy="uv run python scripts/observe_ui.py --output-directory <protected-path>" aria-label="Copy observation command"><svg class="icon"><use href="#icon-copy"/></svg></button></div>
-</section>
+  </section>
+  <section class="diagnostic-list" aria-label="Diagnostic checks">
+    {% for item in readiness %}
+    {% set optional = not item.blocking and item.status not in ['ready', 'automatic'] %}
+    <div class="diagnostic-row">
+      <span class="rail-icon {{ 'attention' if item.blocking else 'optional' if optional else 'ready' }}" aria-hidden="true">{{ '!' if item.blocking else '·' if optional else '✓' }}</span>
+      <div><h2>{{ item.name }}</h2><p>{{ item.detail }}</p>{% if item.code_hint %}<code class="env-hint">{{ item.code_hint }}</code>{% endif %}</div>
+      <span class="diagnostic-status">{{ 'Optional' if optional else item.status.replace('_', ' ')|title }}</span>
+      {% if item.action_href %}<a class="stretched-link" href="{{ item.action_href }}"><span class="visually-hidden">{{ item.action_label }} for {{ item.name }}</span></a>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+</div>
 {% endblock %}

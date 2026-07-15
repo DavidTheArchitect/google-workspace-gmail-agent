@@ -27,6 +27,12 @@ class ConsoleSecurity:
     def bootstrap_url(self) -> str:
         return f"http://127.0.0.1:{self.port}/bootstrap#{self.launch_token}"
 
+    def reissue_bootstrap_url(self) -> str:
+        """Atomically invalidate the previous link without ending an active session."""
+
+        self.launch_token = secrets.token_urlsafe(32)
+        return self.bootstrap_url
+
     def bootstrap(self, supplied_token: str) -> ConsoleSession:
         if not hmac.compare_digest(supplied_token, self.launch_token):
             message = "invalid console launch token"
@@ -48,7 +54,10 @@ class ConsoleSecurity:
 
     def csrf_token(self) -> str:
         if self._session is None:
-            message = "Your local console session has ended. Relaunch the console and try again."
+            message = (
+                "Your local console session has ended. Type link in the console terminal for a "
+                "new sign-in link, or restart the console."
+            )
             raise PermissionError(message)
         return self._session.csrf_token
 

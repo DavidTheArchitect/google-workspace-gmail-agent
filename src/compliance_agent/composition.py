@@ -186,8 +186,10 @@ def compose_dry_run_runtime(
 ) -> DryRunRuntime:
     """Bind supervised read adapters to a writer-free preview service and audit package."""
 
-    if settings.run_mode != RunMode.DRY_RUN:
-        message = "dry-run runtime requires CA_RUN_MODE=dry_run"
+    # LIVE-mode previews use this same writer-free composition before a separate
+    # approval boundary admits the mutation-capable runtime.
+    if settings.run_mode not in {RunMode.DRY_RUN, RunMode.LIVE}:
+        message = "dry-run runtime requires CA_RUN_MODE=dry_run or live"
         raise ValueError(message)
     accepted_read_statuses = {"read_live_validated", "write_live_validated", "accepted"}
     if adapters.contract_pack.status not in accepted_read_statuses:

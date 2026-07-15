@@ -64,8 +64,10 @@ class FakeChromium:
 
     def __init__(self, context: WorkingContext) -> None:
         self._context = context
+        self.launch_options: dict[str, object] = {}
 
-    async def launch_persistent_context(self, **_kwargs):
+    async def launch_persistent_context(self, **kwargs):
+        self.launch_options = kwargs
         return self._context
 
 
@@ -133,6 +135,7 @@ async def test_session_starts_configures_and_closes_persistent_context(
         assert session.page is context.pages[0]
         assert context.navigation_timeout_ms == settings.navigation_timeout_ms
         assert context.action_timeout_ms == settings.action_timeout_ms
+        assert playwright.chromium.launch_options["chromium_sandbox"] is True
 
     assert lock.acquired
     assert lock.released

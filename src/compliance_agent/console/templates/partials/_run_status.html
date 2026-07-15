@@ -1,11 +1,31 @@
 {% import "partials/_macros.html" as ui %}
-<div class="workflow-track" aria-label="Run progress">
-  {% set phases = [('Plan', run.phase.value != 'planning'), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
+{% if run.error_code == 'planner_unavailable' %}
+  {% set phases = [] %}
+{% elif run.mode.value == 'plan_only' %}
+  {% set phases = [('Enter sender', true), ('Review plan', run.plan is not none)] %}
+{% elif run.mode.value == 'dry_run' %}
+  {% set phases = [('Plan', run.plan is not none), ('Check access', run.phase.value in ['preflight','preview_ready']), ('Preview', run.phase.value == 'preview_ready')] %}
+{% else %}
+  {% set phases = [('Plan', run.plan is not none), ('Preflight', run.preview is not none), ('Preview', run.preview is not none), ('Approval', run.phase.value == 'awaiting_approval'), ('Execute', run.phase.value in ['executing','verifying','completed']), ('Verify', run.phase.value == 'completed')] %}
+{% endif %}
+{% if run.error_code == 'planner_unavailable' %}
+<section class="inline-recovery-alert" role="alert" aria-labelledby="draft-failed-title">
+  <div><h2 id="draft-failed-title">Local AI could not create the draft</h2><p>Your Google account settings are not involved, and nothing was sent to Google. The built-in form can recover this request without AI.</p></div>
+  <a class="button primary" href="/runs/{{ run.run_id }}">Recover with built-in form</a>
+</section>
+{% else %}
+{% if phases %}<div class="workflow-track steps-{{ phases|length }}" aria-label="Run progress">
   {% for label, active in phases %}<div class="workflow-step {{ 'complete' if active else 'locked' }}"><span>{{ '✓' if active else loop.index }}</span><strong>{{ label }}</strong></div>{% endfor %}
-</div>
+</div>{% endif %}
+{% if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' %}
+<section class="run-outcome" aria-labelledby="plan-complete-title">
+  <span class="run-outcome-icon" aria-hidden="true">✓</span>
+  <div><h2 id="plan-complete-title">Ready to review</h2><p>The validated plan is below. This run is finished; nothing was previewed or applied in Google Workspace.</p></div>
+</section>
+{% endif %}
 {% if run.phase.value == 'interrupted' %}
-<div class="alert error"><strong>Execution outcome is uncertain</strong><p>{{ run.error_code.replace('_', ' ')|title if run.error_code else 'Unexpected execution interruption' }}. Do not retry until the audit evidence and current Admin-console state are reconciled.</p></div>
-{% elif run_message %}
+{% include "partials/_interrupted_guidance.html" %}
+{% elif run_message and run.error_code != 'planner_unavailable' %}
 <div class="alert error"><strong>{{ run_message.title }}</strong><p>{{ run_message.detail }}</p>{% if run_message.action_href %}<a class="button secondary" href="{{ run_message.action_href }}">{{ run_message.action_label }}</a>{% endif %}</div>
 {% endif %}
 {% if run.phase.value == 'planning' %}
@@ -15,16 +35,19 @@
   <p>The plan is being drafted in the background. This page updates automatically; nothing is executed.</p>
 </div>
 {% endif %}
-<section><h2>Run timeline</h2>
+{% if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' %}<details class="timeline-details"><summary>Run history</summary>{% endif %}
+<section class="run-timeline"><h2>Run timeline</h2>
   <div class="phase-timeline">
-    {% for transition in run.history %}
-    <div class="timeline-row">
-      <span class="rail-icon {{ 'blocked' if transition.phase.value in ['blocked','cancelled'] else 'ready' }}" aria-hidden="true">{{ '✕' if transition.phase.value in ['blocked','cancelled'] else '✓' }}</span>
-      <span class="timeline-label"><strong>{{ transition.phase.value.replace('_', ' ')|title }}</strong>{% if transition.error_code %}<span class="chip danger">{{ transition.error_code.replace('_', ' ') }}</span>{% endif %}</span>
-      {{ ui.timestamp(transition.at) }}
+    {% for entry in timeline %}
+    <div class="timeline-row tone-{{ entry.tone }}">
+      <span class="rail-icon {{ entry.tone }}" aria-hidden="true">{{ '!' if entry.tone == 'uncertain' else '✕' if entry.tone == 'blocked' else '•' if entry.tone == 'active' else '✓' }}</span>
+      <span class="timeline-label"><strong>{{ entry.phase.value.replace('_', ' ')|title }}</strong>{% if entry.error_code %}<span class="chip danger">{{ entry.error_code.replace('_', ' ') }}</span>{% endif %}</span>
+      <span class="timeline-time">{{ ui.timestamp(entry.at) }}<span class="timeline-duration">{{ entry.duration_label }}</span></span>
     </div>
     {% else %}
     <div class="timeline-row"><span class="rail-icon ready" aria-hidden="true">✓</span><span class="timeline-label"><strong>{{ run.phase.value.replace('_', ' ')|title }}</strong></span>{{ ui.timestamp(run.updated_at) }}</div>
     {% endfor %}
   </div>
 </section>
+{% if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' %}</details>{% endif %}
+{% endif %}

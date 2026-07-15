@@ -4,6 +4,7 @@
 (function () {
   var STORAGE_KEY = "console-theme";
   var root = document.documentElement;
+  root.classList.add("js");
 
   function storedTheme() {
     try {

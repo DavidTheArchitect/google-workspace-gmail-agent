@@ -12,6 +12,7 @@
   <script defer src="{{ url_for('static', path='/htmx.min.js') }}"></script>
   <script defer src="{{ url_for('static', path='/sse.js') }}"></script>
   <script defer src="{{ url_for('static', path='/console.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/toasts.js') }}"></script>
   <script defer src="{{ url_for('static', path='/tables.js') }}"></script>
   <script defer src="{{ url_for('static', path='/relative-time.js') }}"></script>
 </head>
@@ -21,7 +22,7 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="Gmail Compliance Agent dashboard">
       <span class="brand-mark" aria-hidden="true">✓</span>
-      <span>Gmail Compliance Agent</span>
+      <span class="brand-long">Gmail Compliance Agent</span><span class="brand-short">Gmail Agent</span>
     </a>
     <div class="topbar-tools">
       <button id="theme-toggle" class="theme-toggle" type="button" aria-pressed="false" aria-label="Switch color theme">
@@ -29,42 +30,38 @@
         <svg class="icon icon-moon" aria-hidden="true"><use href="#icon-moon"/></svg>
         <span class="theme-label">Auto</span>
       </button>
-      <div class="topbar-status"><span class="status-dot"></span> Local only</div>
-      {% set mode_tone = {'plan_only': 'accent', 'dry_run': 'warning', 'live': 'danger'} %}
-      {% set mode_title = {
-        'plan_only': 'Plan only: plans are drafted and reviewed; nothing is previewed or executed.',
-        'dry_run': 'Dry run: read-only previews observe the Admin console; no mutation occurs.',
-        'live': 'Live: approved changes can modify the Admin console.'} %}
-      <span class="chip mode-chip {{ mode_tone[run_mode.value] }}" title="{{ mode_title[run_mode.value] }}">{{ run_mode.value.replace('_', ' ')|title }}</span>
+      {% set live_locked = run_mode.value == 'live' and (not capabilities or not capabilities.live_runner) %}
+      <a class="topbar-capability {{ 'live' if run_mode.value == 'live' else '' }}" href="/setup" title="Runs only on this computer" aria-label="{% if run_mode.value == 'plan_only' %}Planning only. No Google changes.{% elif run_mode.value == 'dry_run' %}Preview only. No Google changes.{% elif live_locked %}Live mode. Execution locked.{% else %}Live mode. Approval required.{% endif %}">
+        <span class="capability-full" aria-hidden="true">{% if run_mode.value == 'plan_only' %}Planning only · No Google changes{% elif run_mode.value == 'dry_run' %}Preview only · No Google changes{% elif live_locked %}Live mode · Execution locked{% else %}Live mode · Approval required{% endif %}</span>
+        <span class="capability-compact" aria-hidden="true">{{ 'Execution locked' if live_locked else 'Approval required' if run_mode.value == 'live' else 'No Google changes' }}</span>
+      </a>
     </div>
   </header>
   <div class="app-shell">
     <nav class="sidebar" aria-label="Primary navigation">
       <div class="nav-primary">
-        <a href="/" class="nav-link {% if active_path == '/' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-home"/></svg></span>Dashboard</a>
-        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-plus"/></svg></span>New change</a>
-        <a href="/readiness" class="nav-link {% if active_path == '/readiness' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-check"/></svg></span>Readiness</a>
-        <a href="/contracts" class="nav-link {% if active_path == '/contracts' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-contract"/></svg></span>UI contracts</a>
-        <a href="/ownership" class="nav-link {% if active_path.startswith('/ownership') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-diamond"/></svg></span>Ownership</a>
-        <a href="/audits" class="nav-link {% if active_path.startswith('/audits') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-list"/></svg></span>Audit</a>
-        <a href="/propagation" class="nav-link {% if active_path == '/propagation' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-radar"/></svg></span>Propagation</a>
+        <a href="/" class="nav-link {% if active_path == '/' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-home"/></svg></span>Home</a>
+        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-mail"/></svg></span>Block a sender</a>
+        <a href="/activity" class="nav-link {% if active_path == '/activity' or active_path.startswith('/audits') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-clock"/></svg></span>Activity</a>
+        <a href="/setup" class="nav-link {% if active_path in ['/setup', '/readiness', '/contracts', '/ownership', '/propagation'] or active_path.startswith('/ownership') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-settings"/></svg></span>Settings</a>
       </div>
       <div class="sidebar-foot">
-        {% if system_health is defined and system_health.blocking_count %}
-        <span class="system-state attention"><span class="status-dot"></span> {{ system_health.blocking_count }} check{{ 's need' if system_health.blocking_count != 1 else ' needs' }} attention</span>
-        {% else %}
-        <span class="system-state"><span class="status-dot"></span> System healthy</span>
-        {% endif %}
+        <a class="system-state {{ 'attention' if system_health is defined and system_health.blocking_count else '' }}" href="/setup">
+          <span class="status-dot"></span>
+          {% if run_mode.value == 'plan_only' %}Planning is ready{% elif system_health is defined and system_health.blocking_count %}Review current limits{% else %}Current mode is ready{% endif %}
+        </a>
       </div>
     </nav>
     <main id="main-content" class="main-content" tabindex="-1">
+      <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false">
       {% if notice %}
-      <div class="notice-banner" role="status" aria-live="polite">
+      <div class="notice-banner toast" role="status" data-toast data-tone="success">
         <svg class="icon" aria-hidden="true"><use href="#icon-check"/></svg>
         <span class="notice-text">{{ notice }}</span>
         <button type="button" class="icon-button" data-dismiss aria-label="Dismiss notification"><svg class="icon"><use href="#icon-close"/></svg></button>
       </div>
       {% endif %}
+      </div>
       {% block content %}{% endblock %}
     </main>
   </div>

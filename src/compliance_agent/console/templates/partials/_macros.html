@@ -1,3 +1,16 @@
 {% macro timestamp(dt) -%}
 <time datetime="{{ dt.isoformat() }}" data-relative title="{{ dt.strftime('%Y-%m-%d %H:%M:%S %Z') }}">{{ dt.strftime('%Y-%m-%d %H:%M') }}</time>
 {%- endmacro %}
+
+{% macro empty_state(icon, title, hint, cta_href=None, cta_label=None, colspan=1) -%}
+<tr class="empty-state-row">
+  <td colspan="{{ colspan }}">
+    <div class="empty-state empty-cell">
+      <svg class="icon" aria-hidden="true"><use href="#icon-{{ icon }}"/></svg>
+      <strong>{{ title }}</strong>
+      <span>{{ hint }}</span>
+      {% if cta_href and cta_label %}<a class="button secondary" href="{{ cta_href }}">{{ cta_label }}</a>{% endif %}
+    </div>
+  </td>
+</tr>
+{%- endmacro %}

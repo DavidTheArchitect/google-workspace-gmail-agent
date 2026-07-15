@@ -1,0 +1,16 @@
+{% import "partials/_macros.html" as ui %}
+{% set active = namespace(value=false) %}
+{% for run in runs %}{% if run.phase.value in ['planning','preflight','executing','verifying'] %}{% set active.value = true %}{% endif %}{% endfor %}
+<tbody id="session-runs" {% if active.value %}hx-get="/partials/session-runs{% if compact %}?view=dashboard{% endif %}" hx-trigger="every 15s" hx-swap="outerHTML"{% endif %}>
+{% for run in runs %}
+  {% set group = 'ready' if run.phase.value in ['plan_ready','preview_ready','awaiting_approval'] else 'completed' if run.phase.value == 'completed' else 'failed' if run.phase.value in ['blocked','interrupted'] else 'blocked' if run.phase.value == 'cancelled' else 'ready' %}
+  <tr data-phase-group="{{ group }}">
+    <td><span class="status-text {{ run.phase.value }}">{{ 'Draft failed' if run.error_code == 'planner_unavailable' else 'Ready to review' if run.phase.value == 'plan_ready' else run.phase.value.replace('_', ' ')|title }}</span></td>
+    <td><a href="/runs/{{ run.run_id }}">{{ run.request_text }}</a></td>
+    {% if not compact %}<td data-value="{{ run.mode.value }}">{{ run.mode.value.replace('_', ' ')|title }}</td>{% endif %}
+    <td data-value="{{ run.updated_at.isoformat() }}">{{ ui.timestamp(run.updated_at) }}</td>
+  </tr>
+{% else %}
+  {{ ui.empty_state('clock', 'No plans yet', 'Created plans will appear here.', '/runs/new', 'Block a sender', 3 if compact else 4) }}
+{% endfor %}
+</tbody>
