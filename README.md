@@ -55,6 +55,21 @@ The equivalent terminal command is:
 uv run gmail-agent
 ```
 
+### Optional Docker console
+
+Native execution remains fully supported. As an alternative, the plan-only console can run from
+the automatically published GHCR image:
+
+```powershell
+docker compose pull
+docker compose up
+```
+
+Use `docker compose up --build` to build and run the current local source instead. Configuration,
+audit, and state survive container replacement in named volumes, and the port is published only to
+host loopback. The attended Google Admin observer remains a native workflow because it needs a
+visible, operator-controlled browser profile. See [docs/containers.md](docs/containers.md).
+
 If dependencies have not been installed yet, `uv` resolves them on the first launch. Press
 `Ctrl+C` in the launcher window to stop the console.
 
@@ -80,8 +95,11 @@ uv run compliance-agent plan "Block spammer.com with notice Mail rejected."
 Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
 `CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
 and new settings fails configuration validation. Browser-backed dry runs require supervised
-live-read contract evidence, and live composition requires an accepted contract-pack digest.
-Edit `.env` to change local configuration; `.env.example` documents the safe starting values.
+live-read contract evidence, and live composition requires an accepted contract-pack digest. The
+console Settings page can validate and save the expected administrator email and Workspace domain;
+other settings remain in `.env`, with `.env.example` documenting the safe starting values. The
+current web composition creates and reviews plans but does not install the accepted read adapter or
+live writer required for Google Admin preview or apply.
 
 Audit retention is non-destructive by default:
 
@@ -93,5 +111,6 @@ uv run compliance-agent audit export-redacted-zip <run-directory> <destination.z
 
 See [docs/api-feasibility.md](docs/api-feasibility.md),
 [docs/architecture.md](docs/architecture.md), [docs/operator-console.md](docs/operator-console.md),
-and [docs/live-test-procedure.md](docs/live-test-procedure.md)
+[docs/containers.md](docs/containers.md), and
+[docs/live-test-procedure.md](docs/live-test-procedure.md)
 before enabling any live work.

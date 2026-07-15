@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Activity · Gmail Compliance Agent{% endblock %}
+{% block content %}
+{% import "partials/_macros.html" as ui %}
+<div class="content-page">
+  <header class="page-header split">
+    <div><h1>Activity</h1><p>Plans created in this session and finalized Google Admin evidence.</p></div>
+    <a class="button primary" href="/runs/new">Block a sender</a>
+  </header>
+
+  <section aria-labelledby="session-runs-title">
+    <div class="section-heading"><h2 id="session-runs-title">Console runs</h2><div class="filter-chips" data-filter-attr="phase-group" data-filter-target="#session-runs"><button type="button" class="active" data-filter-value="">All</button><button type="button" data-filter-value="ready">Ready</button><button type="button" data-filter-value="blocked">Blocked</button><button type="button" data-filter-value="completed">Completed</button><button type="button" data-filter-value="failed">Failed</button></div></div>
+    <div class="table-wrap">
+      <table data-enhance data-page-size="20">
+        <thead><tr><th data-sort="text">Status</th><th data-sort="text">Request</th><th data-sort="text">Mode</th><th data-sort="text">Updated</th></tr></thead>
+        {% set compact = false %}
+        {% include "partials/_session_runs.html" %}
+      </table>
+    </div>
+  </section>
+
+  <section class="activity-history" aria-labelledby="recorded-runs-title">
+    <div class="section-heading"><h2 id="recorded-runs-title">Finalized evidence</h2><a href="/audits">Manage audit retention</a></div>
+    <nav class="filter-chips" aria-label="Filter finalized evidence">
+      <a class="{{ 'active' if not audit_status else '' }}" href="/activity" hx-get="/partials/audit-rows?page=1" hx-target="#audit-rows" hx-swap="innerHTML">All</a>
+      {% for status in audit_statuses %}<a class="{{ 'active' if audit_status == status else '' }}" href="/activity?status={{ status }}" hx-get="/partials/audit-rows?page=1&amp;status={{ status }}" hx-target="#audit-rows" hx-swap="innerHTML">{{ status.replace('_', ' ')|title }}</a>{% endfor %}
+    </nav>
+    <div class="table-wrap">
+      <table data-enhance data-page-size="20">
+        <thead><tr><th data-sort="text">Result</th><th data-sort="text">Run</th><th data-sort="text">Completed</th><th data-sort="num">Integrity</th></tr></thead>
+        <tbody id="audit-rows">{% include "partials/_audit_rows.html" %}</tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

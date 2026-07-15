@@ -755,7 +755,7 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
 
     dashboard = client.get("/")
     assert dashboard.status_code == 200
-    assert "Plan a change" in dashboard.text
+    assert "Block unwanted senders" in dashboard.text
     assert "frame-ancestors 'none'" in dashboard.headers["content-security-policy"]
 
     csrf = console.security.csrf_token()
@@ -804,9 +804,10 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
     assert "cannot be cancelled from blocked" in cancelled.text
 
     for path, text in (
-        ("/readiness", "Readiness"),
-        ("/runs/new", "Run mode"),
-        ("/contracts", "No contract pack installed"),
+        ("/readiness", "Local diagnostics"),
+        ("/setup", "Settings & capabilities"),
+        ("/runs/new", "Block a sender"),
+        ("/contracts", "No reviewed interface evidence is installed"),
         ("/ownership", "No local ownership records"),
         ("/audits", "No finalized audit runs"),
         ("/propagation", "No applied runs"),

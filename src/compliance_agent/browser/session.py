@@ -28,6 +28,7 @@ class BrowserSession:
                 user_data_dir=self._settings.profile_dir,
                 headless=self._settings.headless,
                 channel="chrome",
+                chromium_sandbox=True,
             )
             self._context.set_default_navigation_timeout(self._settings.navigation_timeout_ms)
             self._context.set_default_timeout(self._settings.action_timeout_ms)

@@ -47,6 +47,8 @@ from compliance_agent.version import __version__
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from compliance_agent.console.security import ConsoleSecurity
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI without any auto-approval option."""
@@ -265,7 +267,7 @@ def _run_console(args: argparse.Namespace) -> int:
     console = create_console_app(settings)
     config = uvicorn.Config(
         console.app,
-        host="127.0.0.1",
+        host=settings.console_bind_host.value,
         port=settings.console_port,
         access_log=False,
         proxy_headers=False,
@@ -275,6 +277,7 @@ def _run_console(args: argparse.Namespace) -> int:
     print("Starting the local Gmail Compliance Agent console.")
     print("Your browser will open automatically when the console is ready.")
     print(f"Secure fallback link: {console.security.bootstrap_url}")
+    _start_link_reissue_reader(console.security)
     if settings.console_open_browser and not args.no_open:
         opener = threading.Thread(
             target=_open_console_when_ready,
@@ -285,6 +288,32 @@ def _run_console(args: argparse.Namespace) -> int:
         opener.start()
     server.run()
     return 0
+
+
+def _start_link_reissue_reader(security: ConsoleSecurity) -> threading.Thread | None:
+    """Reissue one-time links from the owning terminal without adding an HTTP route."""
+
+    if sys.stdin is None or sys.stdin.closed or not sys.stdin.isatty():
+        print(
+            "Interactive link recovery is unavailable in this terminal; restart the console "
+            "if the one-time sign-in link expires."
+        )
+        return None
+
+    def read_commands() -> None:
+        for line in sys.stdin:
+            if line.strip().lower() not in {"", "link"}:
+                continue
+            url = security.reissue_bootstrap_url()
+            print(f"New one-time sign-in link (previous link now invalid): {url}")
+
+    reader = threading.Thread(
+        target=read_commands,
+        daemon=True,
+        name="console-link-reissue",
+    )
+    reader.start()
+    return reader
 
 
 def _open_console_when_ready(server: uvicorn.Server, bootstrap_url: str) -> None:

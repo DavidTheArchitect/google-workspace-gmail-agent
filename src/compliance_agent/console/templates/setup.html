@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Settings & capabilities · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <header class="page-header split">
+    <div><h1>Settings & capabilities</h1><p>Complete each applicable prerequisite in order. Readiness and this guide use the same checks.</p></div>
+    {% if not setup_steps|selectattr('state', 'equalto', 'current')|list %}<a class="button primary" href="/runs/new">Block a sender</a>{% endif %}
+  </header>
+
+  <ol class="setup-wizard">
+  {% for step in setup_steps %}
+    <li class="setup-step {{ step.state }}" {% if step.state == 'current' %}aria-current="step"{% endif %}>
+      <span class="setup-step-number" aria-hidden="true">{{ '✓' if step.state == 'complete' else step.number }}</span>
+      <div class="setup-step-body">
+        <div class="setup-step-heading"><h2>{{ step.title }}</h2><span class="chip {{ step.state }}">{{ step.state.replace('_', ' ') }}</span></div>
+        <p>{{ step.detail }}</p>
+        {% if step.number == 3 %}
+          <section id="google-account" class="account-settings" aria-labelledby="account-settings-title">
+            <div class="account-form-column">
+              <h3 id="account-settings-title">Expected Google account</h3>
+              <p>These values verify the intended account and tenant; they are not credentials. {% if admin_configured %}Currently {{ masked_admin }} and {{ masked_workspace }}.{% endif %}</p>
+              {% set identity_primary = step.state == 'current' %}
+              {% include "partials/_google_identities_form.html" %}
+            </div>
+          </section>
+        {% elif step.state == 'current' and step.action_href %}
+          <a class="button primary" href="{{ step.action_href }}">{{ step.action_label }}</a>
+        {% elif step.action_href and step.state == 'locked' %}
+          <a class="button secondary" href="{{ step.action_href }}">{{ step.action_label }}</a>
+        {% endif %}
+        <details><summary>Readiness details</summary><ul>{% for item in step.readiness %}<li><strong>{{ item.name }}:</strong> {{ item.detail }}</li>{% endfor %}</ul></details>
+      </div>
+    </li>
+  {% endfor %}
+  </ol>
+
+  <footer class="setup-footer">
+    <a href="/readiness">View flat local diagnostics</a>
+    <a href="/ownership">Managed-resource ownership</a>
+    <a href="/propagation">Propagation evidence</a>
+    <a href="/audits">Audit retention</a>
+  </footer>
+  {% if contract_error %}<p class="attention-copy">Installed interface evidence is invalid: {{ contract_error }}.</p>{% endif %}
+</div>
+{% endblock %}

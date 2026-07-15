@@ -1,6 +1,7 @@
-"""In-memory attended console run coordination over deterministic services."""
+"""Attended run coordination; journal state is a non-authoritative projection."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,10 +9,17 @@ from typing import Protocol
 
 from compliance_agent.application.approval_service import ApprovalService, PendingApproval
 from compliance_agent.application.dry_run_service import DryRunService
-from compliance_agent.exceptions import PlannerFailure
+from compliance_agent.console.journal import ConsoleRunJournal
+from compliance_agent.exceptions import PlannerFailure, RunLockUnavailable
 from compliance_agent.infrastructure.identifiers import IdentifierGenerator
 from compliance_agent.schemas.hitl import ConfirmationResponse
-from compliance_agent.schemas.operations import ConsoleRun, PhaseTransition, RunMode, RunPhase
+from compliance_agent.schemas.operations import (
+    ConsoleRun,
+    DryRunResult,
+    PhaseTransition,
+    RunMode,
+    RunPhase,
+)
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.results import RunResult
 from compliance_agent.schemas.status import RunStatus
@@ -53,6 +61,7 @@ _BROWSER_ACTIVE_PHASES = frozenset(
         RunPhase.VERIFYING,
     }
 )
+_LOGGER = logging.getLogger(__name__)
 
 
 class ConsolePlanner(Protocol):
@@ -67,14 +76,20 @@ class ConsoleLiveRunner(Protocol):
     ) -> RunResult: ...
 
 
+class ConsolePreviewService(Protocol):
+    async def preview(self, plan: TaskPlan, request_text: str) -> DryRunResult: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ConsoleCoordinatorDependencies:
     planner: ConsolePlanner
     identifiers: IdentifierGenerator
     clock: Callable[[], datetime]
     approval_service: ApprovalService
-    dry_run_service: DryRunService | None = None
+    dry_run_service: ConsolePreviewService | DryRunService | None = None
     live_runner: ConsoleLiveRunner | None = None
+    journal: ConsoleRunJournal | None = None
+    initial_runs: tuple[ConsoleRun, ...] = ()
 
 
 class ConsoleCoordinator:
@@ -90,8 +105,10 @@ class ConsoleCoordinator:
         self._approvals = dependencies.approval_service
         self._dry_run = dependencies.dry_run_service
         self._live_runner = dependencies.live_runner
-        self._runs: dict[str, ConsoleRun] = {}
+        self._journal = dependencies.journal
+        self._runs: dict[str, ConsoleRun] = {run.run_id: run for run in dependencies.initial_runs}
         self._tasks: set[asyncio.Task[ConsoleRun]] = set()
+        self._listeners: dict[str, asyncio.Event] = {}
 
     def list_runs(self) -> tuple[ConsoleRun, ...]:
         return tuple(sorted(self._runs.values(), key=lambda run: run.created_at, reverse=True))
@@ -114,6 +131,7 @@ class ConsoleCoordinator:
             history=(PhaseTransition(phase=RunPhase.PLANNING, at=now),),
         )
         self._runs[run_id] = initial
+        self._save()
         return initial
 
     async def plan(self, run_id: str) -> ConsoleRun:
@@ -173,6 +191,7 @@ class ConsoleCoordinator:
             history=(PhaseTransition(phase=RunPhase.PLAN_READY, at=now),),
         )
         self._runs[run.run_id] = run
+        self._save()
         return run
 
     async def preview(self, run_id: str) -> ConsoleRun:
@@ -194,7 +213,11 @@ class ConsoleCoordinator:
             error_code=None,
         )
         try:
-            result = await self._dry_run.preview(run.plan)
+            result = (
+                await self._dry_run.preview(run.plan)
+                if isinstance(self._dry_run, DryRunService)
+                else await self._dry_run.preview(run.plan, run.request_text)
+            )
         except Exception as error:
             current = self._require(run_id)
             if current.phase != RunPhase.PREFLIGHT:
@@ -202,7 +225,11 @@ class ConsoleCoordinator:
             return self._advance(
                 current,
                 RunPhase.BLOCKED,
-                error_code=type(error).__name__,
+                error_code=(
+                    "run_lock_unavailable"
+                    if isinstance(error, RunLockUnavailable)
+                    else type(error).__name__
+                ),
             )
         current = self._require(run_id)
         if current.phase != RunPhase.PREFLIGHT:
@@ -280,7 +307,11 @@ class ConsoleCoordinator:
             return self._advance(
                 current,
                 RunPhase.INTERRUPTED,
-                error_code=type(error).__name__,
+                error_code=(
+                    "run_lock_unavailable"
+                    if isinstance(error, RunLockUnavailable)
+                    else type(error).__name__
+                ),
             )
         current = self._require(run_id)
         if current.phase != RunPhase.EXECUTING:
@@ -298,6 +329,7 @@ class ConsoleCoordinator:
             result=result,
             error_code=result.error_code
             or (result.status.value if phase != RunPhase.COMPLETED else None),
+            source_run_id=getattr(self._live_runner, "last_run_id", None),
         )
 
     def _advance(self, run: ConsoleRun, phase: RunPhase, **updates: object) -> ConsoleRun:
@@ -324,7 +356,40 @@ class ConsoleCoordinator:
             }
         )
         self._runs[advanced.run_id] = advanced
+        self._save()
+        self._notify(advanced.run_id)
         return advanced
+
+    async def wait_for_update(
+        self,
+        run_id: str,
+        *,
+        timeout: float,  # noqa: ASYNC109 - heartbeat contract uses this name.
+    ) -> bool:
+        """Wait for a transition notification without cancelling the shared event."""
+
+        event = self._listeners.setdefault(run_id, asyncio.Event())
+        try:
+            await asyncio.wait_for(asyncio.shield(event.wait()), timeout=timeout)
+        except TimeoutError:
+            return False
+        return True
+
+    def _notify(self, run_id: str) -> None:
+        event = self._listeners.pop(run_id, None)
+        if event is not None:
+            event.set()
+
+    def _save(self) -> None:
+        if self._journal is None:
+            return
+        try:
+            self._journal.save(self.list_runs())
+        except OSError:
+            _LOGGER.warning(
+                "Unable to persist console run projections",
+                exc_info=True,
+            )
 
     def _require(self, run_id: str) -> ConsoleRun:
         run = self._runs.get(run_id)

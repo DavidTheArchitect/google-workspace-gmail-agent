@@ -15,6 +15,11 @@ def resolve_notice(params: Mapping[str, str]) -> str | None:
     key = params.get("notice")
     if key == "ownership_recovered":
         return "Ownership record recovered from audited evidence."
+    if key == "google_identities_saved":
+        return (
+            "Expected Google account saved. This verifies a future session; "
+            "it does not enable Google Admin integration."
+        )
     if key == "retention_applied":
         try:
             count = int(params.get("count", ""))

@@ -8,7 +8,7 @@
 <div class="table-wrap">
   <table data-enhance data-page-size="20"><thead><tr><th data-sort="text">Ownership ID</th><th data-sort="text">Rule</th><th data-sort="text">Address list</th><th data-sort="date">Created</th><th>Local status</th></tr></thead><tbody>
   {% for resource in resources %}<tr><td><code>{{ resource.ownership_id }}</code></td><td>{{ resource.rule_display_name }}</td><td>{{ resource.address_list_display_name }}</td><td data-value="{{ resource.created_at.isoformat() }}">{{ ui.timestamp(resource.created_at) }}</td><td><span class="status-text completed">Recorded</span></td></tr>{% endfor %}
-  {% if not resources %}<tr><td colspan="5" class="empty-row"><div class="empty-cell"><svg class="icon" aria-hidden="true"><use href="#icon-diamond"/></svg><p><strong>No local ownership records exist.</strong> Records appear when this agent creates resources, or when you recover them from audited evidence.</p><a class="button secondary" href="/audits">View audit evidence</a></div></td></tr>{% endif %}
+  {% if not resources %}{{ ui.empty_state('diamond', 'No local ownership records', 'Records appear when this agent creates resources or recovers audited evidence.', '/audits', 'View audit evidence', 5) }}{% endif %}
   </tbody></table>
 </div>
 </section>
@@ -38,7 +38,7 @@
     </td>
   </tr>
   {% endfor %}
-  {% if not health_findings %}<tr><td colspan="4" class="empty-row"><div class="empty-cell"><p>The audited state and local registry contain nothing to reconcile.</p></div></td></tr>{% endif %}
+  {% if not health_findings %}{{ ui.empty_state('check', 'Nothing to reconcile', 'The audited state and local registry contain no managed resources.', none, none, 4) }}{% endif %}
   </tbody></table>
 </div>
 <p class="help">Recovery independently re-verifies the audit manifest, the hash-chained event stream, and the exact rule-to-list relationship before writing a registry record. It re-enables management only for resources this application demonstrably created.</p>

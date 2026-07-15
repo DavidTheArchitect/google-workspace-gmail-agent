@@ -56,9 +56,12 @@ Review date: 2026-07-11
 - Injection of the accepted live runner into the approval/execution control room.
 
 These items are not ordinary unfinished scaffolding. Implementing them from assumptions would
-violate the project's fail-closed selector policy. Run `scripts/login.py`, then
-`scripts/observe_ui.py --output-directory <protected-path>` with an authorized administrator to
-produce the evidence required for the next implementation gate.
+violate the project's fail-closed selector policy. Run
+`scripts/observe_ui.py --output-directory <new-protected-path>` with an authorized Google
+Workspace administrator who has the Gmail Settings privilege. The observer handles attended
+sign-in, opens Google's current **Spam, Phishing and Malware** route, and captures evidence only
+after the operator confirms the correct page. A 404 can indicate the wrong account, missing
+privilege, or a Workspace edition without advanced Gmail settings.
 
 ## Pending after the live gate
 

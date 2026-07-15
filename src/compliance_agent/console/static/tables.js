@@ -4,12 +4,18 @@
 // table marked data-enhance. Tables render fully server-side; this only helps.
 (function () {
   function enhance(table) {
+    if (table.dataset.enhanced === "true") {
+      return;
+    }
+    table.dataset.enhanced = "true";
     const body = table.tBodies[0];
     if (!body) {
       return;
     }
     const rows = () =>
-      Array.from(body.rows).filter((row) => !row.querySelector(".empty-row"));
+      Array.from(body.rows).filter(
+        (row) => !row.matches(".empty-state-row, .load-more-row") && !row.querySelector(".empty-row"),
+      );
     if (rows().length === 0) {
       return;
     }
@@ -134,6 +140,22 @@
   function init() {
     document.querySelectorAll("table[data-enhance]").forEach(enhance);
   }
+
+  document.addEventListener("click", (event) => {
+    const chip = event.target instanceof Element ? event.target.closest("[data-filter-value]") : null;
+    const group = chip?.closest?.("[data-filter-attr]");
+    if (!chip || !group) return;
+    const target = document.querySelector(group.dataset.filterTarget || "");
+    if (!target) return;
+    const attribute = `data-${group.dataset.filterAttr}`;
+    const value = chip.dataset.filterValue || "";
+    target.querySelectorAll(`tr[${attribute}]`).forEach((row) => {
+      row.classList.toggle("row-hidden", Boolean(value) && row.getAttribute(attribute) !== value);
+    });
+    group.querySelectorAll("[data-filter-value]").forEach((item) => {
+      item.classList.toggle("active", item === chip);
+    });
+  });
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

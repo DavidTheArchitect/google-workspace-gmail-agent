@@ -1,0 +1,10 @@
+<section class="interrupted-guidance" role="alert" aria-labelledby="interrupted-title">
+  <h2 id="interrupted-title">Execution outcome is uncertain</h2>
+  <p>Do not start another browser-backed run until the observed Google state is reconciled.</p>
+  <ol>
+    <li><strong>Do not retry.</strong> A repeated write could duplicate or reverse a partial change.</li>
+    <li><strong>Open audit evidence.</strong> <a href="{% if run.source_run_id %}/audits/{{ run.source_run_id }}{% else %}/audits{% endif %}">Review the recorded run evidence</a>.</li>
+    <li><strong>Check Gmail spam settings manually.</strong> Copy this address into the supervised browser: <code>{{ gmail_settings_url }}</code>.</li>
+    <li><strong>Reconcile ownership.</strong> <a href="/ownership">Compare managed resources with observed evidence</a>.</li>
+  </ol>
+</section>

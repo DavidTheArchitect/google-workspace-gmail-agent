@@ -1,6 +1,5 @@
 """Small route groups for the attended operator console."""
 
-import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Literal
@@ -18,7 +17,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from compliance_agent.application.audit_catalog import AuditCatalog
 from compliance_agent.application.audit_inspection_service import inspect_audit_run
@@ -36,6 +35,8 @@ from compliance_agent.application.propagation_service import PropagationService
 from compliance_agent.application.retention_service import AuditRetentionService
 from compliance_agent.application.ui_contract_service import UiContractStore
 from compliance_agent.audit.export import export_redacted_zip
+from compliance_agent.console.capabilities import ConsoleCapabilities
+from compliance_agent.console.configuration import LocalConfigurationStore
 from compliance_agent.console.coordinator import ConsoleCoordinator
 from compliance_agent.console.notices import resolve_notice
 from compliance_agent.console.readiness import (
@@ -45,8 +46,12 @@ from compliance_agent.console.readiness import (
     greeting_for_hour,
     mask_identity,
 )
+from compliance_agent.console.recovery import infer_planner_recovery
 from compliance_agent.console.run_status import resolve_run_status
 from compliance_agent.console.security import ConsoleSecurity
+from compliance_agent.console.setup_flow import build_setup_steps
+from compliance_agent.console.timeline import build_timeline
+from compliance_agent.domain.normalization import normalize_domain, normalize_email
 from compliance_agent.exceptions import (
     AuditRetentionFailure,
     AuditWriteFailure,
@@ -58,6 +63,7 @@ from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.schemas.operations import OwnershipHealth, RunMode, RunPhase, UiContractPack
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.schemas.state import BlockedSenderState
+from compliance_agent.schemas.status import RunStatus
 from compliance_agent.settings import Settings
 
 
@@ -74,6 +80,8 @@ class ConsoleWebContext:
     sse_poll_seconds: float = 1.0
     sse_max_polls: int = 600
     health: ReadinessCache | None = None
+    configuration: LocalConfigurationStore | None = None
+    capabilities: ConsoleCapabilities | None = None
 
     def template_values(self, request: Request, **values: object) -> dict[str, object]:
         try:
@@ -89,7 +97,10 @@ class ConsoleWebContext:
             "active_path": request.url.path,
             "masked_admin": mask_identity(self.settings.expected_admin_email),
             "masked_workspace": mask_identity(self.settings.expected_workspace_domain),
+            "admin_configured": bool(self.settings.expected_admin_email),
+            "workspace_configured": bool(self.settings.expected_workspace_domain),
             "system_health": system_health,
+            "capabilities": self.capabilities,
             "notice": resolve_notice(request.query_params),
             **values,
         }
@@ -124,7 +135,17 @@ class DirectAddSubmission(BaseModel):
     target_kind: Literal["email", "domain"]
     notice: str | None = Field(default=None, max_length=1_000)
     mode: RunMode
-    csrf_token: str
+
+
+class GoogleIdentitiesSubmission(BaseModel):
+    administrator_email: str = Field(min_length=1, max_length=254)
+    workspace_domain: str = Field(min_length=1, max_length=253)
+
+
+_AUDIT_PAGE_SIZE = 20
+_SESSION_PAGE_SIZE = 20
+_AUDIT_STATUSES = frozenset(status.value for status in RunStatus)
+_GMAIL_SETTINGS_URL = "https://admin.google.com/ac/apps/gmail/safety"
 
 
 def register_console_routes(app: FastAPI, web: ConsoleWebContext) -> None:
@@ -155,7 +176,7 @@ def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 403,
                 "Invalid launch token",
                 "The one-time launch token is invalid or already used. "
-                "Restart the console to mint a fresh bootstrap link.",
+                "Type link in the console terminal for a fresh sign-in link, or restart.",
             )
         response = RedirectResponse("/", status_code=303)
         response.set_cookie(
@@ -168,21 +189,30 @@ def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         return response
 
 
-def _register_dashboard_routes(app: FastAPI, web: ConsoleWebContext) -> None:
+def _register_dashboard_routes(  # noqa: C901, PLR0915 - colocated route group.
+    app: FastAPI,
+    web: ConsoleWebContext,
+) -> None:
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request) -> Response:
         contract, contract_error = _contract_for_display(web)
+        readiness_items = collect_readiness(web.settings, web.capabilities)
+        setup_steps = build_setup_steps(web.settings, web.capabilities)
+        current_step = next((step for step in setup_steps if step.state == "current"), None)
         return web.templates.TemplateResponse(
             request=request,
             name="dashboard.html",
             context=web.template_values(
                 request,
                 greeting=greeting_for_hour(web.clock.now().astimezone().hour),
-                readiness=collect_readiness(web.settings),
-                runs=web.coordinator.list_runs(),
+                readiness=readiness_items,
+                blocking_readiness=tuple(item for item in readiness_items if item.blocking),
+                runs=web.coordinator.list_runs()[:5],
                 audit_runs=web.audits.list_runs()[:5],
                 contract=contract,
                 contract_error=contract_error,
+                setup_steps=setup_steps,
+                current_setup_step=current_step,
             ),
         )
 
@@ -191,17 +221,151 @@ def _register_dashboard_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         return web.templates.TemplateResponse(
             request=request,
             name="readiness.html",
-            context=web.template_values(request, readiness=collect_readiness(web.settings)),
+            context=web.template_values(
+                request,
+                readiness=collect_readiness(web.settings, web.capabilities),
+            ),
+        )
+
+    @app.get("/activity", response_class=HTMLResponse)
+    async def activity(request: Request) -> Response:
+        audit_runs = web.audits.list_runs()
+        status_filter = _status_filter(request)
+        audit_runs = _filter_audits(audit_runs, status_filter)
+        audit_page = _clamped_page(request.query_params.get("audit_page"), len(audit_runs))
+        visible_audits, has_more = _audit_page(audit_runs, audit_page, cumulative=True)
+        return web.templates.TemplateResponse(
+            request=request,
+            name="activity.html",
+            context=web.template_values(
+                request,
+                runs=web.coordinator.list_runs()[:_SESSION_PAGE_SIZE],
+                audit_runs=visible_audits,
+                audit_page=audit_page,
+                audit_has_more=has_more,
+                audit_status=status_filter,
+                audit_statuses=tuple(sorted(_AUDIT_STATUSES)),
+            ),
+        )
+
+    @app.get("/partials/session-runs", response_class=HTMLResponse)
+    async def session_runs_partial(request: Request) -> Response:
+        compact = request.query_params.get("view") == "dashboard"
+        limit = 5 if compact else _SESSION_PAGE_SIZE
+        runs = web.coordinator.list_runs()[:limit]
+        return web.templates.TemplateResponse(
+            request=request,
+            name="partials/_session_runs.html",
+            context=web.template_values(
+                request,
+                runs=runs,
+                compact=compact,
+                active_runs=_has_active_runs(runs),
+            ),
+        )
+
+    @app.get("/partials/audit-rows", response_class=HTMLResponse)
+    async def audit_rows_partial(request: Request) -> Response:
+        audits = _filter_audits(web.audits.list_runs(), _status_filter(request))
+        page = _clamped_page(request.query_params.get("page"), len(audits))
+        rows, has_more = _audit_page(audits, page, cumulative=False)
+        return web.templates.TemplateResponse(
+            request=request,
+            name="partials/_audit_rows.html",
+            context=web.template_values(
+                request,
+                audit_runs=rows,
+                audit_page=page,
+                audit_has_more=has_more,
+                audit_status=_status_filter(request),
+            ),
+        )
+
+    @app.get("/setup", response_class=HTMLResponse)
+    async def setup_guide(request: Request) -> Response:
+        readiness_items = collect_readiness(web.settings, web.capabilities)
+        setup_steps = build_setup_steps(web.settings, web.capabilities)
+        contract, contract_error = _contract_for_display(web)
+        return web.templates.TemplateResponse(
+            request=request,
+            name="setup.html",
+            context=web.template_values(
+                request,
+                readiness=readiness_items,
+                blocking_readiness=tuple(item for item in readiness_items if item.blocking),
+                contract=contract,
+                contract_error=contract_error,
+                setup_steps=setup_steps,
+                identity_values={"administrator_email": "", "workspace_domain": ""},
+                identity_errors={},
+            ),
+        )
+
+    @app.post("/setup/google-identities")
+    async def configure_google_identities(
+        request: Request,
+        csrf_token: Annotated[str, Form()],
+        administrator_email: Annotated[str | None, Form()] = None,
+        workspace_domain: Annotated[str | None, Form()] = None,
+    ) -> Response:
+        _authorize_post(request, web.security, csrf_token)
+        email = (administrator_email or "").strip() or web.settings.expected_admin_email
+        domain = (workspace_domain or "").strip() or web.settings.expected_workspace_domain
+        values = {"administrator_email": email, "workspace_domain": domain}
+        errors: dict[str, str] = {}
+        try:
+            submission = GoogleIdentitiesSubmission.model_validate(values)
+        except ValidationError as error:
+            errors.update(_field_errors(error))
+            submission = None
+        normalized_email = ""
+        normalized_domain = ""
+        if submission is not None:
+            try:
+                normalized_email = normalize_email(submission.administrator_email)
+            except ValueError:
+                errors["administrator_email"] = "Enter one valid administrator email."
+            try:
+                normalized_domain = normalize_domain(submission.workspace_domain)
+            except ValueError:
+                errors["workspace_domain"] = "Enter one domain without a scheme or wildcard."
+        if errors:
+            return _identity_validation_response(request, web, values, errors)
+        if web.configuration is None:
+            message = "local configuration editing is unavailable in this console"
+            raise ValueError(message)
+        normalized_email, normalized_domain = web.configuration.save_google_identities(
+            normalized_email,
+            normalized_domain,
+        )
+        web.settings.expected_admin_email = normalized_email
+        web.settings.expected_workspace_domain = normalized_domain
+        if web.health is not None:
+            web.health.invalidate()
+        if _is_htmx(request):
+            response = Response(status_code=204)
+            response.headers["HX-Redirect"] = "/setup?notice=google_identities_saved#google-account"
+            return response
+        return RedirectResponse(
+            "/setup?notice=google_identities_saved#google-account",
+            status_code=303,
         )
 
 
-def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
+def _register_run_routes(  # noqa: C901 - validation and route registration stay colocated.
+    app: FastAPI,
+    web: ConsoleWebContext,
+) -> None:
     @app.get("/runs/new", response_class=HTMLResponse)
     async def new_run(request: Request) -> Response:
         return web.templates.TemplateResponse(
             request=request,
             name="new_run.html",
-            context=web.template_values(request),
+            context=web.template_values(
+                request,
+                direct_values={"target_kind": "domain", "target": "", "notice": ""},
+                direct_errors={},
+            ),
         )
 
     @app.post("/runs")
@@ -217,18 +381,47 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
         return RedirectResponse(f"/runs/{run.run_id}", status_code=303)
 
     @app.post("/runs/direct-add")
-    async def create_direct_add_run(
+    async def create_direct_add_run(  # noqa: PLR0913 - raw form fields preserve auth-first validation.
         request: Request,
-        submission: Annotated[DirectAddSubmission, Form()],
+        target: Annotated[str | None, Form()] = None,
+        target_kind: Annotated[str | None, Form()] = None,
+        notice: Annotated[str | None, Form()] = None,
+        mode: Annotated[str | None, Form()] = None,
+        csrf_token: Annotated[str | None, Form()] = None,
     ) -> Response:
-        _authorize_post(request, web.security, submission.csrf_token)
-        entry = AddressEntry(kind=submission.target_kind, value=submission.target)
+        _authorize_post(request, web.security, csrf_token)
+        values = {
+            "target": target or "",
+            "target_kind": target_kind or "",
+            "notice": notice or "",
+            "mode": mode or "",
+        }
+        try:
+            submission = DirectAddSubmission.model_validate(values)
+        except ValidationError as error:
+            return _direct_add_validation_response(
+                request,
+                web,
+                values,
+                _field_errors(error),
+            )
+        try:
+            entry = AddressEntry(kind=submission.target_kind, value=submission.target)
+        except ValidationError as error:
+            errors = _field_errors(error, aliases={"value": "target", "kind": "target_kind"})
+            if not errors:
+                errors["target"] = "Enter one valid email address or domain."
+            return _direct_add_validation_response(request, web, values, errors)
         plan = direct_add_plan((entry,), submission.notice or None)
         run = web.coordinator.create_from_plan(
             f"Block {entry.value}",
             submission.mode,
             plan,
         )
+        if _is_htmx(request):
+            response = Response(status_code=204)
+            response.headers["HX-Redirect"] = f"/runs/{run.run_id}"
+            return response
         return RedirectResponse(f"/runs/{run.run_id}", status_code=303)
 
     @app.get("/runs/{run_id}", response_class=HTMLResponse)
@@ -239,8 +432,8 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 request,
                 404,
                 "Run not found",
-                "No console run matches that identifier. "
-                "Runs live in memory and reset when the console restarts.",
+                "No saved console run matches that identifier. Finalized audit evidence may "
+                "still be available in Activity.",
             )
         approval = web.coordinator.pending_approval(run_id)
         run = web.coordinator.get(run_id)
@@ -261,13 +454,23 @@ def _register_run_routes(app: FastAPI, web: ConsoleWebContext) -> None:
                 approval=approval,
                 list_deltas=list_deltas,
                 run_message=resolve_run_status(run.error_code),
+                timeline=build_timeline(run, web.clock.now()),
+                gmail_settings_url=_GMAIL_SETTINGS_URL,
+                planner_recovery=(
+                    infer_planner_recovery(run.request_text)
+                    if run.error_code == "planner_unavailable"
+                    else None
+                ),
             ),
         )
 
     _register_run_actions(app, web)
 
 
-def _register_run_actions(app: FastAPI, web: ConsoleWebContext) -> None:
+def _register_run_actions(  # noqa: C901 - related run actions share one security boundary.
+    app: FastAPI,
+    web: ConsoleWebContext,
+) -> None:
     @app.post("/runs/{run_id}/preview")
     async def preview_run(
         request: Request,
@@ -319,14 +522,25 @@ def _register_run_actions(app: FastAPI, web: ConsoleWebContext) -> None:
                     fragment = web.templates.get_template("partials/_run_status.html").render(
                         run=run,
                         run_message=resolve_run_status(run.error_code),
+                        timeline=build_timeline(run, web.clock.now()),
+                        gmail_settings_url=_GMAIL_SETTINGS_URL,
                     )
                     data = "".join(f"data: {line}\n" for line in fragment.splitlines())
                     yield f"event: phase\n{data}\n"
                 if run.phase not in _SSE_ACTIVE_PHASES:
                     yield "event: settled\ndata: done\n\n"
                     return
-                await asyncio.sleep(web.sse_poll_seconds)
-                yield ": keep-alive\n\n"
+                changed = await web.coordinator.wait_for_update(
+                    run_id,
+                    timeout=web.sse_poll_seconds,
+                )
+                # Re-read after every wait so a transition racing listener
+                # registration cannot be hidden by a heartbeat timeout.
+                if web.coordinator.get(run_id) is None:
+                    yield "event: gone\ndata: gone\n\n"
+                    return
+                if not changed:
+                    yield ": keep-alive\n\n"
             yield "event: settled\ndata: timeout\n\n"
 
         return StreamingResponse(
@@ -546,10 +760,141 @@ def _contract_for_display(
         return None, type(error).__name__
 
 
-def _authorize_post(request: Request, security: ConsoleSecurity, csrf_token: str) -> None:
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _field_errors(
+    error: ValidationError,
+    *,
+    aliases: dict[str, str] | None = None,
+) -> dict[str, str]:
+    mapped: dict[str, str] = {}
+    for item in error.errors():
+        location = item.get("loc", ())
+        if not location:
+            continue
+        field = str(location[-1])
+        field = aliases.get(field, field) if aliases else field
+        mapped.setdefault(field, str(item.get("msg", "Enter a valid value.")))
+    return mapped
+
+
+def _direct_add_validation_response(
+    request: Request,
+    web: ConsoleWebContext,
+    values: dict[str, str],
+    errors: dict[str, str],
+) -> Response:
+    if _is_htmx(request):
+        return web.templates.TemplateResponse(
+            request=request,
+            name="partials/_direct_add_form.html",
+            context=web.template_values(
+                request,
+                direct_values=values,
+                direct_errors=errors,
+            ),
+            status_code=422,
+        )
+    return web.templates.TemplateResponse(
+        request=request,
+        name="new_run.html",
+        context=web.template_values(
+            request,
+            direct_values=values,
+            direct_errors=errors,
+        ),
+        status_code=400,
+    )
+
+
+def _identity_validation_response(
+    request: Request,
+    web: ConsoleWebContext,
+    values: dict[str, str],
+    errors: dict[str, str],
+) -> Response:
+    if _is_htmx(request):
+        return web.templates.TemplateResponse(
+            request=request,
+            name="partials/_google_identities_form.html",
+            context=web.template_values(
+                request,
+                identity_values=values,
+                identity_errors=errors,
+            ),
+            status_code=422,
+        )
+    readiness_items = collect_readiness(web.settings, web.capabilities)
+    contract, contract_error = _contract_for_display(web)
+    return web.templates.TemplateResponse(
+        request=request,
+        name="setup.html",
+        context=web.template_values(
+            request,
+            readiness=readiness_items,
+            blocking_readiness=tuple(item for item in readiness_items if item.blocking),
+            setup_steps=build_setup_steps(web.settings, web.capabilities),
+            contract=contract,
+            contract_error=contract_error,
+            identity_values=values,
+            identity_errors=errors,
+        ),
+        status_code=400,
+    )
+
+
+def _status_filter(request: Request) -> str | None:
+    value = request.query_params.get("status")
+    return value if value in _AUDIT_STATUSES else None
+
+
+def _filter_audits(runs: tuple[object, ...], status_filter: str | None) -> tuple[object, ...]:
+    if status_filter is None:
+        return runs
+    return tuple(
+        run for run in runs if getattr(getattr(run, "status", None), "value", None) == status_filter
+    )
+
+
+def _clamped_page(raw: str | None, total: int) -> int:
+    try:
+        requested = int(raw or "1")
+    except ValueError:
+        requested = 1
+    requested = max(1, requested)
+    maximum = max(1, (total + _AUDIT_PAGE_SIZE - 1) // _AUDIT_PAGE_SIZE)
+    return min(requested, maximum)
+
+
+def _audit_page(
+    runs: tuple[object, ...],
+    page: int,
+    *,
+    cumulative: bool,
+) -> tuple[tuple[object, ...], bool]:
+    start = 0 if cumulative else (page - 1) * _AUDIT_PAGE_SIZE
+    end = page * _AUDIT_PAGE_SIZE
+    return runs[start:end], end < len(runs)
+
+
+def _has_active_runs(runs: tuple[object, ...]) -> bool:
+    return any(getattr(run, "phase", None) in _SSE_ACTIVE_PHASES for run in runs)
+
+
+def _authorize_post(
+    request: Request,
+    security: ConsoleSecurity,
+    csrf_token: str | None,
+) -> None:
     if not security.authenticated(request):
         message = (
-            "Your local console session has ended. Relaunch the console and submit the form again."
+            "Your local console session has ended. Type link in the console terminal for a new "
+            "sign-in link, then submit the form again."
         )
+        raise PermissionError(message)
+    if csrf_token is None:
+        message = "This form belongs to an earlier console session. Reload it and try again."
         raise PermissionError(message)
     security.require_csrf(csrf_token)

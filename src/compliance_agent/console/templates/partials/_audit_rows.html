@@ -1,0 +1,16 @@
+{% import "partials/_macros.html" as ui %}
+{% for run in audit_runs %}
+<tr data-status="{{ run.status.value }}">
+  <td data-value="{{ run.status.value }}">{{ run.status.value.replace('_', ' ')|title }}</td>
+  <td><a href="/audits/{{ run.run_id }}"><code>{{ run.run_id[:12] }}</code></a></td>
+  <td data-value="{{ run.ended_at.isoformat() }}">{{ ui.timestamp(run.ended_at) }}</td>
+  <td data-value="{{ 1 if run.integrity_valid else 0 }}" class="{{ 'verified' if run.integrity_valid else 'danger' }}">{{ 'Verified' if run.integrity_valid else 'Integrity error' }}</td>
+</tr>
+{% else %}
+  {% if audit_page == 1 %}{{ ui.empty_state('clock', 'No finalized evidence', 'Browser-backed runs will appear here after finalization.', none, none, 4) }}{% endif %}
+{% endfor %}
+{% if audit_has_more %}
+<tr class="load-more-row" hx-get="/partials/audit-rows?page={{ audit_page + 1 }}{% if audit_status %}&amp;status={{ audit_status }}{% endif %}" hx-trigger="click" hx-target="this" hx-swap="outerHTML">
+  <td colspan="4"><a class="button secondary" href="/activity?audit_page={{ audit_page + 1 }}{% if audit_status %}&amp;status={{ audit_status }}{% endif %}">Load more</a></td>
+</tr>
+{% endif %}

@@ -18,7 +18,7 @@ from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.infrastructure.identifiers import Uuid4Generator
 from compliance_agent.infrastructure.process_lock import ProcessLock
-from compliance_agent.settings import Settings
+from compliance_agent.settings import ConsoleBindHost, Settings
 from compliance_agent.startup import (
     choose_console_port,
     collect_startup_checks,
@@ -46,6 +46,8 @@ def test_settings_accept_safe_defaults_and_reject_live_headless_or_missing_ident
     settings = Settings(**_settings_paths(tmp_path))
     assert settings.dry_run
     assert settings.plan_only
+    assert str(settings.gmail_settings_url) == "https://admin.google.com/ac/apps/gmail/spam"
+    assert settings.console_bind_host == ConsoleBindHost.LOOPBACK
     with pytest.raises(ValidationError, match="headed browser"):
         Settings(
             **_settings_paths(tmp_path),
@@ -56,7 +58,13 @@ def test_settings_accept_safe_defaults_and_reject_live_headless_or_missing_ident
             expected_workspace_domain="example.com",
         )
     with pytest.raises(ValidationError, match="EXPECTED_ADMIN"):
-        Settings(**_settings_paths(tmp_path), dry_run=False, plan_only=False)
+        Settings(
+            **_settings_paths(tmp_path),
+            dry_run=False,
+            plan_only=False,
+            expected_admin_email="",
+            expected_workspace_domain="",
+        )
 
 
 def test_settings_reject_relative_or_overlapping_sensitive_paths(tmp_path: Path) -> None:
@@ -89,6 +97,14 @@ def test_settings_normalize_identity_and_restrict_security_sensitive_hosts(tmp_p
     assert settings.managed_resource_prefix == "[Managed]"
     with pytest.raises(ValidationError, match="loopback"):
         Settings(**_settings_paths(tmp_path), ollama_base_url="https://ollama.example.com/v1")
+    container_settings = Settings(
+        **_settings_paths(tmp_path),
+        console_bind_host=ConsoleBindHost.CONTAINER,
+        ollama_base_url="http://host.docker.internal:11434/v1",
+    )
+    assert container_settings.console_bind_host == ConsoleBindHost.CONTAINER
+    with pytest.raises(ValidationError, match="console_bind_host"):
+        Settings(**_settings_paths(tmp_path), console_bind_host="192.0.2.1")
     with pytest.raises(ValidationError, match=r"admin\.google\.com"):
         Settings(**_settings_paths(tmp_path), gmail_settings_url="https://example.com/settings")
 
@@ -294,7 +310,33 @@ def test_console_uses_automatic_port_fallback(
 
     assert captured["ran"] is True
     assert cast("uvicorn.Config", captured["config"]).port == 8766
+    assert cast("uvicorn.Config", captured["config"]).host == "127.0.0.1"
     assert "using 8766 instead" in capsys.readouterr().out
+
+
+def test_console_uses_container_bind_host_when_explicitly_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeServer:
+        started = False
+        should_exit = False
+
+        def __init__(self, config: object) -> None:
+            captured["config"] = config
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    monkeypatch.setenv("CA_CONSOLE_BIND_HOST", ConsoleBindHost.CONTAINER.value)
+    monkeypatch.setattr("compliance_agent.cli.port_available", lambda _port: True)
+    monkeypatch.setattr("compliance_agent.cli.uvicorn.Server", FakeServer)
+
+    assert run(["console", "--port", "8765", "--no-open"]) == 0
+
+    assert captured["ran"] is True
+    assert cast("uvicorn.Config", captured["config"]).host == ConsoleBindHost.CONTAINER.value
 
 
 def test_explicit_busy_console_port_has_clear_recovery(

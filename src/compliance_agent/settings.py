@@ -3,6 +3,7 @@
 import os
 import stat
 import unicodedata
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Self
 
@@ -12,9 +13,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from compliance_agent.domain.normalization import normalize_domain, normalize_email
 from compliance_agent.schemas.operations import RunMode
 
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_OLLAMA_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
 _MAX_PREFIX_CHARACTERS = 100
 _MAX_MODEL_TAG_CHARACTERS = 200
+
+
+class ConsoleBindHost(StrEnum):
+    """Constrained listener choices; the wildcard is only for a host-loopback container map."""
+
+    LOOPBACK = "127.0.0.1"
+    CONTAINER = "0.0.0.0"  # noqa: S104 - Compose publishes this only to host loopback.
 
 
 class Settings(BaseSettings):
@@ -46,8 +54,9 @@ class Settings(BaseSettings):
     expected_admin_email: str = ""
     expected_workspace_domain: str = ""
     google_admin_base_url: HttpUrl = HttpUrl("https://admin.google.com")
-    gmail_settings_url: HttpUrl = HttpUrl("https://admin.google.com/ac/apps/gmail")
+    gmail_settings_url: HttpUrl = HttpUrl("https://admin.google.com/ac/apps/gmail/spam")
     console_port: int = Field(default=8765, ge=1024, le=65_535)
+    console_bind_host: ConsoleBindHost = ConsoleBindHost.LOOPBACK
     console_open_browser: bool = True
     approval_ttl_seconds: int = Field(default=600, ge=60, le=3_600)
 
@@ -171,8 +180,8 @@ def _visible_setting(value: str, *, maximum_characters: int, label: str) -> str:
 
 
 def _validate_service_urls(settings: Settings) -> None:
-    if settings.ollama_base_url.host not in _LOOPBACK_HOSTS:
-        message = "CA_OLLAMA_BASE_URL must use a loopback host"
+    if settings.ollama_base_url.host not in _OLLAMA_HOSTS:
+        message = "CA_OLLAMA_BASE_URL must use a loopback or Docker host-gateway host"
         raise ValueError(message)
     _require_google_admin_url(settings.google_admin_base_url, "CA_GOOGLE_ADMIN_BASE_URL")
     _require_google_admin_url(settings.gmail_settings_url, "CA_GMAIL_SETTINGS_URL")
