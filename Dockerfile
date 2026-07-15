@@ -31,9 +31,9 @@ RUN groupadd --gid 10001 compliance-agent \
     && install -d -o compliance-agent -g compliance-agent -m 0700 \
         /config /data/audit /data/browser-profile /data/state
 
-COPY --from=builder --chown=compliance-agent:compliance-agent /app/.venv /opt/venv
+COPY --from=builder --chown=compliance-agent:compliance-agent /app/.venv /app/.venv
 
-ENV PATH="/opt/venv/bin:$PATH" \
+ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     CA_RUN_MODE=plan_only \

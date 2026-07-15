@@ -11,6 +11,8 @@ def test_container_runtime_is_non_root_and_plan_only() -> None:
     assert "USER compliance-agent" in dockerfile
     assert "CA_RUN_MODE=plan_only" in dockerfile
     assert "CA_CONSOLE_BIND_HOST=0.0.0.0" in dockerfile
+    assert "/app/.venv /app/.venv" in dockerfile
+    assert 'PATH="/app/.venv/bin:$PATH"' in dockerfile
     assert 'ENTRYPOINT ["compliance-agent"]' in dockerfile
     assert 'CMD ["console", "--no-open"]' in dockerfile
     assert "HEALTHCHECK" in dockerfile
