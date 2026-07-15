@@ -195,9 +195,7 @@ class ContentCompliancePage:
         snapshot = await self._aria_snapshot()
         normalized = " ".join(snapshot.split()).casefold()
         verified = (
-            completed
-            and rule.display_name.casefold() in normalized
-            and state_label in normalized
+            completed and rule.display_name.casefold() in normalized and state_label in normalized
         )
         return ComplianceBrowserRunResult(
             completed=completed,
@@ -255,11 +253,7 @@ class ContentCompliancePage:
                 raise SelectorNotFound(message)
             if step.candidate_id is not None:
                 candidate = next(
-                    (
-                        item
-                        for item in catalog.candidates
-                        if item.candidate_id == step.candidate_id
-                    ),
+                    (item for item in catalog.candidates if item.candidate_id == step.candidate_id),
                     None,
                 )
                 if candidate is not None and _is_commit_control(candidate.accessible_name):
@@ -377,9 +371,7 @@ def _rule_inputs(rule: ManagedContentComplianceRule) -> tuple[BrowserInput, ...]
         values.append(("Address list condition mode", rule.address_list_condition.mode))
         values.extend(
             (f"Address list {index}", name)
-            for index, name in enumerate(
-                rule.address_list_condition.address_list_names, start=1
-            )
+            for index, name in enumerate(rule.address_list_condition.address_list_names, start=1)
         )
     for index, envelope_filter in enumerate(rule.envelope_filters, start=1):
         values.extend(
@@ -416,11 +408,7 @@ def _snapshot_matches_rule(
         rule.rejection_notice.text,
         "Reject message",
         rule.combiner.value,
-        (
-            "root organizational unit"
-            if rule.target_ou.path == "/"
-            else rule.target_ou.path
-        ),
+        ("root organizational unit" if rule.target_ou.path == "/" else rule.target_ou.path),
         *(direction.value.replace("_", " ") for direction in rule.directions),
     ]
     for expression in rule.expressions:

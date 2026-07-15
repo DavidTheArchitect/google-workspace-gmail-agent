@@ -59,11 +59,17 @@ jobs:
           METADATA_JSON: ${{ steps.metadata.outputs.json }}
         run: |
           IMAGE=$(jq -r '.tags[] | select(endswith(":local-smoke"))' <<<"$METADATA_JSON")
-          docker run --detach --rm --name gmail-agent-smoke \
+          docker run --detach --name gmail-agent-smoke \
             --publish 127.0.0.1:8765:8765 "$IMAGE"
-          trap 'docker logs gmail-agent-smoke; docker stop gmail-agent-smoke' EXIT
+          cleanup() {
+            docker logs gmail-agent-smoke || true
+            docker rm --force gmail-agent-smoke || true
+          }
+          trap cleanup EXIT
           for attempt in {1..30}; do
-            status=$(docker inspect --format='{{.State.Health.Status}}' gmail-agent-smoke)
+            if ! status=$(docker inspect --format='{{.State.Health.Status}}' gmail-agent-smoke); then
+              exit 1
+            fi
             if [ "$status" = "healthy" ]; then
               exit 0
             fi

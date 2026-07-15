@@ -285,13 +285,9 @@ def test_compliance_desired_state_rejects_ambiguous_mutations() -> None:
         status="plan", actions=(CreateContentComplianceRule(rule=_draft()),)
     )
     with pytest.raises(ValueError, match="already exists"):
-        calculate_compliance_desired_state(
-            state, duplicate_create, registry, (RULE_ID,), PREFIX
-        )
+        calculate_compliance_desired_state(state, duplicate_create, registry, (RULE_ID,), PREFIX)
 
-    moved = rule.model_copy(
-        update={"target_ou": OrganizationalUnitRef(path="/Engineering")}
-    )
+    moved = rule.model_copy(update={"target_ou": OrganizationalUnitRef(path="/Engineering")})
     with pytest.raises(AmbiguousTarget, match="moved between OUs"):
         calculate_compliance_desired_state(
             state,
@@ -359,9 +355,7 @@ def test_compliance_desired_state_capability_list_and_name_collision() -> None:
     state = ContentComplianceState(available_capabilities=frozenset({capability}))
     created = calculate_compliance_desired_state(
         state,
-        TaskPlan(
-            status="plan", actions=(CreateContentComplianceRule(rule=capable_draft),)
-        ),
+        TaskPlan(status="plan", actions=(CreateContentComplianceRule(rule=capable_draft),)),
         OwnershipRegistry(),
         (RULE_ID,),
         PREFIX,
@@ -559,9 +553,7 @@ def test_compliance_ownership_conflict_removal_and_noop() -> None:
         status="matched", desired_state=create.expected_after, observed_state=create.expected_after
     )
     with pytest.raises(OwnershipNotEstablished, match="conflicts"):
-        ComplianceOwnershipLifecycleService(store, _Clock()).commit_verified(
-            create, matched_create
-        )
+        ComplianceOwnershipLifecycleService(store, _Clock()).commit_verified(create, matched_create)
 
 
 def test_compliance_schema_rule_and_state_invariants() -> None:
@@ -661,9 +653,7 @@ def test_compliance_preview_and_verification_evidence_invariants() -> None:
     with pytest.raises(ValidationError, match="observed state"):
         ComplianceVerificationResult(status="matched", desired_state=state, observed_state=None)
     with pytest.raises(ValidationError, match="requires differences"):
-        ComplianceVerificationResult(
-            status="mismatched", desired_state=state, observed_state=state
-        )
+        ComplianceVerificationResult(status="mismatched", desired_state=state, observed_state=state)
     with pytest.raises(ValidationError, match="cannot trust"):
         ComplianceVerificationResult(
             status="indeterminate",
@@ -778,9 +768,7 @@ def test_browser_inputs_cover_metadata_predefined_lists_and_envelopes() -> None:
                 mode="bypass", address_list_names=("trusted-senders",)
             ),
             "envelope_filters": (
-                EnvelopeFilter(
-                    party="sender", selector="pattern", value="*@example.test"
-                ),
+                EnvelopeFilter(party="sender", selector="pattern", value="*@example.test"),
             ),
         }
     )
