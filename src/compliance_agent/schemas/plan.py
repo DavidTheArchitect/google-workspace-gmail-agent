@@ -6,6 +6,10 @@ from uuid import UUID
 from pydantic import Field, model_validator
 
 from compliance_agent.schemas.base import FrozenModel
+from compliance_agent.schemas.compliance import (
+    ContentComplianceRuleDraft,
+    ManagedContentComplianceRule,
+)
 from compliance_agent.schemas.resources import AddressEntry
 
 
@@ -27,6 +31,12 @@ class AddBlockedEntries(_NoticeAction):
     type: Literal["add_blocked_entries"] = "add_blocked_entries"
     entries: tuple[AddressEntry, ...]
     target_rule_id: UUID | None = None
+    target_ou: str = "/"
+
+    @model_validator(mode="after")
+    def validate_target_ou(self) -> Self:
+        object.__setattr__(self, "target_ou", _normalized_ou(self.target_ou))
+        return self
 
 
 class RemoveBlockedEntries(FrozenModel):
@@ -53,6 +63,18 @@ class SetRejectionNotice(FrozenModel):
 class CreateBlockedSenderRule(_NoticeAction):
     type: Literal["create_blocked_sender_rule"] = "create_blocked_sender_rule"
     entries: tuple[AddressEntry, ...]
+    target_ou: str = "/"
+    bypass_entries: tuple[AddressEntry, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_target_and_bypass(self) -> Self:
+        object.__setattr__(self, "target_ou", _normalized_ou(self.target_ou))
+        blocked = {entry.normalized_value for entry in self.entries}
+        bypassed = {entry.normalized_value for entry in self.bypass_entries}
+        if blocked & bypassed:
+            message = "the same address cannot be blocked and bypassed"
+            raise ValueError(message)
+        return self
 
 
 class RemoveBlockedSenderRule(FrozenModel):
@@ -65,13 +87,54 @@ class ListBlockedSenderRules(FrozenModel):
     type: Literal["list_blocked_sender_rules"] = "list_blocked_sender_rules"
 
 
+class CreateContentComplianceRule(FrozenModel):
+    type: Literal["create_content_compliance_rule"] = "create_content_compliance_rule"
+    rule: ContentComplianceRuleDraft
+
+
+class UpdateContentComplianceRule(FrozenModel):
+    type: Literal["update_content_compliance_rule"] = "update_content_compliance_rule"
+    target_rule_id: UUID
+    rule: ManagedContentComplianceRule
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> Self:
+        if self.rule.ownership_id != self.target_rule_id:
+            message = "updated compliance rule must retain its ownership ID"
+            raise ValueError(message)
+        if self.rule.inherited:
+            message = "inherited compliance rules cannot be updated from a child OU"
+            raise ValueError(message)
+        return self
+
+
+class RemoveContentComplianceRule(FrozenModel):
+    type: Literal["remove_content_compliance_rule"] = "remove_content_compliance_rule"
+    target_rule_id: UUID
+
+
+class SetContentComplianceRuleEnabled(FrozenModel):
+    type: Literal["set_content_compliance_rule_enabled"] = "set_content_compliance_rule_enabled"
+    target_rule_id: UUID
+    enabled: bool
+
+
+class ListContentComplianceRules(FrozenModel):
+    type: Literal["list_content_compliance_rules"] = "list_content_compliance_rules"
+
+
 Action = Annotated[
     AddBlockedEntries
     | RemoveBlockedEntries
     | SetRejectionNotice
     | CreateBlockedSenderRule
     | RemoveBlockedSenderRule
-    | ListBlockedSenderRules,
+    | ListBlockedSenderRules
+    | CreateContentComplianceRule
+    | UpdateContentComplianceRule
+    | RemoveContentComplianceRule
+    | SetContentComplianceRuleEnabled
+    | ListContentComplianceRules,
     Field(discriminator="type"),
 ]
 
@@ -79,7 +142,7 @@ Action = Annotated[
 class TaskPlan(FrozenModel):
     """Validated plan that cannot mix terminal planner states with executable actions."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "2.0"] = "2.0"
     status: Literal["plan", "clarification_needed", "unsupported"]
     actions: tuple[Action, ...] = ()
     clarification_question: str | None = None
@@ -89,10 +152,29 @@ class TaskPlan(FrozenModel):
     def validate_status_and_entries(self) -> Self:
         self._validate_status()
         list_actions = [
-            action for action in self.actions if isinstance(action, ListBlockedSenderRules)
+            action
+            for action in self.actions
+            if isinstance(action, (ListBlockedSenderRules, ListContentComplianceRules))
         ]
         if list_actions and len(self.actions) != 1:
-            message = "list_blocked_sender_rules must be the plan's only action"
+            message = "list actions must be the plan's only action"
+            raise ValueError(message)
+        compliance_actions = [
+            action
+            for action in self.actions
+            if isinstance(
+                action,
+                (
+                    CreateContentComplianceRule,
+                    UpdateContentComplianceRule,
+                    RemoveContentComplianceRule,
+                    SetContentComplianceRuleEnabled,
+                    ListContentComplianceRules,
+                ),
+            )
+        ]
+        if compliance_actions and self.schema_version != "2.0":
+            message = "content-compliance actions require task-plan schema 2.0"
             raise ValueError(message)
         for action in self.actions:
             entries = getattr(action, "entries", ())
@@ -131,3 +213,16 @@ class TaskPlan(FrozenModel):
         if self.clarification_question:
             message = "unsupported cannot include a clarification question"
             raise ValueError(message)
+
+
+def _normalized_ou(value: str) -> str:
+    normalized = value.strip()
+    if (
+        not normalized.startswith("/")
+        or "//" in normalized
+        or (normalized.endswith("/") and normalized != "/")
+        or any(part in {".", ".."} for part in normalized.split("/")[1:])
+    ):
+        message = "target OU must be an absolute normalized path"
+        raise ValueError(message)
+    return normalized

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from compliance_agent.schemas.plan import (
     AddBlockedEntries,
+    CreateBlockedSenderRule,
     ListBlockedSenderRules,
     RemoveBlockedEntries,
     RemoveBlockedSenderRule,
@@ -44,9 +45,27 @@ def direct_add_plan(
     entries: tuple[AddressEntry, ...],
     notice: str | None,
     target_rule_id: UUID | None = None,
+    *,
+    target_ou: str = "/",
+    bypass_entries: tuple[AddressEntry, ...] = (),
 ) -> TaskPlan:
     """Construct the same typed plan used by natural-language mode."""
 
+    if bypass_entries:
+        if target_rule_id is not None:
+            message = "bypass entries require creating a new blocked-sender rule"
+            raise ValueError(message)
+        return TaskPlan(
+            status="plan",
+            actions=(
+                CreateBlockedSenderRule(
+                    entries=entries,
+                    rejection_notice=notice,
+                    target_ou=target_ou,
+                    bypass_entries=bypass_entries,
+                ),
+            ),
+        )
     return TaskPlan(
         status="plan",
         actions=(
@@ -54,6 +73,7 @@ def direct_add_plan(
                 entries=entries,
                 rejection_notice=notice,
                 target_rule_id=target_rule_id,
+                target_ou=target_ou,
             ),
         ),
     )

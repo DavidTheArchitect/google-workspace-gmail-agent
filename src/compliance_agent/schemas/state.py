@@ -12,7 +12,7 @@ class BlockedSenderState(FrozenModel):
     """Observed or desired root-OU state, including read-only unmanaged rule names."""
 
     schema_version: Literal["1.0"] = "1.0"
-    target_ou: Literal["/"] = "/"
+    target_ou: str = "/"
     rules: tuple[ManagedBlockedSenderRule, ...] = ()
     address_lists: tuple[ManagedAddressList, ...] = ()
     unmanaged_rule_names: tuple[str, ...] = ()

@@ -30,13 +30,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="CA_",
-        env_file=".env",
+        env_file=None,
         env_file_encoding="utf-8",
         extra="forbid",
     )
 
     ollama_base_url: HttpUrl = HttpUrl("http://localhost:11434/v1")
-    ollama_model: str = "gemma3:12b"
+    ollama_model: str = "gemma4:12b"
+    browser_model: str = "gemma4:12b"
     profile_dir: Path = Path.home() / ".compliance_agent" / "browser-profile"
     audit_dir: Path = Path.home() / ".compliance_agent" / "audit"
     state_dir: Path = Path.home() / ".compliance_agent" / "state"
@@ -46,6 +47,10 @@ class Settings(BaseSettings):
     plan_only: bool | None = None
     llm_max_retries: int = Field(default=3, ge=0, le=3)
     llm_temperature: float = Field(default=0, ge=0, le=0)
+    persona_temperature: float = Field(default=0.9, ge=0.1, le=1.5)
+    group_chat_max_rounds: int = Field(default=6, ge=3, le=12)
+    browser_agent_max_steps: int = Field(default=40, ge=1, le=100)
+    browser_candidate_limit: int = Field(default=80, ge=10, le=200)
     navigation_timeout_ms: int = Field(default=30_000, ge=1_000, le=120_000)
     action_timeout_ms: int = Field(default=10_000, ge=1_000, le=60_000)
     save_timeout_ms: int = Field(default=15_000, ge=1_000, le=120_000)
@@ -55,6 +60,7 @@ class Settings(BaseSettings):
     expected_workspace_domain: str = ""
     google_admin_base_url: HttpUrl = HttpUrl("https://admin.google.com")
     gmail_settings_url: HttpUrl = HttpUrl("https://admin.google.com/ac/apps/gmail/spam")
+    gmail_compliance_url: HttpUrl = HttpUrl("https://admin.google.com/ac/apps/gmail/compliance")
     console_port: int = Field(default=8765, ge=1024, le=65_535)
     console_bind_host: ConsoleBindHost = ConsoleBindHost.LOOPBACK
     console_open_browser: bool = True
@@ -101,6 +107,12 @@ class Settings(BaseSettings):
             label="Ollama model tag",
         )
         object.__setattr__(self, "ollama_model", model)
+        browser_model = _visible_setting(
+            self.browser_model,
+            maximum_characters=_MAX_MODEL_TAG_CHARACTERS,
+            label="browser model tag",
+        )
+        object.__setattr__(self, "browser_model", browser_model)
         _validate_service_urls(self)
         administrator_email, workspace_domain = _normalized_identities(
             self.expected_admin_email,
@@ -185,6 +197,13 @@ def _validate_service_urls(settings: Settings) -> None:
         raise ValueError(message)
     _require_google_admin_url(settings.google_admin_base_url, "CA_GOOGLE_ADMIN_BASE_URL")
     _require_google_admin_url(settings.gmail_settings_url, "CA_GMAIL_SETTINGS_URL")
+    _require_google_admin_url(settings.gmail_compliance_url, "CA_GMAIL_COMPLIANCE_URL")
+
+
+def load_settings(**overrides: Any) -> Settings:
+    """Load production settings from the local .env plus CA_ environment values."""
+
+    return Settings(_env_file=".env", **overrides)
 
 
 def _normalized_identities(administrator_email: str, workspace_domain: str) -> tuple[str, str]:

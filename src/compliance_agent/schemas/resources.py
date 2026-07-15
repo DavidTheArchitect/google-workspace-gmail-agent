@@ -48,9 +48,12 @@ class ManagedBlockedSenderRule(FrozenModel):
 
     ownership_id: UUID
     display_name: str = Field(min_length=1, max_length=200)
-    target_ou: Literal["/"] = "/"
+    target_ou: str = Field(default="/", min_length=1, max_length=1_000)
     address_list_names: tuple[str, ...]
+    bypass_address_list_names: tuple[str, ...] = ()
     rejection_notice: str | None = Field(default=None, max_length=1000)
+    enabled: bool = True
+    inherited: bool = False
 
     @model_validator(mode="after")
     def validate_notice_and_lists(self) -> Self:
@@ -60,6 +63,14 @@ class ManagedBlockedSenderRule(FrozenModel):
         if len(self.address_list_names) != len(set(self.address_list_names)):
             message = "blocked-sender rule contains duplicate address-list names"
             raise ValueError(message)
+        if len(self.bypass_address_list_names) != len(set(self.bypass_address_list_names)):
+            message = "blocked-sender rule contains duplicate bypass-list names"
+            raise ValueError(message)
+        target_ou = self.target_ou.strip()
+        if not target_ou.startswith("/") or "//" in target_ou:
+            message = "blocked-sender target OU must be an absolute normalized path"
+            raise ValueError(message)
+        object.__setattr__(self, "target_ou", target_ou)
         if self.rejection_notice is not None:
             notice = self.rejection_notice.strip()
             if not notice:

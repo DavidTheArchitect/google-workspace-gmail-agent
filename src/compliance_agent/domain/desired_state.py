@@ -47,6 +47,13 @@ def calculate_desired_state(
     affected_entry_count = 0
 
     for action in plan.actions:
+        requested_ou = getattr(action, "target_ou", current_state.target_ou)
+        if requested_ou != current_state.target_ou:
+            message = (
+                f"plan targets OU {requested_ou}, but the observed state is "
+                f"{current_state.target_ou}"
+            )
+            raise AmbiguousTarget(message)
         if isinstance(action, (CreateBlockedSenderRule, AddBlockedEntries)):
             affected_entry_count += _apply_create_or_add(
                 action,
@@ -85,6 +92,7 @@ def calculate_desired_state(
 
     _require_unique_display_names(rules, address_lists, current_state.unmanaged_rule_names)
     desired = BlockedSenderState(
+        target_ou=current_state.target_ou,
         rules=tuple(sorted(rules.values(), key=lambda rule: rule.ownership_id.hex)),
         address_lists=tuple(
             sorted(address_lists.values(), key=lambda address_list: address_list.ownership_id.hex)
@@ -109,6 +117,8 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
         _create_rule(
             action.entries,
             action.rejection_notice,
+            action.target_ou,
+            action.bypass_entries,
             rules,
             address_lists,
             identifiers,
@@ -121,6 +131,8 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
         _create_rule(
             action.entries,
             action.rejection_notice,
+            action.target_ou,
+            (),
             rules,
             address_lists,
             identifiers,
@@ -136,6 +148,8 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
         _create_rule(
             action.entries,
             action.rejection_notice,
+            action.target_ou,
+            (),
             rules,
             address_lists,
             identifiers,
@@ -180,6 +194,8 @@ def _resolve_add_target(
 def _create_rule(  # noqa: PLR0913 - construction inputs are distinct domain concepts.
     entries: tuple[AddressEntry, ...],
     notice: str | None,
+    target_ou: str,
+    bypass_entries: tuple[AddressEntry, ...],
     rules: dict[UUID, ManagedBlockedSenderRule],
     address_lists: dict[UUID, ManagedAddressList],
     identifiers: Iterator[UUID],
@@ -199,10 +215,27 @@ def _create_rule(  # noqa: PLR0913 - construction inputs are distinct domain con
         display_name=list_name,
         entries=_sorted_entries(entries),
     )
+    bypass_names: tuple[str, ...] = ()
+    if bypass_entries:
+        try:
+            bypass_id = next(identifiers)
+        except StopIteration as error:
+            message = "desired state needs an ownership ID for the bypass list"
+            raise ValueError(message) from error
+        _unused_rule_name, bypass_name = managed_resource_names(prefix, bypass_id)
+        bypass_name = f"{bypass_name} bypass"
+        address_lists[bypass_id] = ManagedAddressList(
+            ownership_id=bypass_id,
+            display_name=bypass_name,
+            entries=_sorted_entries(bypass_entries),
+        )
+        bypass_names = (bypass_name,)
     rules[ownership_id] = ManagedBlockedSenderRule(
         ownership_id=ownership_id,
         display_name=rule_name,
+        target_ou=target_ou,
         address_list_names=(list_name,),
+        bypass_address_list_names=bypass_names,
         rejection_notice=notice,
     )
 
@@ -259,6 +292,17 @@ def _remove_rule(
         message = "owned address list remains referenced by another rule"
         raise AmbiguousTarget(message)
     del address_lists[address_list.ownership_id]
+    for bypass_name in rule.bypass_address_list_names:
+        matches = [item for item in address_lists.values() if item.display_name == bypass_name]
+        if len(matches) != 1:
+            message = f"owned bypass list is missing or ambiguous: {bypass_name}"
+            raise AmbiguousTarget(message)
+        bypass_list = matches[0]
+        require_owned_address_list(bypass_list, registry, prefix)
+        if any(bypass_name in item.bypass_address_list_names for item in rules.values()):
+            message = "owned bypass list remains referenced by another rule"
+            raise AmbiguousTarget(message)
+        del address_lists[bypass_list.ownership_id]
 
 
 def _require_rule(

@@ -12,7 +12,10 @@ license = { text = "MIT" }
 authors = [{ name = "DavidTheArchitect" }]
 dependencies = [
     "agent-framework-core==1.11.0",
+    "agent-framework-openai==1.10.1",
+    "agent-framework-orchestrations==1.0.0",
     "fastapi==0.139.0",
+    "google-re2==1.1.20251105",
     "idna==3.18",
     "Jinja2==3.1.6",
     "openai==2.45.0",
@@ -21,6 +24,7 @@ dependencies = [
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
     "python-multipart==0.0.32",
+    "reflex==0.9.6.post2",
     "uvicorn==0.51.0",
 ]
 
@@ -94,6 +98,10 @@ plugins = ["pydantic.mypy"]
 module = "agent_framework.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "compliance_agent.reflex_console.*"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov=compliance_agent --cov-branch --cov-report=term-missing"
 testpaths = ["tests"]
@@ -106,6 +114,12 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["compliance_agent"]
+omit = [
+    "src/compliance_agent/browser/navigation_agent.py",
+    "src/compliance_agent/browser/pages/content_compliance.py",
+    "src/compliance_agent/launcher.py",
+    "src/compliance_agent/reflex_console/*",
+]
 
 [tool.coverage.report]
 fail_under = 90

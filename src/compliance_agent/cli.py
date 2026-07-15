@@ -32,10 +32,10 @@ from compliance_agent.audit.writer import verify_event_chain
 from compliance_agent.console import create_console_app
 from compliance_agent.exceptions import ComplianceAgentError
 from compliance_agent.infrastructure.clock import SystemClock
-from compliance_agent.llm.planner import build_planner
+from compliance_agent.llm.planner import build_group_chat_planner
 from compliance_agent.schemas.plan import TaskPlan
 from compliance_agent.schemas.resources import AddressEntry
-from compliance_agent.settings import Settings
+from compliance_agent.settings import Settings, load_settings
 from compliance_agent.startup import (
     choose_console_port,
     collect_startup_checks,
@@ -77,6 +77,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_entry_arguments(add)
     add.add_argument("--notice")
     add.add_argument("--rule-id", type=UUID)
+    add.add_argument("--ou", default="/")
+    add.add_argument("--bypass-email", action="append", default=[])
+    add.add_argument("--bypass-domain", action="append", default=[])
     remove = block_commands.add_parser("remove", help="plan exact-target entry removals")
     _add_entry_arguments(remove)
     remove.add_argument("--rule-id", type=UUID, required=True)
@@ -162,7 +165,7 @@ def main() -> None:
 
 
 def _run_settings_command(command: str) -> int:
-    settings = Settings()
+    settings = load_settings()
     if command == "doctor":
         print(format_startup_checks(collect_startup_checks(settings)))
     else:
@@ -171,9 +174,9 @@ def _run_settings_command(command: str) -> int:
 
 
 async def _run_natural_language_plan(request: str) -> int:
-    settings = Settings()
-    result = await build_planner(settings).plan(request)
-    _print_plan(result.plan)
+    settings = load_settings()
+    result = await build_group_chat_planner(settings).plan(request)
+    _print_plan(result.planner_result.plan)
     return 0
 
 
@@ -185,7 +188,14 @@ def _block_plan(args: argparse.Namespace) -> TaskPlan:
         message = "provide at least one --email or --domain"
         raise ValueError(message)
     if args.block_command == "add":
-        return direct_add_plan(entries, args.notice, args.rule_id)
+        bypass_entries = _entries(args.bypass_email, args.bypass_domain)
+        return direct_add_plan(
+            entries,
+            args.notice,
+            args.rule_id,
+            target_ou=args.ou,
+            bypass_entries=bypass_entries,
+        )
     return direct_remove_entries_plan(entries, args.rule_id)
 
 
@@ -220,7 +230,7 @@ def _run_audit(args: argparse.Namespace) -> int:
         print(exported)
         return 0
     if args.audit_command == "prune":
-        settings = Settings()
+        settings = load_settings()
         service = AuditRetentionService(
             settings.audit_dir,
             SystemClock(),
@@ -252,7 +262,7 @@ def _run_audit(args: argparse.Namespace) -> int:
 
 
 def _run_console(args: argparse.Namespace) -> int:
-    settings = Settings(console_port=args.port) if args.port is not None else Settings()
+    settings = load_settings(console_port=args.port) if args.port is not None else load_settings()
     preferred_port = settings.console_port
     if args.port is not None and not port_available(preferred_port):
         message = (
@@ -263,7 +273,7 @@ def _run_console(args: argparse.Namespace) -> int:
     selected_port = preferred_port if args.port is not None else choose_console_port(preferred_port)
     if selected_port != preferred_port:
         print(f"Console port {preferred_port} is busy; using {selected_port} instead.")
-        settings = Settings(console_port=selected_port)
+        settings = load_settings(console_port=selected_port)
     console = create_console_app(settings)
     config = uvicorn.Config(
         console.app,

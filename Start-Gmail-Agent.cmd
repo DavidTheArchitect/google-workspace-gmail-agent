@@ -30,6 +30,19 @@ if not exist ".venv\Scripts\gmail-agent.exe" (
   )
 )
 
+if not exist ".node\node-v22.22.3-win-x64\node.exe" (
+  echo The Reflex frontend runtime is missing. Repairing it now...
+  uv run --no-sync python scripts\install_node.py
+  if errorlevel 1 (
+    echo.
+    echo Automatic frontend runtime repair failed. Run Setup-Gmail-Agent.cmd for details.
+    pause
+    exit /b 1
+  )
+)
+
+set "PATH=%CD%\.node\node-v22.22.3-win-x64;%PATH%"
+
 echo Checking startup requirements...
 uv run --no-sync compliance-agent doctor
 if errorlevel 1 (

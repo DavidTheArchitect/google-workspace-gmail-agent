@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.changes import StateDifference
+from compliance_agent.schemas.compliance import ContentComplianceState
 from compliance_agent.schemas.state import BlockedSenderState
 from compliance_agent.schemas.status import RunStatus
 
@@ -84,6 +85,30 @@ class ReconciliationDecision(FrozenModel):
             raise ValueError(message)
         if self.observed_state is None and self.outcome != "indeterminate":
             message = "missing reconciliation state must be indeterminate"
+            raise ValueError(message)
+        return self
+
+
+class ComplianceVerificationResult(FrozenModel):
+    """Independent verification for the advanced Gmail compliance surface."""
+
+    status: Literal["matched", "mismatched", "indeterminate"]
+    desired_state: ContentComplianceState
+    observed_state: ContentComplianceState | None
+    differences: tuple[StateDifference, ...] = ()
+
+    @model_validator(mode="after")
+    def validate_status_evidence(self) -> Self:
+        if self.status == "matched":
+            if self.observed_state is None or self.differences:
+                message = "matched compliance verification requires an observed state"
+                raise ValueError(message)
+            return self
+        if not self.differences:
+            message = f"{self.status} compliance verification requires differences"
+            raise ValueError(message)
+        if self.status == "indeterminate" and self.observed_state is not None:
+            message = "indeterminate compliance verification cannot trust observed state"
             raise ValueError(message)
         return self
 

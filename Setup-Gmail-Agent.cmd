@@ -51,6 +51,16 @@ if errorlevel 1 (
 )
 
 echo.
+echo Installing the project-local Node runtime required by Reflex...
+uv run --no-sync python scripts\install_node.py
+if errorlevel 1 (
+  echo.
+  echo Reflex frontend runtime setup failed. Review the message above.
+  pause
+  exit /b 1
+)
+
+echo.
 uv run --no-sync compliance-agent doctor
 if errorlevel 1 (
   echo.

@@ -29,12 +29,47 @@ FEW_SHOT_EXAMPLES: tuple[tuple[str, TaskPlan], ...] = (
         ),
     ),
     (
-        "Create a content compliance rule for /Sales",
-        TaskPlan(
-            status="unsupported",
-            unsupported_reason=(
-                "Version 1 does not manage content compliance or child organizational units."
-            ),
+        "Reject inbound mail in /Sales when X-Campaign matches ^bad-[0-9]+$.",
+        TaskPlan.model_validate(
+            {
+                "schema_version": "2.0",
+                "status": "plan",
+                "actions": [
+                    {
+                        "type": "create_content_compliance_rule",
+                        "rule": {
+                            "target_ou": {"path": "/Sales"},
+                            "directions": ["inbound"],
+                            "combiner": "all",
+                            "expressions": [
+                                {
+                                    "type": "advanced",
+                                    "location": "full_headers",
+                                    "match_type": "matches_regex",
+                                    "value": "(?m)^X-Campaign: bad-[0-9]+$",
+                                    "regex_description": "Disallowed campaign header",
+                                }
+                            ],
+                            "rejection_notice": {
+                                "text": (
+                                    "Our stargazing postmaster could not deliver this message "
+                                    "under the campaign-integrity policy (MAIL-204). Please "
+                                    "contact the organization another way."
+                                ),
+                                "policy_category": "campaign-integrity",
+                                "policy_id": "MAIL-204",
+                                "persona": {
+                                    "fictional_role": "stargazing postmaster",
+                                    "traits": ["curious", "courteous"],
+                                    "voice": "warm and concise",
+                                    "motif": "constellations",
+                                    "seed": 204,
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
         ),
     ),
     (

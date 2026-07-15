@@ -984,7 +984,7 @@ def _status_filter(request: Request) -> str | None:
     return value if value in _AUDIT_STATUSES else None
 
 
-def _filter_audits(runs: tuple[object, ...], status_filter: str | None) -> tuple[object, ...]:
+def _filter_audits[Item](runs: tuple[Item, ...], status_filter: str | None) -> tuple[Item, ...]:
     if status_filter is None:
         return runs
     return tuple(
@@ -1002,12 +1002,12 @@ def _clamped_page(raw: str | None, total: int) -> int:
     return min(requested, maximum)
 
 
-def _audit_page(
-    runs: tuple[object, ...],
+def _audit_page[Item](
+    runs: tuple[Item, ...],
     page: int,
     *,
     cumulative: bool,
-) -> tuple[tuple[object, ...], bool]:
+) -> tuple[tuple[Item, ...], bool]:
     start = 0 if cumulative else (page - 1) * _AUDIT_PAGE_SIZE
     end = page * _AUDIT_PAGE_SIZE
     return runs[start:end], end < len(runs)

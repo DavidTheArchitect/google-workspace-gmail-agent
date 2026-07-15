@@ -1,8 +1,9 @@
 # Gmail Compliance Agent
 
-This project is a local, human-approved automation system for Google Workspace Gmail blocked
-senders. Natural language is an optional planning interface; typed domain code owns validation,
-authorization, execution preconditions, verification, and reporting.
+This project is a local, human-approved Google Workspace Gmail policy agent. It manages both
+standard blocked-sender rules (domains, email addresses, approved-sender bypass lists, custom
+rejection notices, and organizational units) and Reject-only Content compliance rules (simple,
+advanced, metadata, and predefined expressions across all four message directions).
 
 The current implementation completes the public-API feasibility gate, project baseline, typed
 planning boundary, deterministic domain core, structured Ollama planner, direct-command planning,
@@ -11,12 +12,15 @@ browser/session foundations. The workflow includes clarification, manual login, 
 confirmation, mandatory pre-write read-back, drift-driven reconfirmation, mutation reconciliation,
 one proven-safe retry, independent verification, and audit finalization.
 
-The loopback-only operator console adds guided readiness, natural-language and deterministic
-planning, run control, evidence-gate status, ownership inspection, audit history, integrity review,
-retention confirmation, and propagation follow-up without exposing a remote control plane.
+The loopback-only Reflex operator console provides the policy composer, local Gemma 4 specialist
+group, dynamic bounce-message personas, draft evidence, and a locked exact-approval surface. Exact
+approval controls appear only after the headed browser supplies a fresh Google before-state read
+and change-set hash; a local draft hash is never presented as permission to write.
 
-Live page parsers and mutation locators are intentionally gated on a supervised Admin console
-observation; the repository does not ship guessed write selectors.
+Content compliance remains a Google Admin UI-only workflow. The local Gemma browser navigator sees
+a screenshot and bounded accessibility snapshot, but can act only through opaque IDs for unique
+semantic controls and application-supplied values. Live writes remain gated on accepted supervised
+UI evidence for the administrator's current Admin console version.
 
 ## Safety boundary
 
@@ -28,10 +32,16 @@ observation; the repository does not ship guessed write selectors.
 - A write timeout is reconciled by read-back before any retry.
 - UI persistence and Gmail propagation are reported separately.
 - Browser credentials and session data never enter audit artifacts.
+- The compliance writer supports only **Reject message**. Quarantine, modification, routing, and
+  private Google APIs are outside its authorization boundary.
+- One approval covers the exact plan/state/change hashes; the autonomous browser run is bounded,
+  rechecks the target OU before Save, and performs an independent editor read-back.
 
 ## Development
 
-Python 3.12 and 3.13 are supported. Dependencies are exact-pinned and resolved by `uv`.
+Python 3.12 and 3.13 are supported. Dependencies are exact-pinned and resolved by `uv`. Setup also
+installs a checksum-verified project-local Node 22 runtime for the Reflex frontend; it does not
+modify the machine-wide Node installation.
 
 ### Start the console
 
@@ -45,9 +55,10 @@ For the first run on Windows, double-click [`Setup-Gmail-Agent.cmd`](Setup-Gmail
 
 After setup, double-click [`Start-Gmail-Agent.cmd`](Start-Gmail-Agent.cmd). Keep its terminal window
 open while using the agent. The launcher repairs a missing environment, checks startup readiness,
-waits for the local server, opens the secure one-time URL, and signs the browser in automatically—
-there is no token to copy or type. It uses a local, OneDrive-safe `uv` cache and copy mode. If the
-configured port is busy, the console selects the next free loopback port automatically.
+starts Reflex on the configured loopback port, and opens the local console. Google Admin login is
+always performed by the operator in the visible browser; credentials are never copied into the
+application. The scripts use a local, OneDrive-safe `uv` cache and copy mode. A busy configured port
+fails visibly instead of silently moving an approval session to another origin.
 
 The equivalent terminal command is:
 
@@ -83,8 +94,9 @@ uv run gmail-agent
 uv run pytest
 ```
 
-Direct commands emit the same `TaskPlan` shape used by the LLM planner and do not require Ollama.
-They are plan-only until the live browser observation gate is completed.
+Direct commands emit the same schema-v2 `TaskPlan` shape used by the LLM planner and do not require
+Ollama. Natural-language requests run through four Microsoft Agent Framework group-chat
+participants before the final schema-constrained plan. The default local model is `gemma4:12b`.
 
 For natural-language planning:
 
@@ -114,6 +126,7 @@ uv run compliance-agent audit export-redacted-zip <run-directory> <destination.z
 
 See [docs/api-feasibility.md](docs/api-feasibility.md),
 [docs/architecture.md](docs/architecture.md), [docs/operator-console.md](docs/operator-console.md),
+[docs/advanced-blocking.md](docs/advanced-blocking.md),
 [docs/containers.md](docs/containers.md), and
 [docs/live-test-procedure.md](docs/live-test-procedure.md)
 before enabling any live work.
