@@ -31,7 +31,7 @@ def build_setup_steps(
 
     items = collect_readiness(settings, capabilities)
     groups = (
-        ("Mode", (items[0],), "/runs/new", "Create a plan"),
+        ("Mode", (items[0],), "/setup#run-mode", "Choose a run mode"),
         ("Storage", tuple(items[1:4]), "/readiness", "Review storage"),
         (
             "Google identities",

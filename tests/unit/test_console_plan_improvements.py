@@ -268,7 +268,7 @@ def test_htmx_direct_add_validation_and_success_contract(tmp_path: Path) -> None
     assert "echo this safely" in htmx_invalid.text
     assert "<html" not in htmx_invalid.text
     assert plain_invalid.status_code == 400
-    assert "Block a sender" in plain_invalid.text
+    assert "Draft a sender block" in plain_invalid.text
     assert len(console.coordinator.list_runs()) == initial_count
 
     valid_data = {**invalid_data, "target": "valid.example"}

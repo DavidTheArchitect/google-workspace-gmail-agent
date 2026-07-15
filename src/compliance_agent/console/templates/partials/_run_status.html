@@ -20,7 +20,7 @@
 {% if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' %}
 <section class="run-outcome" aria-labelledby="plan-complete-title">
   <span class="run-outcome-icon" aria-hidden="true">✓</span>
-  <div><h2 id="plan-complete-title">Ready to review</h2><p>The validated plan is below. This run is finished; nothing was previewed or applied in Google Workspace.</p></div>
+  <div><h2 id="plan-complete-title">Plan complete</h2><p>The validated plan is below. Nothing was previewed or applied in Google Workspace; you can enable a capable mode to continue this plan.</p></div>
 </section>
 {% endif %}
 {% if run.phase.value == 'interrupted' %}

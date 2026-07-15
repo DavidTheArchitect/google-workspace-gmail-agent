@@ -1,20 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Block a sender · Gmail Compliance Agent{% endblock %}
+{% block title %}{{ 'Draft' if run_mode.value == 'plan_only' else 'Preview' if run_mode.value == 'dry_run' else 'Block' }} a sender · Gmail Compliance Agent{% endblock %}
 {% block content %}
 <div class="form-page">
   <a class="back-link" href="/">← Back to home</a>
   <header class="page-header">
-    <h1>Block a sender</h1>
-    <p>Enter one exact domain or email. You will review the validated plan before this run ends.</p>
+    <h1>{{ 'Draft a sender block' if run_mode.value == 'plan_only' else 'Preview a sender block' if run_mode.value == 'dry_run' else 'Block a sender' }}</h1>
+    <p>Enter one exact domain or email. You will review the validated plan before any Google access or change.</p>
   </header>
 
-  <ol class="short-progress" aria-label="Plan progress">
+  <ol class="short-progress" aria-label="Run progress">
     <li class="current" aria-current="step"><span>1</span> Enter sender</li>
     <li><span>2</span> Review plan</li>
+    {% if run_mode.value != 'plan_only' %}<li><span>3</span> Safe preview</li>{% endif %}
+    {% if run_mode.value == 'live' %}<li><span>4</span> Approve & apply</li>{% endif %}
   </ol>
 
   <section class="primary-form-surface" id="built-in-form" aria-labelledby="built-in-form-title">
-    <div class="form-heading"><h2 id="built-in-form-title">Sender details</h2><p>Works immediately without local AI or Google access.</p></div>
+    <div class="form-heading"><h2 id="built-in-form-title">Sender details</h2><p>Plan creation works immediately without local AI or Google access.</p></div>
     {% include "partials/_direct_add_form.html" %}
   </section>
 
@@ -22,12 +24,11 @@
     <summary><strong>Use local AI instead</strong><span>Optional · requires Ollama and may need troubleshooting</span></summary>
     <form method="post" action="/runs">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="mode" value="{{ run_mode.value }}">
       <div class="field"><label for="request-text">Describe the plan</label><textarea id="request-text" name="request_text" maxlength="2000" required placeholder="Block spam.example with the rejection notice Mail rejected."></textarea><span class="help">If local AI cannot create a valid draft, the next screen will recover the exact sender into the built-in form.</span></div>
       <button class="button secondary" type="submit">Draft with local AI</button>
     </form>
   </details>
 
-  <p class="no-google-note"><svg class="icon" aria-hidden="true"><use href="#icon-check"/></svg><strong>No Google changes:</strong> {{ 'This launch only creates a plan for review.' if run_mode.value == 'plan_only' else 'Google access remains separately gated after planning.' }}</p>
+  <p class="no-google-note"><svg class="icon" aria-hidden="true"><use href="#icon-check"/></svg><strong>{{ 'No Google access:' if run_mode.value == 'plan_only' else 'No automatic changes:' }}</strong> {{ 'This mode stops after the reviewed plan.' if run_mode.value == 'plan_only' else 'Preview is read-only, and live apply requires a separate exact confirmation.' }}</p>
 </div>
 {% endblock %}

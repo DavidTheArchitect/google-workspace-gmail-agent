@@ -8,23 +8,28 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from compliance_agent.domain.normalization import normalize_domain, normalize_email
+from compliance_agent.infrastructure.permissions import restrict_permissions
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from compliance_agent.schemas.operations import RunMode
+
 _EDITABLE_KEYS = frozenset(
     {
         "CA_EXPECTED_ADMIN_EMAIL",
         "CA_EXPECTED_WORKSPACE_DOMAIN",
+        "CA_RUN_MODE",
     }
 )
+_LEGACY_RUN_MODE_KEYS = frozenset({"CA_PLAN_ONLY", "CA_DRY_RUN"})
 _ASSIGNMENT = re.compile(r"^\s*#?\s*(CA_[A-Z0-9_]+)\s*=.*$")
 
 
 @dataclass(frozen=True, slots=True)
 class LocalConfigurationStore:
-    """Persist the two non-secret Google identity expectations safely."""
+    """Persist the small, non-secret set of console-editable settings safely."""
 
     path: Path
 
@@ -45,14 +50,21 @@ class LocalConfigurationStore:
         )
         return normalized_email, normalized_domain
 
-    def update(self, values: Mapping[str, str]) -> None:
+    def save_run_mode(self, mode: RunMode) -> RunMode:
+        """Persist the operator-selected mode using its canonical value."""
+
+        self.update({"CA_RUN_MODE": mode.value}, remove_keys=_LEGACY_RUN_MODE_KEYS)
+        return mode
+
+    def update(
+        self,
+        values: Mapping[str, str],
+        *,
+        remove_keys: frozenset[str] = frozenset(),
+    ) -> None:
         """Atomically update an allow-listed set of dotenv assignments."""
 
-        unsupported = set(values) - _EDITABLE_KEYS
-        if unsupported:
-            names = ", ".join(sorted(unsupported))
-            message = f"configuration keys cannot be edited here: {names}"
-            raise ValueError(message)
+        _validate_update_keys(values, remove_keys)
         if self.path.is_symlink():
             message = "the local configuration file cannot be a symbolic link"
             raise ValueError(message)
@@ -66,6 +78,8 @@ class LocalConfigurationStore:
         for line in existing.splitlines():
             match = _ASSIGNMENT.fullmatch(line)
             key = match.group(1) if match else None
+            if key in remove_keys:
+                continue
             if key not in remaining:
                 output.append(line)
                 continue
@@ -83,7 +97,20 @@ class LocalConfigurationStore:
         temporary = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
         try:
             temporary.write_text(content, encoding="utf-8", newline="")
-            temporary.chmod(0o600)
+            restrict_permissions(temporary, 0o600)
             temporary.replace(self.path)
         finally:
             temporary.unlink(missing_ok=True)
+
+
+def _validate_update_keys(values: Mapping[str, str], remove_keys: frozenset[str]) -> None:
+    unsupported = set(values) - _EDITABLE_KEYS
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        message = f"configuration keys cannot be edited here: {names}"
+        raise ValueError(message)
+    unsupported_removals = set(remove_keys) - _LEGACY_RUN_MODE_KEYS
+    if unsupported_removals:
+        names = ", ".join(sorted(unsupported_removals))
+        message = f"configuration keys cannot be removed here: {names}"
+        raise ValueError(message)

@@ -35,7 +35,7 @@ from compliance_agent.application.propagation_service import PropagationService
 from compliance_agent.application.retention_service import AuditRetentionService
 from compliance_agent.application.ui_contract_service import UiContractStore
 from compliance_agent.audit.export import export_redacted_zip
-from compliance_agent.console.capabilities import ConsoleCapabilities
+from compliance_agent.console.capabilities import ConsoleCapabilities, resolve_capabilities
 from compliance_agent.console.configuration import LocalConfigurationStore
 from compliance_agent.console.coordinator import ConsoleCoordinator
 from compliance_agent.console.notices import resolve_notice
@@ -67,7 +67,7 @@ from compliance_agent.schemas.status import RunStatus
 from compliance_agent.settings import Settings
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class ConsoleWebContext:
     settings: Settings
     security: ConsoleSecurity
@@ -134,7 +134,6 @@ class DirectAddSubmission(BaseModel):
     target: str = Field(min_length=1, max_length=254)
     target_kind: Literal["email", "domain"]
     notice: str | None = Field(default=None, max_length=1_000)
-    mode: RunMode
 
 
 class GoogleIdentitiesSubmission(BaseModel):
@@ -298,8 +297,58 @@ def _register_dashboard_routes(  # noqa: C901, PLR0915 - colocated route group.
                 setup_steps=setup_steps,
                 identity_values={"administrator_email": "", "workspace_domain": ""},
                 identity_errors={},
+                mode_error=None,
             ),
         )
+
+    @app.post("/setup/run-mode")
+    async def configure_run_mode(
+        request: Request,
+        csrf_token: Annotated[str, Form()],
+        run_mode: Annotated[str | None, Form()] = None,
+    ) -> Response:
+        _authorize_post(request, web.security, csrf_token)
+        try:
+            selected = RunMode(run_mode or "")
+        except ValueError:
+            return _mode_validation_response(request, web, "Choose one available run mode.")
+        active = web.coordinator.active_browser_run()
+        if active is not None:
+            return _mode_validation_response(
+                request,
+                web,
+                f"Finish or cancel active run {active.run_id[:8].upper()} before changing mode.",
+            )
+        if selected == RunMode.LIVE:
+            if web.settings.headless:
+                return _mode_validation_response(
+                    request,
+                    web,
+                    "Live mode requires a visible browser. Set CA_HEADLESS=false first.",
+                )
+            if not web.settings.expected_admin_email or not web.settings.expected_workspace_domain:
+                return _mode_validation_response(
+                    request,
+                    web,
+                    "Configure the expected administrator and Workspace domain before "
+                    "selecting live mode.",
+                )
+        if web.configuration is None:
+            message = "local configuration editing is unavailable in this console"
+            raise ValueError(message)
+        web.configuration.save_run_mode(selected)
+        web.settings.run_mode = selected
+        web.settings.plan_only = selected == RunMode.PLAN_ONLY
+        web.settings.dry_run = selected != RunMode.LIVE
+        capabilities = resolve_capabilities(web.settings)
+        web.coordinator.configure_execution(
+            capabilities.preview_service,
+            capabilities.live_runner,
+        )
+        web.capabilities = capabilities
+        if web.health is not None:
+            web.health.set_capabilities(capabilities)
+        return RedirectResponse("/setup?notice=run_mode_saved#run-mode", status_code=303)
 
     @app.post("/setup/google-identities")
     async def configure_google_identities(
@@ -372,21 +421,19 @@ def _register_run_routes(  # noqa: C901 - validation and route registration stay
     async def create_run(
         request: Request,
         request_text: Annotated[str, Form(min_length=1, max_length=2_000)],
-        mode: Annotated[RunMode, Form()],
         csrf_token: Annotated[str, Form()],
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
-        run = web.coordinator.start(request_text, mode)
+        run = web.coordinator.start(request_text, web.settings.run_mode)
         web.coordinator.schedule_planning(run.run_id)
         return RedirectResponse(f"/runs/{run.run_id}", status_code=303)
 
     @app.post("/runs/direct-add")
-    async def create_direct_add_run(  # noqa: PLR0913 - raw form fields preserve auth-first validation.
+    async def create_direct_add_run(
         request: Request,
         target: Annotated[str | None, Form()] = None,
         target_kind: Annotated[str | None, Form()] = None,
         notice: Annotated[str | None, Form()] = None,
-        mode: Annotated[str | None, Form()] = None,
         csrf_token: Annotated[str | None, Form()] = None,
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
@@ -394,7 +441,6 @@ def _register_run_routes(  # noqa: C901 - validation and route registration stay
             "target": target or "",
             "target_kind": target_kind or "",
             "notice": notice or "",
-            "mode": mode or "",
         }
         try:
             submission = DirectAddSubmission.model_validate(values)
@@ -415,7 +461,7 @@ def _register_run_routes(  # noqa: C901 - validation and route registration stay
         plan = direct_add_plan((entry,), submission.notice or None)
         run = web.coordinator.create_from_plan(
             f"Block {entry.value}",
-            submission.mode,
+            web.settings.run_mode,
             plan,
         )
         if _is_htmx(request):
@@ -478,6 +524,30 @@ def _register_run_actions(  # noqa: C901 - related run actions share one securit
         csrf_token: Annotated[str, Form()],
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
+        run = web.coordinator.get(run_id)
+        if run is None:
+            return web.error_response(
+                request,
+                404,
+                "Run not found",
+                "No saved run matches that identifier.",
+            )
+        if web.settings.run_mode == RunMode.PLAN_ONLY:
+            return web.error_response(
+                request,
+                409,
+                "Run mode changed",
+                "Select safe preview or live apply in Settings before previewing this plan.",
+            )
+        if web.capabilities is None or web.capabilities.preview_service is None:
+            return web.error_response(
+                request,
+                409,
+                "Preview is not ready",
+                _capability_unavailable_detail(web.capabilities),
+            )
+        if run.mode != web.settings.run_mode:
+            web.coordinator.promote_plan(run_id, web.settings.run_mode)
         await web.coordinator.preview(run_id)
         return RedirectResponse(f"/runs/{run_id}", status_code=303)
 
@@ -500,6 +570,17 @@ def _register_run_actions(  # noqa: C901 - related run actions share one securit
         csrf_token: Annotated[str, Form()],
     ) -> Response:
         _authorize_post(request, web.security, csrf_token)
+        if (
+            web.settings.run_mode != RunMode.LIVE
+            or web.capabilities is None
+            or web.capabilities.live_runner is None
+        ):
+            return web.error_response(
+                request,
+                409,
+                "Live execution is locked",
+                _capability_unavailable_detail(web.capabilities),
+            )
         await web.coordinator.approve(
             run_id,
             phrase=phrase,
@@ -840,8 +921,61 @@ def _identity_validation_response(
             contract_error=contract_error,
             identity_values=values,
             identity_errors=errors,
+            mode_error=None,
         ),
         status_code=400,
+    )
+
+
+def _mode_validation_response(
+    request: Request,
+    web: ConsoleWebContext,
+    error: str,
+) -> Response:
+    readiness_items = collect_readiness(web.settings, web.capabilities)
+    contract, contract_error = _contract_for_display(web)
+    return web.templates.TemplateResponse(
+        request=request,
+        name="setup.html",
+        context=web.template_values(
+            request,
+            readiness=readiness_items,
+            blocking_readiness=tuple(item for item in readiness_items if item.blocking),
+            setup_steps=build_setup_steps(web.settings, web.capabilities),
+            contract=contract,
+            contract_error=contract_error,
+            identity_values={"administrator_email": "", "workspace_domain": ""},
+            identity_errors={},
+            mode_error=error,
+        ),
+        status_code=400,
+    )
+
+
+def _capability_unavailable_detail(capabilities: ConsoleCapabilities | None) -> str:
+    reason = capabilities.unavailable_reason if capabilities is not None else None
+    guidance = {
+        "ui_contract_pack_required": (
+            "Install supervised Google Admin interface evidence in Settings before previewing."
+        ),
+        "adapters_not_installed": (
+            "Install the verified browser adapter provider before previewing or applying changes."
+        ),
+        "read_contract_evidence_required": (
+            "The installed interface evidence has not been validated for live reads."
+        ),
+        "accepted_live_adapters_required": (
+            "Live mode requires accepted interface evidence and a verified mutation adapter."
+        ),
+        "multiple_adapter_providers": (
+            "More than one browser adapter provider is installed; keep exactly one "
+            "verified provider."
+        ),
+    }
+    return guidance.get(
+        reason or "",
+        "The current mode does not have the verified browser capability required for this "
+        "action. Review Settings for the exact blocker.",
     )
 
 

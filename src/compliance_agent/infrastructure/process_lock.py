@@ -11,6 +11,7 @@ from typing import TextIO
 import portalocker
 
 from compliance_agent.exceptions import RunLockUnavailable
+from compliance_agent.infrastructure.permissions import restrict_permissions
 
 
 class ProcessLock:
@@ -37,10 +38,10 @@ class ProcessLock:
             message = f"this process lock instance already owns {self._path}"
             raise RunLockUnavailable(message)
         self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._path.parent.chmod(0o700)
+        restrict_permissions(self._path.parent, 0o700)
         handle = self._path.open("a+", encoding="utf-8")
         try:
-            self._path.chmod(0o600)
+            restrict_permissions(self._path, 0o600)
             _lock_file(handle)
         except (OSError, portalocker.LockException) as error:
             handle.close()
