@@ -1,6 +1,5 @@
 <form method="post" action="/runs/direct-add" hx-post="/runs/direct-add" hx-target="this" hx-swap="outerHTML">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="mode" value="{{ run_mode.value }}">
   <div class="field-row">
     <div class="field">
       <label for="target-kind">Target type</label>
@@ -23,6 +22,5 @@
     <span class="help">The message a rejected sender may receive.</span>
     {% if direct_errors.notice %}<span class="field-error" id="notice-error">{{ direct_errors.notice }}</span>{% endif %}
   </div>
-  {% if direct_errors.mode %}<p class="field-error" role="alert">The launch mode is invalid. Reload this page.</p>{% endif %}
   <button class="button primary" type="submit">{{ direct_submit_label|default('Create plan') }}</button>
 </form>

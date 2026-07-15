@@ -755,7 +755,7 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
 
     dashboard = client.get("/")
     assert dashboard.status_code == 200
-    assert "Block unwanted senders" in dashboard.text
+    assert "Draft sender-blocking plans" in dashboard.text
     assert "frame-ancestors 'none'" in dashboard.headers["content-security-policy"]
 
     csrf = console.security.csrf_token()
@@ -797,16 +797,18 @@ def test_console_security_and_primary_operator_flow(tmp_path: Path) -> None:  # 
     assert "event: settled" in events.text
     assert "workflow-track" in events.text
 
+    assert console.coordinator.get(run_url.rsplit("/", 1)[-1]).mode == RunMode.PLAN_ONLY
     preview = client.post(f"{run_url}/preview", data={"csrf_token": csrf})
-    assert "ui contract pack required" in preview.text.lower()
+    assert preview.status_code == 409
+    assert "Run mode changed" in preview.text
     cancelled = client.post(f"{run_url}/cancel", data={"csrf_token": csrf})
-    assert cancelled.status_code == 400
-    assert "cannot be cancelled from blocked" in cancelled.text
+    assert cancelled.status_code == 200
+    assert "cancelled" in cancelled.text.lower()
 
     for path, text in (
         ("/readiness", "Local diagnostics"),
         ("/setup", "Settings & capabilities"),
-        ("/runs/new", "Block a sender"),
+        ("/runs/new", "Draft a sender block"),
         ("/contracts", "No reviewed interface evidence is installed"),
         ("/ownership", "No local ownership records"),
         ("/audits", "No finalized audit runs"),

@@ -96,10 +96,13 @@ Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
 `CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
 and new settings fails configuration validation. Browser-backed dry runs require supervised
 live-read contract evidence, and live composition requires an accepted contract-pack digest. The
-console Settings page can validate and save the expected administrator email and Workspace domain;
-other settings remain in `.env`, with `.env.example` documenting the safe starting values. The
-current web composition creates and reviews plans but does not install the accepted read adapter or
-live writer required for Google Admin preview or apply.
+console Settings page can select and persist the run mode and can validate and save the expected
+administrator email and Workspace domain. Mode changes apply to new runs; a completed plan-only run
+can continue into a ready browser-backed mode without being drafted again. Other settings remain in
+`.env`, with `.env.example` documenting the safe starting values. The current web composition creates
+and reviews plans but does not install the accepted read adapter or live writer required for Google
+Admin preview or apply, so selecting those modes exposes their exact setup blockers instead of
+offering an action that cannot run.
 
 Audit retention is non-destructive by default:
 

@@ -113,6 +113,27 @@ class ConsoleCoordinator:
     def list_runs(self) -> tuple[ConsoleRun, ...]:
         return tuple(sorted(self._runs.values(), key=lambda run: run.created_at, reverse=True))
 
+    def configure_execution(
+        self,
+        dry_run_service: ConsolePreviewService | DryRunService | None,
+        live_runner: ConsoleLiveRunner | None,
+    ) -> None:
+        """Replace optional execution services after an attended mode change."""
+
+        if self.active_browser_run() is not None:
+            message = "cancel or finish the active browser-backed run before changing mode"
+            raise ValueError(message)
+        self._dry_run = dry_run_service
+        self._live_runner = live_runner
+
+    def active_browser_run(self) -> ConsoleRun | None:
+        """Return the browser-backed run that makes runtime reconfiguration unsafe."""
+
+        return next(
+            (run for run in self._runs.values() if run.phase in _BROWSER_ACTIVE_PHASES),
+            None,
+        )
+
     def get(self, run_id: str) -> ConsoleRun | None:
         return self._runs.get(run_id)
 
@@ -193,6 +214,25 @@ class ConsoleCoordinator:
         self._runs[run.run_id] = run
         self._save()
         return run
+
+    def promote_plan(self, run_id: str, mode: RunMode) -> ConsoleRun:
+        """Adopt the selected browser-backed mode before a completed plan is previewed."""
+
+        run = self._require(run_id)
+        if run.phase != RunPhase.PLAN_READY or run.plan is None:
+            message = "only a completed plan can continue in another mode"
+            raise ValueError(message)
+        if mode == RunMode.PLAN_ONLY:
+            message = "this run is not eligible to continue in the selected mode"
+            raise ValueError(message)
+        if run.mode == mode:
+            return run
+        now = self._clock()
+        promoted = run.model_copy(update={"mode": mode, "updated_at": now})
+        self._runs[run_id] = promoted
+        self._save()
+        self._notify(run_id)
+        return promoted
 
     async def preview(self, run_id: str) -> ConsoleRun:
         run = self._require(run_id)

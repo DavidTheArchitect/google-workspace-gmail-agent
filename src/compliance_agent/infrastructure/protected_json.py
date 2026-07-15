@@ -7,6 +7,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from compliance_agent.infrastructure.permissions import (
+    directory_is_accessible,
+    restrict_permissions,
+)
+
 
 class ProtectedJsonStore:
     """Load and atomically replace one validated tuple of models."""
@@ -15,6 +20,9 @@ class ProtectedJsonStore:
         self._path = path.resolve()
 
     def load[T: BaseModel](self, model_type: type[T]) -> tuple[T, ...]:
+        if not directory_is_accessible(self._path.parent):
+            message = f"protected JSON directory is inaccessible: {self._path.parent}"
+            raise OSError(message)
         if not self._path.exists():
             return ()
         if self._path.is_symlink():
@@ -28,7 +36,7 @@ class ProtectedJsonStore:
 
     def save(self, values: tuple[BaseModel, ...]) -> None:
         self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._path.parent.chmod(0o700)
+        restrict_permissions(self._path.parent, 0o700)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self._path.parent,
             prefix=f".{self._path.name}.",
@@ -48,7 +56,7 @@ class ProtectedJsonStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary.replace(self._path)
-            self._path.chmod(0o600)
+            restrict_permissions(self._path, 0o600)
         except OSError:
             temporary.unlink(missing_ok=True)
             raise

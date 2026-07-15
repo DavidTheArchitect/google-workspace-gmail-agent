@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from compliance_agent.application.ui_contract_service import UiContractStore
 from compliance_agent.exceptions import ComplianceAgentError
 from compliance_agent.infrastructure.clock import Clock
+from compliance_agent.infrastructure.permissions import directory_is_accessible
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.operations import RunMode
 from compliance_agent.settings import Settings
@@ -66,6 +67,12 @@ class ReadinessCache:
 
         self._cached = None
 
+    def set_capabilities(self, capabilities: "ConsoleCapabilities | None") -> None:
+        """Refresh capability-dependent health after an attended mode change."""
+
+        self._capabilities = capabilities
+        self.invalidate()
+
 
 _MORNING_START_HOUR = 5
 _AFTERNOON_START_HOUR = 12
@@ -114,9 +121,9 @@ def collect_readiness(
             action_href="/setup",
             action_label="Review what this mode can do",
         ),
-        _directory_item("Browser profile", settings.profile_dir),
-        _directory_item("Audit storage", settings.audit_dir),
-        _directory_item("State storage", settings.state_dir),
+        _directory_item("Browser profile", settings.profile_dir, "CA_PROFILE_DIR"),
+        _directory_item("Audit storage", settings.audit_dir, "CA_AUDIT_DIR"),
+        _directory_item("State storage", settings.state_dir, "CA_STATE_DIR"),
         ReadinessItem(
             name="Administrator identity",
             status="ready" if settings.expected_admin_email else "needed",
@@ -220,13 +227,22 @@ def _capability_item(
     )
 
 
-def _directory_item(name: str, path: Path) -> ReadinessItem:
+def _directory_item(name: str, path: Path, setting_name: str) -> ReadinessItem:
     exists = path.exists()
+    accessible = directory_is_accessible(path)
     return ReadinessItem(
         name=name,
-        status="ready" if exists else "automatic",
-        detail=(f"Ready at {path}." if exists else f"Will be created automatically at {path}."),
-        blocking=False,
+        status="inaccessible" if not accessible else "ready" if exists else "automatic",
+        detail=(
+            f"The current Windows user cannot access {path}. Restore access or choose a new "
+            f"location with {setting_name}."
+            if not accessible
+            else f"Ready at {path}."
+            if exists
+            else f"Will be created automatically at {path}."
+        ),
+        blocking=not accessible,
+        code_hint=setting_name if not accessible else None,
     )
 
 

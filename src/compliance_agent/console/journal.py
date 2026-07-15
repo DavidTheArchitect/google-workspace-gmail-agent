@@ -57,7 +57,14 @@ class ConsoleRunJournal:
 
         try:
             envelopes = self._store.load(_JournalEnvelope)
-        except (OSError, TypeError, UnicodeError, ValueError):
+        except OSError:
+            _LOGGER.warning(
+                "Console run journal is unavailable; persistence is disabled",
+                exc_info=True,
+            )
+            self._writable = False
+            return ()
+        except (TypeError, UnicodeError, ValueError):
             _LOGGER.warning("Console run journal is corrupt; leaving it untouched", exc_info=True)
             self._writable = False
             return ()

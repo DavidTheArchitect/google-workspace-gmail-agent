@@ -5,6 +5,7 @@ from types import TracebackType
 
 from playwright.async_api import BrowserContext, Page, Playwright, async_playwright
 
+from compliance_agent.infrastructure.permissions import restrict_permissions
 from compliance_agent.infrastructure.process_lock import ProcessLock
 from compliance_agent.settings import Settings
 
@@ -23,7 +24,7 @@ class BrowserSession:
         try:
             self._playwright = await async_playwright().start()
             self._settings.profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            self._settings.profile_dir.chmod(0o700)
+            restrict_permissions(self._settings.profile_dir, 0o700)
             self._context = await self._playwright.chromium.launch_persistent_context(
                 user_data_dir=self._settings.profile_dir,
                 headless=self._settings.headless,

@@ -41,7 +41,7 @@
     <nav class="sidebar" aria-label="Primary navigation">
       <div class="nav-primary">
         <a href="/" class="nav-link {% if active_path == '/' %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-home"/></svg></span>Home</a>
-        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-mail"/></svg></span>Block a sender</a>
+        <a href="/runs/new" class="nav-link {% if active_path.startswith('/runs') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-mail"/></svg></span>{{ 'Draft a plan' if run_mode.value == 'plan_only' else 'Preview a block' if run_mode.value == 'dry_run' else 'Block a sender' }}</a>
         <a href="/activity" class="nav-link {% if active_path == '/activity' or active_path.startswith('/audits') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-clock"/></svg></span>Activity</a>
         <a href="/setup" class="nav-link {% if active_path in ['/setup', '/readiness', '/contracts', '/ownership', '/propagation'] or active_path.startswith('/ownership') %}active{% endif %}"><span class="nav-glyph" aria-hidden="true"><svg class="icon"><use href="#icon-settings"/></svg></span>Settings</a>
       </div>

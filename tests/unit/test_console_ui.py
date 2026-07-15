@@ -662,11 +662,11 @@ def test_dashboard_leads_with_the_primary_task_and_capability_limit(tmp_path: Pa
 
     dashboard = client.get("/")
 
-    assert "Block unwanted senders" in dashboard.text
+    assert "Draft sender-blocking plans" in dashboard.text
     assert "Planning only" in dashboard.text
     assert "No Google changes" in dashboard.text
-    assert "Apply in Google Admin" in dashboard.text
-    assert "Not available in this build" in dashboard.text
+    assert "Choose what happens next" in dashboard.text
+    assert "Enable safe preview or live apply in Settings" in dashboard.text
     assert "needs attention" not in dashboard.text
 
 
@@ -683,7 +683,7 @@ def test_invalid_contract_evidence_fails_closed_without_taking_down_console(tmp_
     readiness = client.get("/readiness")
 
     assert dashboard.status_code == 200
-    assert "Block unwanted senders" in dashboard.text
+    assert "Draft sender-blocking plans" in dashboard.text
     assert "Installed interface evidence is invalid" in settings_page.text
     assert contracts.status_code == 200
     assert "Invalid evidence" in contracts.text
@@ -719,6 +719,10 @@ def test_enhancement_static_assets_are_served(tmp_path: Path) -> None:
             {"notice": "google_identities_saved"},
             "Expected Google account saved. This verifies a future session; "
             "it does not enable Google Admin integration.",
+        ),
+        (
+            {"notice": "run_mode_saved"},
+            "Run mode saved. New runs now use the selected capability level.",
         ),
         ({"notice": "retention_applied", "count": "1"}, "Retention applied — 1 audit run deleted."),
         (
@@ -807,9 +811,10 @@ def test_run_detail_renders_plan_summary_cards(tmp_path: Path) -> None:
     assert "Validated actions" in detail.text
     assert "Block 1 sender" in detail.text
     assert "entry-chip" in detail.text
-    assert "This run is finished" in detail.text
-    assert "Planning stops here" in detail.text
-    assert "Create another plan" in detail.text
+    assert "Nothing was previewed or applied" in detail.text
+    assert "Plan complete" in detail.text
+    assert "Enable preview or live apply" in detail.text
+    assert "Draft another plan" in detail.text
     assert "Raw plan JSON" in detail.text
     assert "add_blocked_entries" in detail.text  # regression guard for the mega-test
 
@@ -911,10 +916,9 @@ def test_new_change_leads_with_deterministic_path_and_fixed_launch_mode(
     page = client.get("/runs/new")
 
     assert page.text.index("Sender details") < page.text.index("Use local AI instead")
-    assert "Works immediately without local AI or Google access" in page.text
-    assert "This launch only creates a plan for review" in page.text
-    assert 'name="mode" value="plan_only"' in page.text
-    assert 'name="mode" value="live"' not in page.text
+    assert "Plan creation works immediately without local AI or Google access" in page.text
+    assert "This mode stops after the reviewed plan" in page.text
+    assert 'name="mode"' not in page.text
 
 
 def test_readiness_items_expose_hints_and_actions(tmp_path: Path) -> None:
@@ -963,6 +967,31 @@ def test_browser_backed_readiness_requires_identity_and_contract(tmp_path: Path)
     assert items["Browser-backed capability"].status == "not_installed"
 
 
+def test_readiness_blocks_an_existing_inaccessible_storage_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    settings.state_dir.mkdir(parents=True)
+    original_iterdir = Path.iterdir
+
+    def guarded_iterdir(path: Path):
+        if path == settings.state_dir:
+            message = "denied"
+            raise PermissionError(message)
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", guarded_iterdir)
+
+    items = {item.name: item for item in collect_readiness(settings)}
+
+    state = items["State storage"]
+    assert state.status == "inaccessible"
+    assert state.blocking
+    assert state.code_hint == "CA_STATE_DIR"
+    assert "cannot access" in state.detail
+
+
 def test_setup_page_saves_validated_google_identities(tmp_path: Path) -> None:
     settings = Settings(
         profile_dir=tmp_path / "profile",
@@ -1009,6 +1038,163 @@ def test_setup_page_saves_validated_google_identities(tmp_path: Path) -> None:
     assert "Currently ad•••@example.com" in landed.text
 
 
+def test_setup_page_persists_mode_and_server_owns_new_run_mode(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    configuration_file = tmp_path / ".env"
+    configuration_file.write_text(
+        "CA_PLAN_ONLY=true\nCA_DRY_RUN=true\nCA_CONSOLE_OPEN_BROWSER=true\n",
+        encoding="utf-8",
+    )
+    console = create_console_app(
+        settings,
+        planner=StaticPlanner(),
+        configuration_file=configuration_file,
+    )
+    client = _client(console)
+    csrf = console.security.csrf_token()
+
+    saved = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": csrf, "run_mode": "dry_run"},
+        follow_redirects=False,
+    )
+
+    assert saved.status_code == 303
+    assert saved.headers["location"] == "/setup?notice=run_mode_saved#run-mode"
+    content = configuration_file.read_text(encoding="utf-8")
+    assert "CA_RUN_MODE=dry_run" in content
+    assert "CA_PLAN_ONLY" not in content
+    assert "CA_DRY_RUN" not in content
+    assert settings.run_mode == RunMode.DRY_RUN
+    assert "Preview a sender block" in client.get("/runs/new").text
+    assert 'name="mode"' not in client.get("/runs/new").text
+
+    created = client.post(
+        "/runs/direct-add",
+        data={
+            "csrf_token": csrf,
+            "target": "server-owned.example",
+            "target_kind": "domain",
+            "mode": "live",
+        },
+        follow_redirects=False,
+    )
+    run_id = created.headers["location"].rsplit("/", 1)[-1]
+    run = console.coordinator.get(run_id)
+    assert run is not None
+    assert run.mode == RunMode.DRY_RUN
+    unavailable = client.post(f"/runs/{run_id}/preview", data={"csrf_token": csrf})
+    assert unavailable.status_code == 409
+    assert console.coordinator.get(run_id).phase == RunPhase.PLAN_READY  # type: ignore[union-attr]
+
+    live = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": csrf, "run_mode": "live"},
+        follow_redirects=False,
+    )
+    assert live.status_code == 303
+    assert settings.run_mode == RunMode.LIVE
+    assert "Live mode · Execution locked" in client.get("/").text
+    locked_apply = client.post(
+        f"/runs/{run_id}/approve",
+        data={
+            "csrf_token": csrf,
+            "phrase": "APPLY",
+            "acknowledged": "true",
+        },
+    )
+    assert locked_apply.status_code == 409
+    assert "Live execution is locked" in locked_apply.text
+    assert "supervised Google Admin interface evidence" in locked_apply.text
+
+    invalid = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": csrf, "run_mode": "invented"},
+    )
+    assert invalid.status_code == 400
+    assert "Choose one available run mode" in invalid.text
+
+
+def test_mode_change_rejects_headless_and_active_browser_states(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(tmp_path)
+    settings.headless = True
+    console = create_console_app(
+        settings,
+        planner=StaticPlanner(),
+        configuration_file=tmp_path / ".env",
+    )
+    client = _client(console)
+    csrf = console.security.csrf_token()
+
+    headless = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": csrf, "run_mode": "live"},
+    )
+    assert headless.status_code == 400
+    assert "Live mode requires a visible browser" in headless.text
+
+    settings.headless = False
+    run = console.coordinator.create_from_plan(
+        "Block active.example",
+        RunMode.DRY_RUN,
+        direct_add_plan((domain("active.example"),), None),
+    )
+    monkeypatch.setattr(console.coordinator, "active_browser_run", lambda: run)
+    active = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": csrf, "run_mode": "dry_run"},
+    )
+    assert active.status_code == 400
+    assert run.run_id[:8].upper() in active.text
+
+
+def test_live_mode_requires_expected_identities(tmp_path: Path) -> None:
+    settings = Settings(
+        profile_dir=tmp_path / "profile",
+        audit_dir=tmp_path / "audit",
+        state_dir=tmp_path / "state",
+        expected_admin_email="",
+        expected_workspace_domain="",
+    )
+    console = create_console_app(
+        settings,
+        planner=StaticPlanner(),
+        configuration_file=tmp_path / ".env",
+    )
+    client = _client(console)
+
+    refused = client.post(
+        "/setup/run-mode",
+        data={"csrf_token": console.security.csrf_token(), "run_mode": "live"},
+    )
+
+    assert refused.status_code == 400
+    assert "Configure the expected administrator" in refused.text
+    assert settings.run_mode == RunMode.PLAN_ONLY
+
+
+def test_completed_plan_can_adopt_a_browser_backed_mode_before_preview() -> None:
+    coordinator = _coordinator(StaticPlanner(), 81)
+    plan = direct_add_plan((domain("continue.example"),), None)
+    run = coordinator.create_from_plan("Block continue.example", RunMode.PLAN_ONLY, plan)
+
+    promoted = coordinator.promote_plan(run.run_id, RunMode.DRY_RUN)
+
+    assert promoted.mode == RunMode.DRY_RUN
+    assert promoted.phase == RunPhase.PLAN_READY
+    promoted_again = coordinator.promote_plan(run.run_id, RunMode.LIVE)
+    assert promoted_again.mode == RunMode.LIVE
+    assert coordinator.promote_plan(run.run_id, RunMode.LIVE) is promoted_again
+    with pytest.raises(ValueError, match="not eligible"):
+        coordinator.promote_plan(run.run_id, RunMode.PLAN_ONLY)
+    planning = coordinator.start("Block pending.example", RunMode.DRY_RUN)
+    with pytest.raises(ValueError, match="only a completed plan"):
+        coordinator.promote_plan(planning.run_id, RunMode.LIVE)
+
+
 def test_local_configuration_store_collapses_duplicates_and_rejects_other_keys(
     tmp_path: Path,
 ) -> None:
@@ -1030,8 +1216,13 @@ def test_local_configuration_store_collapses_duplicates_and_rejects_other_keys(
     assert content.count("CA_EXPECTED_ADMIN_EMAIL=") == 1
     assert content.count("CA_EXPECTED_WORKSPACE_DOMAIN=") == 1
     assert "OTHER_SETTING=preserved" in content
+    store.save_run_mode(RunMode.DRY_RUN)
+    content = path.read_text(encoding="utf-8")
+    assert "CA_RUN_MODE=dry_run" in content
     with pytest.raises(ValueError, match="cannot be edited"):
-        store.update({"CA_RUN_MODE": "live"})
+        store.update({"CA_HEADLESS": "true"})
+    with pytest.raises(ValueError, match="cannot be removed"):
+        store.update({}, remove_keys=frozenset({"CA_HEADLESS"}))
 
 
 def test_timestamps_render_as_relative_time_elements(tmp_path: Path) -> None:

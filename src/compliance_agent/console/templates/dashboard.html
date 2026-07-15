@@ -9,11 +9,11 @@
       <h1>Finish setting up — step {{ current_setup_step.number }} of 5</h1>
       <p>{{ current_setup_step.title }} is the next prerequisite for truthful {{ run_mode.value.replace('_', ' ') }} operation.</p>
       <a class="button primary" href="{{ current_setup_step.action_href }}">{{ current_setup_step.action_label }}</a>
-      <a class="button secondary" href="/runs/new">Block a sender</a>
+      <a class="button secondary" href="/runs/new">Draft a plan</a>
       {% else %}
-      <h1>Block unwanted senders</h1>
-      <p>Create a validated plan for one domain or email. {% if run_mode.value == 'plan_only' %}Nothing is sent to Google.{% else %}Every later Google step remains separately gated.{% endif %}</p>
-      <a class="button primary" href="/runs/new">Block a sender</a>
+      <h1>{{ 'Draft sender-blocking plans' if run_mode.value == 'plan_only' else 'Preview sender blocks safely' if run_mode.value == 'dry_run' else 'Block unwanted senders' }}</h1>
+      <p>Create a validated plan for one domain or email. {% if run_mode.value == 'plan_only' %}This mode stops after review; nothing is sent to Google.{% elif run_mode.value == 'dry_run' %}Google state is read for comparison, but nothing is written.{% else %}Preview and exact approval remain mandatory before any write.{% endif %}</p>
+      <a class="button primary" href="/runs/new">{{ 'Draft a plan' if run_mode.value == 'plan_only' else 'Start a preview' if run_mode.value == 'dry_run' else 'Block a sender' }}</a>
       {% endif %}
     </div>
   </header>
@@ -27,10 +27,16 @@
       <span class="path-number">2</span>
       <div><strong>Review plan</strong><p>Check the normalized action and notice.</p></div>
     </li>
-    <li class="unavailable">
+    <li class="{{ 'unavailable' if run_mode.value == 'plan_only' or not capabilities or not capabilities.preview_service else 'available' }}">
       <span class="path-number">3</span>
-      <div><strong>Apply in Google Admin</strong><p>Not available in this build</p></div>
+      <div><strong>{{ 'Choose what happens next' if run_mode.value == 'plan_only' else 'Preview in Google Admin' }}</strong><p>{% if run_mode.value == 'plan_only' %}<a href="/setup#run-mode">Enable safe preview or live apply in Settings</a>{% elif capabilities and capabilities.preview_service %}Read current state and verify the exact difference{% else %}<a href="/setup">Complete the current mode prerequisites</a>{% endif %}</p></div>
     </li>
+    {% if run_mode.value == 'live' %}
+    <li class="{{ 'available' if capabilities and capabilities.live_runner else 'unavailable' }}">
+      <span class="path-number">4</span>
+      <div><strong>Approve and apply</strong><p>{% if capabilities and capabilities.live_runner %}Confirm exact hashes before one verified write{% else %}<a href="/setup">Live execution remains locked until setup is complete</a>{% endif %}</p></div>
+    </li>
+    {% endif %}
   </ol>
 
   <section class="activity-preview" aria-labelledby="recent-title">

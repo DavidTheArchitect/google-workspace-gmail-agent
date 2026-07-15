@@ -14,9 +14,14 @@ from compliance_agent import launcher
 from compliance_agent.cli import _open_console_when_ready, run
 from compliance_agent.domain.ownership import OwnershipRegistry
 from compliance_agent.exceptions import RunLockUnavailable
+from compliance_agent.infrastructure import permissions
 from compliance_agent.infrastructure.clock import SystemClock
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.infrastructure.identifiers import Uuid4Generator
+from compliance_agent.infrastructure.permissions import (
+    directory_is_accessible,
+    restrict_permissions,
+)
 from compliance_agent.infrastructure.process_lock import ProcessLock
 from compliance_agent.settings import ConsoleBindHost, Settings
 from compliance_agent.startup import (
@@ -30,6 +35,30 @@ from tests.conftest import OWNERSHIP_ID, registry_for
 
 if TYPE_CHECKING:
     import uvicorn
+
+
+class PermissionRecorder:
+    def __init__(self) -> None:
+        self.modes: list[int] = []
+
+    def chmod(self, mode: int) -> None:
+        self.modes.append(mode)
+
+
+def test_sensitive_permission_modes_are_posix_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = PermissionRecorder()
+    monkeypatch.setattr(permissions, "os", SimpleNamespace(name="nt"))
+    restrict_permissions(target, 0o600)  # type: ignore[arg-type]
+    assert target.modes == []
+
+    monkeypatch.setattr(permissions, "os", SimpleNamespace(name="posix"))
+    restrict_permissions(target, 0o600)  # type: ignore[arg-type]
+    assert target.modes == [0o600]
+    assert directory_is_accessible(tmp_path)
+    assert directory_is_accessible(tmp_path / "not-created")
 
 
 def _settings_paths(tmp_path: Path) -> dict[str, Path]:

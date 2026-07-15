@@ -5,7 +5,7 @@
 <div class="content-page">
   <header class="page-header split">
     <div><h1>Activity</h1><p>Plans created in this session and finalized Google Admin evidence.</p></div>
-    <a class="button primary" href="/runs/new">Block a sender</a>
+    <a class="button primary" href="/runs/new">{{ 'Draft a plan' if run_mode.value == 'plan_only' else 'Start a preview' if run_mode.value == 'dry_run' else 'Block a sender' }}</a>
   </header>
 
   <section aria-labelledby="session-runs-title">
