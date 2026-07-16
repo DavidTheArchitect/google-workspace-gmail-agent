@@ -55,8 +55,13 @@ class PlannerResult(FrozenModel):
 class OllamaOpenAIClient:
     """OpenAI-compatible Ollama adapter with JSON-schema response format."""
 
-    def __init__(self, base_url: str) -> None:
-        self._client = AsyncOpenAI(base_url=base_url.rstrip("/") + "/", api_key="ollama")
+    def __init__(self, base_url: str, *, timeout_seconds: float = 120) -> None:
+        self._client = AsyncOpenAI(
+            base_url=base_url.rstrip("/") + "/",
+            api_key="ollama",
+            timeout=timeout_seconds,
+            max_retries=0,
+        )
 
     async def complete(
         self,

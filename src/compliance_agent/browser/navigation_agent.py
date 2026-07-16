@@ -158,8 +158,13 @@ class SemanticCatalog:
 class GemmaBrowserNavigator:
     """Ask local Gemma for one bounded semantic action at a time."""
 
-    def __init__(self, *, base_url: str, model: str) -> None:
-        self._client = AsyncOpenAI(base_url=base_url.rstrip("/") + "/", api_key="ollama")
+    def __init__(self, *, base_url: str, model: str, timeout_seconds: float = 120) -> None:
+        self._client = AsyncOpenAI(
+            base_url=base_url.rstrip("/") + "/",
+            api_key="ollama",
+            timeout=timeout_seconds,
+            max_retries=0,
+        )
         self._model = model
 
     async def choose_step(
