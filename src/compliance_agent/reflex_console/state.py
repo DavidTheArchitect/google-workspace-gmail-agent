@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from datetime import datetime
+from typing import TYPE_CHECKING
+
 import reflex as rx
 
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.regex_validation import validate_google_regex
-from compliance_agent.llm.planner import build_persona_generator
+from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
+from compliance_agent.llm.planner import build_group_chat_reviewer, build_persona_generator
 from compliance_agent.schemas.compliance import (
     AdvancedContentLocation,
     AdvancedContentMatch,
@@ -27,7 +33,77 @@ from compliance_agent.schemas.plan import CreateContentComplianceRule, TaskPlan
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.settings import load_settings
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
 _SHA256_HEX_LENGTH = 64
+_LOGGER = logging.getLogger(__name__)
+
+
+def _idle_agent_activity() -> list[dict[str, str]]:
+    return [
+        {
+            "name": spec.display_name,
+            "time": "Pending",
+            "icon": spec.icon,
+            "status": "Waiting for a typed policy draft to review.",
+        }
+        for spec in PARTICIPANT_SPECS
+    ]
+
+
+async def _review_plan(plan: TaskPlan) -> GroupChatTranscript:
+    """Run a real Microsoft Agent Framework group chat over the typed proposal."""
+
+    settings = load_settings()
+    request = (
+        "The following proposal has already passed deterministic schema validation. Review its "
+        "Google Gmail semantics, RE2 behavior, safety gates, and operator clarity. Do not change "
+        "it and do not claim execution.\n"
+        f"{plan.model_dump_json()}"
+    )
+    async with asyncio.timeout(settings.group_chat_timeout_seconds):
+        return await build_group_chat_reviewer(settings).review(request)
+
+
+def _review_failure_message(error: Exception) -> str:
+    """Return an operator-safe explanation without exposing provider internals."""
+
+    settings = load_settings()
+    if isinstance(error, TimeoutError):
+        return (
+            "The typed draft is ready, but the local specialist group reached its bounded "
+            "time limit. Verify Ollama capacity and retry; approval remains locked."
+        )
+    if "not found" in str(error).lower():
+        return (
+            f"The typed draft is ready, but local model {settings.ollama_model!r} is not "
+            "available in Ollama. Install that model or update CA_OLLAMA_MODEL, then retry."
+        )
+    return (
+        "The typed draft is ready, but the local specialist group could not finish. "
+        "Verify that Ollama is running and retry; approval remains locked."
+    )
+
+
+def _persona_failure_message(error: Exception) -> str:
+    """Return a concise local-model error for the bounce-message writer."""
+
+    settings = load_settings()
+    if isinstance(error, TimeoutError):
+        return (
+            "Persona generation reached its bounded time limit. The existing rejection notice "
+            "was preserved; verify Ollama capacity and retry."
+        )
+    if "not found" in str(error).lower():
+        return (
+            f"Local model {settings.ollama_model!r} is not available in Ollama. Install that "
+            "model or update CA_OLLAMA_MODEL, then retry."
+        )
+    return (
+        "The local persona writer could not finish. The existing rejection notice was "
+        "preserved; verify that Ollama is running and retry."
+    )
 
 
 class ConsoleState(rx.State):
@@ -82,44 +158,9 @@ class ConsoleState(rx.State):
     status: str = "Draft"
     status_tone: str = "draft"
     error_message: str = ""
-    agent_activity: list[dict[str, str]] = [  # noqa: RUF012
-        {
-            "name": "Request Analyst",
-            "time": "10:21 AM",
-            "icon": "chart-no-axes-column-increasing",
-            "status": (
-                "Request received to block messages containing confidential markers "
-                "in full headers for /Finance."
-            ),
-        },
-        {
-            "name": "Policy Architect",
-            "time": "10:22 AM",
-            "icon": "network",
-            "status": (
-                "Built a content compliance rule using full-headers regex across all four "
-                "message directions. Combiner: Match ANY."
-            ),
-        },
-        {
-            "name": "Persona Writer",
-            "time": "10:23 AM",
-            "icon": "pen-line",
-            "status": (
-                "Crafted a playful, professional rejection notice with Policy ID GW-1042 "
-                "for user clarity."
-            ),
-        },
-        {
-            "name": "Red-Team Reviewer",
-            "time": "10:24 AM",
-            "icon": "shield-check",
-            "status": (
-                "Reviewed bypass risk and scope creep. Regex is RE2-compatible and approval "
-                "remains hash-bound."
-            ),
-        },
-    ]
+    review_in_progress: bool = False
+    persona_in_progress: bool = False
+    agent_activity: list[dict[str, str]] = _idle_agent_activity()
 
     def select_view(self, view: str) -> None:
         """Navigate among the operator surfaces without leaving the local console."""
@@ -329,29 +370,40 @@ class ConsoleState(rx.State):
             self.expression_valid = True
             self.validation_message = "RE2 expression is valid"
 
-    async def generate_persona(self) -> None:
+    async def generate_persona(self) -> AsyncIterator[None]:
         """Generate a fresh fictional persona and category-only bounce notice locally."""
 
+        if self.persona_in_progress:
+            return
+        self.persona_in_progress = True
         self.status = "Generating persona"
         self.status_tone = "working"
         self.error_message = ""
+        yield
         try:
-            generated = await build_persona_generator(load_settings()).generate(
-                policy_category=self.policy_category,
-                policy_id=self.policy_id,
-            )
+            settings = load_settings()
+            async with asyncio.timeout(settings.llm_request_timeout_seconds):
+                generated = await build_persona_generator(settings).generate(
+                    policy_category=self.policy_category,
+                    policy_id=self.policy_id,
+                )
         except Exception as error:
+            _LOGGER.exception("Local persona generation failed")
             self.status = "Persona failed"
             self.status_tone = "error"
-            self.error_message = str(error)
+            self.error_message = _persona_failure_message(error)
+            self.persona_in_progress = False
             return
         self._apply_generated_notice(generated)
+        self.persona_in_progress = False
         self.status = "Persona ready"
         self.status_tone = "ready"
 
-    def preview(self) -> None:
-        """Build the exact typed plan and bind a one-time approval phrase to its hash."""
+    async def preview(self) -> AsyncIterator[None]:
+        """Build the typed plan, then run the real bounded specialist group review."""
 
+        if self.review_in_progress:
+            return
         self.error_message = ""
         try:
             plan = self._build_plan()
@@ -361,6 +413,55 @@ class ConsoleState(rx.State):
             self.status_tone = "error"
             self.error_message = str(error)
             return
+        self._bind_draft(plan)
+        self.review_in_progress = True
+        self.status = "Agent review running"
+        self.status_tone = "working"
+        self.agent_activity = [
+            {
+                "name": spec.display_name,
+                "time": "Reviewing",
+                "icon": spec.icon,
+                "status": "Reading the typed proposal and the other specialists' messages.",
+            }
+            for spec in PARTICIPANT_SPECS
+        ]
+        yield
+        try:
+            transcript = await _review_plan(plan)
+        except Exception as error:
+            _LOGGER.exception("Local specialist group review failed")
+            self.status = "Draft ready · agent review unavailable"
+            self.status_tone = "attention"
+            self.error_message = _review_failure_message(error)
+            self.agent_activity = [
+                {
+                    "name": spec.display_name,
+                    "time": "Unavailable",
+                    "icon": spec.icon,
+                    "status": "No specialist output was accepted for this draft.",
+                }
+                for spec in PARTICIPANT_SPECS
+            ]
+            self.review_in_progress = False
+            return
+        reviewed_at = datetime.now().astimezone().strftime("%I:%M %p").lstrip("0")
+        self.agent_activity = [
+            {
+                "name": message.display_name,
+                "time": reviewed_at,
+                "icon": message.icon,
+                "status": message.text,
+            }
+            for message in transcript.messages
+        ]
+        self.review_in_progress = False
+        self.status = "Live read required"
+        self.status_tone = "attention"
+
+    def _bind_draft(self, plan: TaskPlan) -> None:
+        """Bind non-authoritative draft evidence before any live browser read."""
+
         self.plan_hash = canonical_hash(plan)
         self.before_hash = "pending-live-read"
         self.change_hash = "pending-live-diff"
@@ -370,8 +471,6 @@ class ConsoleState(rx.State):
         self.acknowledged = False
         self.preview_ready = True
         self.approved = False
-        self.status = "Live read required"
-        self.status_tone = "attention"
 
     def bind_live_evidence(self, before_hash: str, change_hash: str) -> None:
         """Bind trusted hashes returned by the fresh browser-read preview service."""

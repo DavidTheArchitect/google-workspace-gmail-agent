@@ -15,4 +15,10 @@ config = rx.Config(
     api_url=f"http://127.0.0.1:{_BACKEND_PORT}",
     deploy_url=f"http://127.0.0.1:{_FRONTEND_PORT}",
     telemetry_enabled=False,
+    plugins=[
+        rx.plugins.SitemapPlugin(),
+        rx.plugins.RadixThemesPlugin(
+            theme=rx.theme(appearance="light", accent_color="blue", radius="medium")
+        ),
+    ],
 )

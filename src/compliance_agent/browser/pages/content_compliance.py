@@ -10,6 +10,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this field type at runt
 from pydantic import Field, model_validator
 
 from compliance_agent.browser.navigation_agent import (
+    BrowserCandidate,
     BrowserInput,
     BrowserObservation,
     GemmaBrowserNavigator,
@@ -17,6 +18,7 @@ from compliance_agent.browser.navigation_agent import (
     execute_step,
 )
 from compliance_agent.browser.states import AdminPageState
+from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.exceptions import (
     RootOuNotConfirmed,
     SelectorNotFound,
@@ -31,6 +33,8 @@ if TYPE_CHECKING:
     from compliance_agent.schemas.compliance import ManagedContentComplianceRule
     from compliance_agent.settings import Settings
 
+_REPEATED_STEP_LIMIT = 3
+
 
 class ComplianceBrowserPermit(FrozenModel):
     """One server-owned approval envelope consumed by an autonomous browser run."""
@@ -39,6 +43,7 @@ class ComplianceBrowserPermit(FrozenModel):
     plan_hash: Sha256Digest
     before_state_hash: Sha256Digest
     change_set_hash: Sha256Digest
+    target_rule_hash: Sha256Digest
     target_ou: str = Field(min_length=1, max_length=1_000)
     target_ownership_id: UUID
     operation: Literal["create", "update", "remove", "set_enabled"]
@@ -220,6 +225,8 @@ class ContentCompliancePage:
         mutation_allowed: bool = True,
     ) -> tuple[tuple[str, ...], bool]:
         history: list[str] = []
+        repeated_step_count = 0
+        previous_step = ""
         for _index in range(self._max_steps):
             _require_admin_host(self._page.url)
             state = await self.detect_state()
@@ -240,29 +247,30 @@ class ContentCompliancePage:
                 observation,
                 await self._page.screenshot(type="png"),
             )
-            history.append(step.model_dump_json())
+            rendered_step = step.model_dump_json()
+            history.append(rendered_step)
+            repeated_step_count = repeated_step_count + 1 if rendered_step == previous_step else 1
+            previous_step = rendered_step
+            if repeated_step_count >= _REPEATED_STEP_LIMIT:
+                message = "browser model repeated the same action three times"
+                raise SelectorNotFound(message)
             if step.action == "complete":
                 return tuple(history), True
-            if not mutation_allowed and step.action in {
-                "fill",
-                "check",
-                "uncheck",
-                "select",
-            }:
-                message = "read-back browser goal proposed a mutation"
-                raise SelectorNotFound(message)
+            candidate = None
             if step.candidate_id is not None:
                 candidate = next(
                     (item for item in catalog.candidates if item.candidate_id == step.candidate_id),
                     None,
                 )
-                if candidate is not None and _is_commit_control(candidate.accessible_name):
-                    if not mutation_allowed:
-                        message = "read-back cannot activate a commit control"
-                        raise SelectorNotFound(message)
-                    _require_target_ou_visible(snapshot, permit.target_ou)
+            if not mutation_allowed and _is_readback_mutation(step.action, candidate):
+                message = "read-back browser goal proposed a mutation"
+                raise SelectorNotFound(message)
+            if candidate is not None and _is_commit_control(candidate.accessible_name):
+                if not mutation_allowed:
+                    message = "read-back cannot activate a commit control"
+                    raise SelectorNotFound(message)
+                _require_target_ou_visible(snapshot, permit.target_ou)
             await execute_step(self._page, catalog, step, inputs)
-            await self._page.wait_for_timeout(250)
         return tuple(history), False
 
     async def _aria_snapshot(self) -> str:
@@ -279,6 +287,7 @@ def build_content_compliance_page(
     navigator = GemmaBrowserNavigator(
         base_url=str(settings.ollama_base_url),
         model=settings.browser_model,
+        timeout_seconds=settings.llm_request_timeout_seconds,
     )
     return ContentCompliancePage(
         page,
@@ -299,6 +308,9 @@ def _validate_permit(
         raise StaleConfirmation(message)
     if permit.target_ownership_id != rule.ownership_id:
         message = "approved managed rule identity no longer matches"
+        raise StaleConfirmation(message)
+    if permit.target_rule_hash != canonical_hash(rule):
+        message = "approved compliance rule content no longer matches the browser action"
         raise StaleConfirmation(message)
     if permit.operation not in allowed_operations:
         message = "approved compliance operation does not match the browser action"
@@ -323,11 +335,22 @@ def _require_target_ou_visible(snapshot: str, target_ou: str) -> None:
 def _is_commit_control(name: str) -> bool:
     return bool(
         re.fullmatch(
-            r"(save|add setting|update|apply|delete|remove|confirm)",
+            r"(save|add setting|update|apply|delete|remove|confirm|enable|disable)"
+            r"(?:\s+.*)?",
             name.strip(),
             re.IGNORECASE,
         )
     )
+
+
+def _is_readback_mutation(action: str, candidate: BrowserCandidate | None) -> bool:
+    """Allow navigation during read-back while rejecting all field-state changes."""
+
+    if action in {"fill", "check", "uncheck", "select"}:
+        return True
+    if action != "click" or candidate is None:
+        return False
+    return candidate.role not in {"button", "link"}
 
 
 def _identity_inputs(rule: ManagedContentComplianceRule) -> tuple[BrowserInput, ...]:

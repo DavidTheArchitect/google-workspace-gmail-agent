@@ -467,8 +467,13 @@ def _rejection_editor() -> rx.Component:
                 rx.spacer(),
                 rx.button(
                     _icon("sparkles", 15),
-                    "Regenerate persona",
+                    rx.cond(
+                        ConsoleState.persona_in_progress,
+                        "Generating persona…",
+                        "Regenerate persona",
+                    ),
                     on_click=ConsoleState.generate_persona,
+                    disabled=ConsoleState.persona_in_progress,
                     class_name="persona-action",
                 ),
                 rx.select(["Insert variable"], default_value="Insert variable"),
@@ -598,9 +603,14 @@ def _policy_editor() -> rx.Component:
         rx.hstack(
             rx.spacer(),
             rx.button(
-                "Review change",
+                rx.cond(
+                    ConsoleState.review_in_progress,
+                    "Reviewing with agents…",
+                    "Review change",
+                ),
                 _icon("arrow-right", 17),
                 on_click=ConsoleState.preview,
+                disabled=ConsoleState.review_in_progress,
                 class_name="primary-action",
             ),
             width="100%",
@@ -839,8 +849,5 @@ def index() -> rx.Component:
     )
 
 
-app = rx.App(
-    theme=rx.theme(appearance="light", accent_color="blue", radius="medium"),
-    stylesheets=["/styles.css"],
-)
+app = rx.App(stylesheets=["/styles.css"])
 app.add_page(index, route="/", title="Gmail Policy Agent")

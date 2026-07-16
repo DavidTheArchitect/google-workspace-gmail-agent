@@ -9,7 +9,7 @@ from compliance_agent.application.change_service import ChangeService
 from compliance_agent.browser.pages.content_compliance import ComplianceBrowserPermit
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import OwnershipRegistry
-from compliance_agent.schemas.base import FrozenModel
+from compliance_agent.schemas.base import FrozenModel, Sha256Digest
 from compliance_agent.schemas.compliance import ContentComplianceState
 from compliance_agent.schemas.compliance_operations import (
     ComplianceDryRunResult,
@@ -32,6 +32,7 @@ class PendingComplianceApproval(FrozenModel):
     plan_hash: str
     before_state_hash: str
     change_set_hash: str
+    target_rule_hash: Sha256Digest
     target_ownership_id: UUID
     operation: Literal["create", "update", "remove", "set_enabled"]
     phrase: str
@@ -144,6 +145,7 @@ class ComplianceApprovalService:
             plan_hash=preview.plan_hash,
             before_state_hash=preview.before_state_hash,
             change_set_hash=preview.change_set_hash,
+            target_rule_hash=canonical_hash(touched[0]),
             target_ownership_id=touched[0].ownership_id,
             operation=operation,
             phrase=f"APPLY {run_id[:4].upper()}",
@@ -177,6 +179,7 @@ class ComplianceApprovalService:
             plan_hash=pending.plan_hash,
             before_state_hash=pending.before_state_hash,
             change_set_hash=pending.change_set_hash,
+            target_rule_hash=pending.target_rule_hash,
             target_ou=pending.target_ou,
             target_ownership_id=pending.target_ownership_id,
             operation=pending.operation,

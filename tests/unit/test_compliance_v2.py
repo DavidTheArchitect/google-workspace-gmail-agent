@@ -21,6 +21,7 @@ from compliance_agent.browser.navigation_agent import BrowserStep
 from compliance_agent.browser.pages.content_compliance import (
     ComplianceBrowserPermit,
     ComplianceBrowserRunResult,
+    _is_commit_control,
     _rule_inputs,
     _snapshot_matches_rule,
     _validate_permit,
@@ -30,6 +31,7 @@ from compliance_agent.domain.compliance_desired_state import (
     calculate_compliance_desired_state,
 )
 from compliance_agent.domain.diff import calculate_compliance_change_set
+from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.ownership import (
     ComplianceOwnershipRecord,
     OwnershipRegistry,
@@ -39,13 +41,20 @@ from compliance_agent.domain.ownership import (
 from compliance_agent.domain.regex_validation import validate_google_regex
 from compliance_agent.exceptions import AmbiguousTarget, OwnershipNotEstablished, StaleConfirmation
 from compliance_agent.llm.group_chat import (
+    PARTICIPANT_SPECS,
+    GroupChatMessage,
     GroupChatPlanner,
+    GroupChatTranscript,
     _flatten_outputs,
     build_policy_group_chat,
 )
 from compliance_agent.llm.persona import PersonaNoticeGenerator
 from compliance_agent.llm.structured import PlannerResult
-from compliance_agent.reflex_console.state import ConsoleState
+from compliance_agent.reflex_console.state import (
+    ConsoleState,
+    _persona_failure_message,
+    _review_failure_message,
+)
 from compliance_agent.schemas.changes import ComplianceChangeSet
 from compliance_agent.schemas.compliance import (
     AddressListCondition,
@@ -424,6 +433,7 @@ def test_compliance_preview_and_one_time_approval() -> None:
     )
     assert permit.target_ou == "/Sales"
     assert permit.target_ownership_id == RULE_ID
+    assert permit.target_rule_hash == canonical_hash(preview.change_set.rules_to_create[0])
     assert permit.operation == "create"
     with pytest.raises(ValueError, match="missing"):
         approvals.approve(
@@ -721,6 +731,9 @@ async def test_persona_generator_accepts_bound_identity_and_falls_back() -> None
 def test_browser_step_and_readback_helpers() -> None:
     assert BrowserStep(action="click", candidate_id="c001", rationale="Open").action == "click"
     assert BrowserStep(action="complete", rationale="Visible").candidate_id is None
+    assert _is_commit_control("Remove setting")
+    assert _is_commit_control("Disable rule")
+    assert not _is_commit_control("Open rule")
     with pytest.raises(ValidationError):
         BrowserStep(action="fill", candidate_id="c001", rationale="Fill")
     rule = _rule()
@@ -729,6 +742,7 @@ def test_browser_step_and_readback_helpers() -> None:
         plan_hash="a" * 64,
         before_state_hash="b" * 64,
         change_set_hash="c" * 64,
+        target_rule_hash=canonical_hash(rule),
         target_ou="/Sales",
         target_ownership_id=RULE_ID,
         operation="create",
@@ -786,7 +800,27 @@ def test_browser_inputs_cover_metadata_predefined_lists_and_envelopes() -> None:
     assert labels["Envelope filter 1 selector"] == "pattern"
 
 
-def test_reflex_state_builds_both_plan_types_and_requires_live_read() -> None:
+@pytest.mark.asyncio
+async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def review(_plan: TaskPlan) -> GroupChatTranscript:
+        return GroupChatTranscript(
+            participants=tuple(spec.name for spec in PARTICIPANT_SPECS),
+            messages=tuple(
+                GroupChatMessage(
+                    participant=spec.name,
+                    display_name=spec.display_name,
+                    icon=spec.icon,
+                    round_index=index,
+                    text=f"{spec.display_name} reviewed the draft.",
+                )
+                for index, spec in enumerate(PARTICIPANT_SPECS)
+            ),
+            max_rounds=6,
+        )
+
+    monkeypatch.setattr("compliance_agent.reflex_console.state._review_plan", review)
     state = ConsoleState(_reflex_internal_init=True)
     state.add_expression()
     state.update_expression("0", "value", "board-only")
@@ -798,8 +832,11 @@ def test_reflex_state_builds_both_plan_types_and_requires_live_read() -> None:
 
     compliance_plan = state._build_plan()
     assert isinstance(compliance_plan.actions[0], CreateContentComplianceRule)
-    state.preview()
+    preview_updates = [update async for update in state.preview()]
+    assert preview_updates == [None]
     assert state.preview_ready
+    assert not state.review_in_progress
+    assert state.agent_activity[0]["name"] == "Policy Architect"
     assert len(state.plan_hash) == 64
     state.acknowledged = True
     state.phrase_entry = state.approval_phrase
@@ -821,6 +858,39 @@ def test_reflex_state_builds_both_plan_types_and_requires_live_read() -> None:
     assert not state.expression_valid
 
 
+def test_reflex_review_failure_is_concise_and_group_requires_four_rounds() -> None:
+    message = _review_failure_message(RuntimeError("provider stack with sensitive internals"))
+    assert "specialist group could not finish" in message
+    assert "sensitive internals" not in message
+    assert "bounded time limit" in _review_failure_message(TimeoutError())
+    assert "bounded time limit" in _persona_failure_message(TimeoutError())
+
+    with pytest.raises(ValidationError, match="greater than or equal to 4"):
+        Settings(group_chat_max_rounds=3)
+
+
+@pytest.mark.asyncio
+async def test_reflex_persona_generation_publishes_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _PersonaGenerator:
+        async def generate(self, **_kwargs: str) -> GeneratedRejectionNotice:
+            return _notice()
+
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.build_persona_generator",
+        lambda _settings: _PersonaGenerator(),
+    )
+    state = ConsoleState(_reflex_internal_init=True)
+
+    updates = [update async for update in state.generate_persona()]
+
+    assert updates == [None]
+    assert not state.persona_in_progress
+    assert state.persona_role == "library dragon"
+    assert state.status == "Persona ready"
+
+
 def test_flatten_group_chat_outputs() -> None:
     class _Text:
         text = "review"
@@ -835,7 +905,7 @@ async def test_group_chat_planner_refines_then_calls_typed_planner() -> None:
 
     class _Result:
         def get_outputs(self) -> list[object]:
-            return ["architect", [_ReviewText(), " "]]
+            return ["architect", [_ReviewText(), "safety", "operator"]]
 
     class _Workflow:
         async def run(self, _message: object) -> _Result:
@@ -860,7 +930,12 @@ async def test_group_chat_planner_refines_then_calls_typed_planner() -> None:
         planner,  # type: ignore[arg-type]
         max_rounds=6,
     ).plan("block a header")
-    assert result.transcript.messages == ("architect", "review")
+    assert tuple(message.text for message in result.transcript.messages) == (
+        "architect",
+        "review",
+        "safety",
+        "operator",
+    )
     assert len(result.transcript.participants) == 4
     assert "block a header" in planner.request
     assert "architect" in planner.request
