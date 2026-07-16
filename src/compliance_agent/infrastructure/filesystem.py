@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from compliance_agent.domain.ownership import OwnershipRegistry
+from compliance_agent.infrastructure.permissions import restrict_permissions
 
 
 class OwnershipStore:
@@ -28,7 +29,7 @@ class OwnershipStore:
         """Atomically replace local evidence with a validated registry."""
 
         self._state_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._state_directory.chmod(0o700)
+        restrict_permissions(self._state_directory, 0o700)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=self._state_directory,
             prefix=".resources.",
@@ -41,7 +42,7 @@ class OwnershipStore:
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary_path.replace(self._path)
-            self._path.chmod(0o600)
+            restrict_permissions(self._path, 0o600)
         except OSError:
             temporary_path.unlink(missing_ok=True)
             raise

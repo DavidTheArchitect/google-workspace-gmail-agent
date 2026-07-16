@@ -14,5 +14,8 @@ class AdminPageState(StrEnum):
     BLOCKED_SENDER_RULE_EDITOR = "blocked_sender_rule_editor"
     ADDRESS_LIST_PICKER = "address_list_picker"
     ADDRESS_LIST_EDITOR = "address_list_editor"
+    GMAIL_COMPLIANCE_SETTINGS = "gmail_compliance_settings"
+    CONTENT_COMPLIANCE_SECTION = "content_compliance_section"
+    CONTENT_COMPLIANCE_RULE_EDITOR = "content_compliance_rule_editor"
     SAVE_PENDING = "save_pending"
     UNKNOWN = "unknown"

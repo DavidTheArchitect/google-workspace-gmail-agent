@@ -1,7 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Run {{ run.run_id[:8] }} · Gmail Compliance Agent{% endblock %}
 {% block content %}
-<header class="page-header run-header"><div><h1>{{ 'Review proposed change' if run.preview else 'Review typed plan' }}</h1><p>Run ID: {{ run.run_id[:8]|upper }} · {{ run.mode.value.replace('_', ' ')|title }}</p></div><span class="state-label {{ 'attention' if run.phase.value in ['blocked','awaiting_approval','interrupted','cancelled'] else 'verified' }}">{{ run.phase.value.replace('_', ' ') }}</span></header>
+{% if run.error_code == 'planner_unavailable' %}
+<div class="recovery-page">
+  <a class="back-link" href="/activity">← Back to activity</a>
+  <header class="recovery-header">
+    <h1>Plan couldn’t be created with local AI</h1>
+    <p><strong>Your Google account settings are not the problem.</strong> Nothing was sent to Google.</p>
+  </header>
+
+  <ol class="short-progress" aria-label="Plan progress">
+    <li class="current" aria-current="step"><span>1</span> Enter sender</li>
+    <li><span>2</span> Review plan</li>
+  </ol>
+
+  <div class="recovery-layout">
+    <section class="primary-form-surface recovery-form" aria-labelledby="recovery-title">
+      <div class="form-heading"><h2 id="recovery-title">Use the built-in form</h2><p>This path works without Ollama.</p></div>
+      {% if planner_recovery %}
+      {% set direct_values = {'target_kind': planner_recovery.target_kind, 'target': planner_recovery.target, 'notice': planner_recovery.notice or ''} %}
+      {% set direct_errors = {} %}
+      {% set direct_submit_label = 'Create plan without AI' %}
+      {% include "partials/_direct_add_form.html" %}
+      {% else %}
+      <p>The request did not contain one exact domain or email that could be recovered safely.</p>
+      <a class="button primary" href="/runs/new#built-in-form">Open built-in form</a>
+      {% endif %}
+    </section>
+
+    <aside class="run-summary" aria-labelledby="run-summary-title">
+      <h2 id="run-summary-title">Run summary</h2>
+      <dl><dt>Request</dt><dd>{{ run.request_text }}</dd><dt>Result</dt><dd class="danger">Draft failed</dd><dt>Google changes</dt><dd class="verified">None</dd></dl>
+      <p>No change was attempted. You can safely create the plan using the form.</p>
+    </aside>
+  </div>
+
+  <details class="ai-option recovery-ai-option"><summary><strong>Try local AI again</strong><span>Check Ollama, choose a loaded model, or rephrase the request</span></summary><div class="details-body"><p>Local AI is optional. The built-in form above is the recommended path for one sender.</p><a class="button secondary" href="/runs/new">Start over</a></div></details>
+</div>
+{% else %}
+<a class="back-link" href="/activity">← Back to activity</a>
+<header class="page-header run-header"><div><h1>{{ 'Review proposed change' if run.preview else 'Review plan' }}</h1><p>{{ 'Confirm the exact observed change before approval.' if run.preview else 'Check the normalized sender and rejection notice below.' }} Run {{ run.run_id[:8]|upper }}.</p></div><span class="state-label {{ 'attention' if run.phase.value in ['blocked','awaiting_approval','interrupted','cancelled'] else 'verified' }}">{{ 'Plan complete' if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' else run.phase.value.replace('_', ' ') }}</span></header>
 
 {% if run.phase.value in ['planning', 'preflight', 'executing', 'verifying'] %}
 <div hx-ext="sse" sse-connect="/runs/{{ run.run_id }}/events" sse-close="settled">
@@ -45,17 +83,39 @@
     {% endif %}
   </section>
   <aside class="approval-rail">
+    {% if run.mode.value == 'plan_only' and run.phase.value == 'plan_ready' %}
+    <h2>Plan complete</h2><p>This run has not connected to or changed Google Admin.</p>
+    {% if run_mode.value != 'plan_only' and capabilities and capabilities.preview_service %}
+    <form method="post" action="/runs/{{ run.run_id }}/preview"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary full" type="submit">Continue with safe preview</button></form>
+    <p class="help">Continuing adopts the currently selected {{ run_mode.value.replace('_', ' ') }} mode for this reviewed plan.</p>
+    {% elif run_mode.value != 'plan_only' %}
+    <p class="attention-copy">{{ run_mode.value.replace('_', ' ')|title }} is selected, but its browser capability is not ready.</p>
+    <a class="button primary full" href="/setup">Finish preview setup</a>
+    {% else %}
+    <a class="button primary full" href="/setup#run-mode">Enable preview or live apply</a>
+    {% endif %}
+    <a class="button secondary full" href="/runs/new">Draft another plan</a>
+    <a class="button quiet full" href="/">Back to home</a>
+    {% else %}
     <h2>Run control</h2><dl><dt>Administrator</dt><dd>{{ masked_admin }}</dd><dt>Workspace</dt><dd>{{ masked_workspace }}</dd></dl>
-    {% if approval %}<hr><p>Approval expires</p><strong class="expiry" data-countdown data-expires-at="{{ approval.expires_at.isoformat() }}">{{ approval.expires_at.strftime('%H:%M:%S %Z') }}</strong>
+    {% if not admin_configured or not workspace_configured %}<a class="button secondary full" href="/setup#google-account">Configure expected account</a>{% endif %}
+    {% if approval and run_mode.value == 'live' and capabilities and capabilities.live_runner %}<hr><p>Approval expires</p><strong class="expiry" data-countdown data-expires-at="{{ approval.expires_at.isoformat() }}">{{ approval.expires_at.strftime('%H:%M:%S %Z') }}</strong>
     <dl class="hash-list">
       <dt>Plan hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.plan_hash }}" title="Click to reveal the full hash">{{ approval.plan_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.plan_hash }}" aria-label="Copy full plan hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
       <dt>Before hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.before_state_hash }}" title="Click to reveal the full hash">{{ approval.before_state_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.before_state_hash }}" aria-label="Copy full before-state hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
       <dt>Change hash</dt><dd class="hash-value"><code data-hash-full="{{ approval.change_set_hash }}" title="Click to reveal the full hash">{{ approval.change_set_hash[:10] }}…</code><button type="button" class="icon-button" data-copy="{{ approval.change_set_hash }}" aria-label="Copy full change-set hash"><svg class="icon"><use href="#icon-copy"/></svg></button></dd>
     </dl>
-    <form method="post" action="/runs/{{ run.run_id }}/approve" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="check-control"><input type="checkbox" name="acknowledged" value="true" required><span>I reviewed the exact plan, state, and impact.</span></label><label for="approval-phrase">Type {{ approval.phrase }} to confirm</label><input id="approval-phrase" name="phrase" autocomplete="off" required><button class="button primary full" type="submit">Apply verified change</button></form><p class="attention-copy">Execution remains locked unless an accepted live runner is installed.</p>{% endif %}
-    {% if run.phase.value == 'plan_ready' and run.mode.value != 'plan_only' %}<form method="post" action="/runs/{{ run.run_id }}/preview"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary full" type="submit">Run safe preview</button></form>{% endif %}
+    <form method="post" action="/runs/{{ run.run_id }}/approve" class="approval-form"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label class="check-control"><input type="checkbox" name="acknowledged" value="true" required><span>I reviewed the exact plan, state, and impact.</span></label><label for="approval-phrase">Type {{ approval.phrase }} to confirm</label><input id="approval-phrase" name="phrase" autocomplete="off" required><button class="button primary full" type="submit">Apply verified change</button></form>
+    {% elif approval %}<hr><p class="attention-copy">Live execution is currently locked. Return to live mode with its accepted capability before this approval can be used.</p><a class="button secondary full" href="/setup#run-mode">Review run mode</a>{% endif %}
+    {% if run.phase.value == 'plan_ready' and run.mode.value != 'plan_only' %}
+      {% if run_mode.value != 'plan_only' and capabilities and capabilities.preview_service %}<form method="post" action="/runs/{{ run.run_id }}/preview"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button primary full" type="submit">{{ 'Continue in ' ~ run_mode.value.replace('_', ' ') if run.mode.value != run_mode.value else 'Run safe preview' }}</button></form>
+      {% elif run.mode.value != run_mode.value %}<p class="attention-copy">This plan was drafted in {{ run.mode.value.replace('_', ' ') }} mode. It can adopt the current mode after that mode is ready.</p><a class="button secondary full" href="/setup#run-mode">Review run mode</a>
+      {% else %}<p class="attention-copy">The selected mode is active, but its verified browser capability is not ready.</p><a class="button secondary full" href="/setup">Finish preview setup</a>{% endif %}
+    {% endif %}
     {% if run.phase.value in ['planning','plan_ready','preflight','awaiting_approval'] %}<form method="post" action="/runs/{{ run.run_id }}/cancel"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button secondary full" type="submit">Cancel run</button></form>{% endif %}
-    <a class="button quiet full" href="/">Back to dashboard</a>
+    <a class="button quiet full" href="/">Back to home</a>
+    {% endif %}
   </aside>
 </div>
+{% endif %}
 {% endblock %}

@@ -13,8 +13,16 @@ def resolve_notice(params: Mapping[str, str]) -> str | None:
     """
 
     key = params.get("notice")
-    if key == "ownership_recovered":
-        return "Ownership record recovered from audited evidence."
+    messages = {
+        "ownership_recovered": "Ownership record recovered from audited evidence.",
+        "google_identities_saved": (
+            "Expected Google account saved. This verifies a future session; "
+            "it does not enable Google Admin integration."
+        ),
+        "run_mode_saved": "Run mode saved. New runs now use the selected capability level.",
+    }
+    if key in messages:
+        return messages[key]
     if key == "retention_applied":
         try:
             count = int(params.get("count", ""))

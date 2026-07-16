@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path, PurePath
 
 from compliance_agent.exceptions import AuditWriteFailure
+from compliance_agent.infrastructure.permissions import restrict_permissions
 from compliance_agent.schemas.events import AuditEvent
 
 
@@ -16,7 +17,7 @@ class RunAuditWriter:
     def __init__(self, run_directory: Path) -> None:
         self.run_directory = run_directory.resolve()
         self.run_directory.mkdir(mode=0o700, parents=True, exist_ok=False)
-        self.run_directory.chmod(0o700)
+        restrict_permissions(self.run_directory, 0o700)
         self._event_path = self.run_directory / "run.jsonl"
         self._last_sequence = 0
         self._last_hash: str | None = None
@@ -75,7 +76,7 @@ class RunAuditWriter:
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary_path.replace(target)
-            target.chmod(0o600)
+            restrict_permissions(target, 0o600)
         except OSError as error:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)

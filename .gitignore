@@ -1,3 +1,7 @@
+.web
+.states
+assets/external/
+*.db
 .env
 .venv/
 __pycache__/
@@ -5,6 +9,11 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.web/
+.states/
+.node/
+.node-cache.zip
+.codex-remote-attachments/
 .coverage
 htmlcov/
 dist/

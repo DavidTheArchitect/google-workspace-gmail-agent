@@ -1,0 +1,26 @@
+<form method="post" action="/runs/direct-add" hx-post="/runs/direct-add" hx-target="this" hx-swap="outerHTML">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="field-row">
+    <div class="field">
+      <label for="target-kind">Target type</label>
+      <select id="target-kind" name="target_kind" {% if direct_errors.target_kind %}aria-invalid="true" aria-describedby="target-kind-error"{% endif %}>
+        <option value="domain" {{ 'selected' if direct_values.target_kind == 'domain' else '' }}>Domain</option>
+        <option value="email" {{ 'selected' if direct_values.target_kind == 'email' else '' }}>Email address</option>
+      </select>
+      {% if direct_errors.target_kind %}<span class="field-error" id="target-kind-error">{{ direct_errors.target_kind }}</span>{% endif %}
+    </div>
+    <div class="field">
+      <label for="target">Exact sender</label>
+      <input id="target" name="target" required value="{{ direct_values.target }}" placeholder="spam.example" aria-describedby="target-help{% if direct_errors.target %} target-error{% endif %}" {% if direct_errors.target %}aria-invalid="true"{% endif %}>
+      <span class="help" id="target-help">Do not include <code>https://</code>, wildcards, or multiple values.</span>
+      {% if direct_errors.target %}<span class="field-error" id="target-error">{{ direct_errors.target }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="field">
+    <label for="notice">Rejection notice <span class="optional-label">Optional</span></label>
+    <textarea id="notice" name="notice" maxlength="1000" placeholder="Mail rejected." {% if direct_errors.notice %}aria-invalid="true" aria-describedby="notice-error"{% endif %}>{{ direct_values.notice }}</textarea>
+    <span class="help">The message a rejected sender may receive.</span>
+    {% if direct_errors.notice %}<span class="field-error" id="notice-error">{{ direct_errors.notice }}</span>{% endif %}
+  </div>
+  <button class="button primary" type="submit">{{ direct_submit_label|default('Create plan') }}</button>
+</form>

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Settings & capabilities · Gmail Compliance Agent{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <header class="page-header split">
+    <div><h1>Settings & capabilities</h1><p>Complete each applicable prerequisite in order. Readiness and this guide use the same checks.</p></div>
+    {% if not setup_steps|selectattr('state', 'equalto', 'current')|list %}<a class="button primary" href="/runs/new">{{ 'Draft a plan' if run_mode.value == 'plan_only' else 'Start a preview' if run_mode.value == 'dry_run' else 'Block a sender' }}</a>{% endif %}
+  </header>
+
+  <ol class="setup-wizard">
+  {% for step in setup_steps %}
+    <li class="setup-step {{ step.state }}" {% if step.state == 'current' %}aria-current="step"{% endif %}>
+      <span class="setup-step-number" aria-hidden="true">{{ '✓' if step.state == 'complete' else step.number }}</span>
+      <div class="setup-step-body">
+        <div class="setup-step-heading"><h2>{{ step.title }}</h2><span class="chip {{ step.state }}">{{ step.state.replace('_', ' ') }}</span></div>
+        <p>{{ step.detail }}</p>
+        {% if step.number == 1 %}
+          <form id="run-mode" class="setup-form mode-form" method="post" action="/setup/run-mode">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <fieldset aria-describedby="run-mode-help{% if mode_error %} run-mode-error{% endif %}">
+              <legend>What should a new run be allowed to do?</legend>
+              <p id="run-mode-help" class="help">The selected mode is saved locally and applies to new runs. Every browser-backed action still passes its own readiness checks.</p>
+              <label class="radio-row">
+                <input type="radio" name="run_mode" value="plan_only" {{ 'checked' if run_mode.value == 'plan_only' else '' }}>
+                <span><strong>Plan only</strong><small>Draft and review a validated plan without opening Google Admin.</small></span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="run_mode" value="dry_run" {{ 'checked' if run_mode.value == 'dry_run' else '' }}>
+                <span><strong>Safe preview</strong><small>Read current Google state and show the exact proposed difference. Never writes.</small></span>
+              </label>
+              <label class="radio-row {{ 'disabled' if not admin_configured or not workspace_configured else '' }}">
+                <input type="radio" name="run_mode" value="live" {{ 'checked' if run_mode.value == 'live' else '' }} {{ 'disabled' if not admin_configured or not workspace_configured else '' }}>
+                <span><strong>Live apply</strong><small>Preview first, then require explicit approval before one verified write. Configure both expected identities to select it.</small></span>
+              </label>
+            </fieldset>
+            {% if mode_error %}<p class="field-error" id="run-mode-error" role="alert">{{ mode_error }}</p>{% endif %}
+            <button class="button {{ 'primary' if step.state == 'current' else 'secondary' }}" type="submit">Save run mode</button>
+          </form>
+        {% elif step.number == 3 %}
+          <section id="google-account" class="account-settings" aria-labelledby="account-settings-title">
+            <div class="account-form-column">
+              <h3 id="account-settings-title">Expected Google account</h3>
+              <p>These values verify the intended account and tenant; they are not credentials. {% if admin_configured %}Currently {{ masked_admin }} and {{ masked_workspace }}.{% endif %}</p>
+              {% set identity_primary = step.state == 'current' %}
+              {% include "partials/_google_identities_form.html" %}
+            </div>
+          </section>
+        {% elif step.state == 'current' and step.action_href %}
+          <a class="button primary" href="{{ step.action_href }}">{{ step.action_label }}</a>
+        {% elif step.action_href and step.state == 'locked' %}
+          <a class="button secondary" href="{{ step.action_href }}">{{ step.action_label }}</a>
+        {% endif %}
+        <details><summary>Readiness details</summary><ul>{% for item in step.readiness %}<li><strong>{{ item.name }}:</strong> {{ item.detail }}</li>{% endfor %}</ul></details>
+      </div>
+    </li>
+  {% endfor %}
+  </ol>
+
+  <footer class="setup-footer">
+    <a href="/readiness">View flat local diagnostics</a>
+    <a href="/ownership">Managed-resource ownership</a>
+    <a href="/propagation">Propagation evidence</a>
+    <a href="/audits">Audit retention</a>
+  </footer>
+  {% if contract_error %}<p class="attention-copy">Installed interface evidence is invalid: {{ contract_error }}.</p>{% endif %}
+</div>
+{% endblock %}

@@ -19,10 +19,19 @@ message when occupied.
 `uv run compliance-agent console` remains available for advanced use, including `--port` and
 `--no-open`.
 
-It binds only to `127.0.0.1` on `CA_CONSOLE_PORT` (default `8765`). The per-launch 256-bit token is
+Native execution binds only to `127.0.0.1` on `CA_CONSOLE_PORT` (default `8765`). The optional
+container binds on its internal interface, but Compose publishes that port only to host
+`127.0.0.1`; the browser-facing security boundary is unchanged. The per-launch 256-bit token is
 printed locally and placed after `#` in the bootstrap URL. A small local script posts the fragment
 once, clears it from browser history, and receives an in-memory `HttpOnly`, `SameSite=Strict`
 session cookie. Restarting the process invalidates the session and every pending approval.
+
+If the one-time link is used, expires, or is opened without its fragment, type `link` (or press
+Enter) in the terminal that owns the running console. The console rotates the launch token and
+prints a new sign-in URL; the previous URL becomes invalid immediately, while an existing signed-in
+session remains active. When standard input is unavailable (for example, some containers or
+detached Windows launchers), restart the console to obtain a fresh link. This recovery path adds no
+HTTP control endpoint.
 
 The server rejects unexpected Host values. After the one-time bootstrap exchange, it also requires
 the exact loopback Origin and a CSRF token for every state-changing form. API documentation is
@@ -31,16 +40,27 @@ LAN service and must not be placed behind a proxy.
 
 ## Operator flow
 
-1. Review Readiness. Missing administrator, Workspace, or UI-contract evidence blocks browser work.
-2. Create a plan from natural language or the deterministic add form.
-3. In dry-run mode, an accepted read adapter performs preflight, a fresh root-OU read, ownership
-   resolution, desired-state calculation, deterministic diffing, and audit finalization. No writer
-   exists in this composition.
-4. A live preview displays exact impact and server-owned hashes. Approval expires after ten minutes
+1. Start on Home, which shows the available workflow and the explicit Google Admin capability
+   limit. In the default plan-only mode, no Google Admin configuration is required.
+2. Choose **Block a sender** and use the built-in form. It works without Ollama or Google access.
+   Natural-language planning with Ollama is an optional secondary path.
+3. If local AI cannot create a draft, the recovery page explains that account settings are not the
+   cause and prefills one safely recovered sender in the built-in form.
+4. Review the finished plan. A plan-only run ends here and never presents preview, approval, or
+   execution as unfinished work.
+5. Open **Settings** to see separate capability states for planning, the expected Google account,
+   and Google Admin integration. Expected identities are optional for planning. The authenticated
+   form validates and writes only those two non-secret values to the local `.env`; it does not sign
+   in to Google or unlock a writer.
+6. Browser preview also requires supervised UI evidence and an installed accepted read adapter.
+   The current web composition does not install that adapter. Once one is reviewed and injected, a
+   dry run performs preflight, a fresh root-OU read, ownership resolution, desired-state
+   calculation, deterministic diffing, and audit finalization.
+7. A live preview displays exact impact and server-owned hashes. Approval expires after ten minutes
    and requires `APPLY <short-run-id>` plus an acknowledgement. Expiry discards the stale preview
    and requires a fresh read. Cancellation is authoritative even if background planning or preview
    work completes later.
-5. Execution remains unavailable until a reviewed accepted contract pack and live runner are
+8. Execution remains unavailable until a reviewed accepted contract pack and live runner are
    injected. A process restart or state drift always requires a new read and approval.
 
 The console also exposes protected audit history, integrity state, local ownership evidence,

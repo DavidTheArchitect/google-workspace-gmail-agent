@@ -1,0 +1,16 @@
+<form class="setup-form" method="post" action="/setup/google-identities" hx-post="/setup/google-identities" hx-target="this" hx-swap="outerHTML">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="field">
+    <label for="administrator-email">Administrator email</label>
+    <input id="administrator-email" name="administrator_email" type="email" autocomplete="off" value="{{ identity_values.administrator_email }}" placeholder="{{ masked_admin if admin_configured else 'admin@example.com' }}" {% if not admin_configured %}required{% endif %} aria-describedby="administrator-email-help{% if identity_errors.administrator_email %} administrator-email-error{% endif %}" {% if identity_errors.administrator_email %}aria-invalid="true"{% endif %}>
+    <span class="help" id="administrator-email-help">{% if admin_configured %}Currently {{ masked_admin }}. Leave blank to keep it.{% else %}The account intended for supervised Google Admin work.{% endif %}</span>
+    {% if identity_errors.administrator_email %}<span class="field-error" id="administrator-email-error">{{ identity_errors.administrator_email }}</span>{% endif %}
+  </div>
+  <div class="field">
+    <label for="workspace-domain">Workspace domain</label>
+    <input id="workspace-domain" name="workspace_domain" inputmode="url" autocomplete="off" value="{{ identity_values.workspace_domain }}" placeholder="{{ masked_workspace if workspace_configured else 'example.com' }}" {% if not workspace_configured %}required{% endif %} aria-describedby="workspace-domain-help{% if identity_errors.workspace_domain %} workspace-domain-error{% endif %}" {% if identity_errors.workspace_domain %}aria-invalid="true"{% endif %}>
+    <span class="help" id="workspace-domain-help">{% if workspace_configured %}Currently {{ masked_workspace }}. Leave blank to keep it.{% else %}The primary domain, without <code>https://</code>.{% endif %}</span>
+    {% if identity_errors.workspace_domain %}<span class="field-error" id="workspace-domain-error">{{ identity_errors.workspace_domain }}</span>{% endif %}
+  </div>
+  <button class="button {{ 'primary' if identity_primary is not defined or identity_primary else 'secondary' }}" type="submit">Save settings</button>
+</form>

@@ -3,6 +3,10 @@
 from typing import Literal
 
 from compliance_agent.schemas.base import FrozenModel
+from compliance_agent.schemas.compliance import (
+    ContentComplianceState,
+    ManagedContentComplianceRule,
+)
 from compliance_agent.schemas.resources import ManagedAddressList, ManagedBlockedSenderRule
 from compliance_agent.schemas.state import BlockedSenderState
 
@@ -50,3 +54,20 @@ class DesiredStateResult(FrozenModel):
 
     desired_state: BlockedSenderState
     notice_affected_entry_count: int = 0
+
+
+class ComplianceChangeSet(FrozenModel):
+    """Exact advanced Gmail blocker changes for one observed settings surface."""
+
+    schema_version: Literal["2.0"] = "2.0"
+    before_state: ContentComplianceState
+    expected_after: ContentComplianceState
+    rules_to_create: tuple[ManagedContentComplianceRule, ...] = ()
+    rules_to_update: tuple[ManagedContentComplianceRule, ...] = ()
+    rules_to_remove: tuple[ManagedContentComplianceRule, ...] = ()
+
+    @property
+    def has_mutations(self) -> bool:
+        """Return whether this set contains an external compliance-rule write."""
+
+        return any((self.rules_to_create, self.rules_to_update, self.rules_to_remove))

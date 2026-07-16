@@ -7,12 +7,13 @@
   <p class="error-detail">{{ error_detail }}</p>
   <div class="form-actions">
     <a class="button primary" href="/">Back to dashboard</a>
+    {% if status_code == 403 %}<a class="button secondary" href="/bootstrap">Go to sign-in</a>{% endif %}
     <a class="button secondary" href="/audits">Audit history</a>
   </div>
   {% if status_code >= 500 %}
   <p class="help">Do not retry a live operation until its audit evidence and current state have been reconciled.</p>
   {% elif status_code == 403 %}
-  <p class="help">Return to the dashboard and try once more. If the console asks you to reconnect, restart it with the automatic launcher.</p>
+  <p class="help">Type <code>link</code> in the console terminal for a fresh one-time sign-in link, or restart the console.</p>
   {% elif status_code == 400 %}
   <p class="help">Review the requested values above, correct the form, and submit it again.</p>
   {% else %}

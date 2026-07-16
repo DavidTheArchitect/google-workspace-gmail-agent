@@ -15,13 +15,13 @@ class RunStatusMessage:
 
 _MESSAGES = {
     "planner_unavailable": RunStatusMessage(
-        title="Natural-language planner unavailable",
+        title="Local AI could not create the draft",
         detail=(
-            "Ollama could not create a valid plan. Your request was not sent to Google Workspace. "
-            "Use the deterministic blocked-sender form, which does not require Ollama."
+            "Your Google account settings are not involved, and nothing was sent to Google. "
+            "Use the built-in blocked-sender form, which works without Ollama."
         ),
-        action_label="Open deterministic form",
-        action_href="/runs/new#deterministic-add",
+        action_label="Use built-in form",
+        action_href="/runs/new#built-in-form",
     ),
     "ui_contract_pack_required": RunStatusMessage(
         title="Admin Console preview is not installed",
@@ -44,6 +44,30 @@ _MESSAGES = {
     "approval_expired": RunStatusMessage(
         title="Approval expired",
         detail="Run a new preview to refresh the observed state, hashes, and approval window.",
+    ),
+    "console_restarted": RunStatusMessage(
+        title="Console restarted before this step finished",
+        detail=(
+            "The unfinished local projection was stopped safely. Review the plan before continuing."
+        ),
+    ),
+    "console_restarted_execution_uncertain": RunStatusMessage(
+        title="Console restarted during execution",
+        detail=(
+            "The Google Admin outcome may be uncertain. Do not retry until audit evidence and "
+            "the current Gmail settings have been reconciled."
+        ),
+        action_label="Review audit evidence",
+        action_href="/audits",
+    ),
+    "run_lock_unavailable": RunStatusMessage(
+        title="Another browser-backed run holds the lock",
+        detail=(
+            "Wait for the other run to finish, then create a fresh preview. No new Google "
+            "Workspace changes were started by this run."
+        ),
+        action_label="View activity",
+        action_href="/activity",
     ),
 }
 

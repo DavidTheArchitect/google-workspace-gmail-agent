@@ -3,7 +3,11 @@
 from collections.abc import Callable
 from uuid import UUID
 
-from compliance_agent.schemas.changes import ChangeSet
+from compliance_agent.schemas.changes import ChangeSet, ComplianceChangeSet
+from compliance_agent.schemas.compliance import (
+    ContentComplianceState,
+    ManagedContentComplianceRule,
+)
 from compliance_agent.schemas.resources import ManagedAddressList, ManagedBlockedSenderRule
 from compliance_agent.schemas.state import BlockedSenderState
 
@@ -36,7 +40,29 @@ def calculate_change_set(
     )
 
 
-def _partition[Resource: (ManagedBlockedSenderRule, ManagedAddressList)](
+def calculate_compliance_change_set(
+    current_state: ContentComplianceState,
+    desired_state: ContentComplianceState,
+) -> ComplianceChangeSet:
+    """Return exact content-compliance mutations without side effects."""
+
+    rule_changes = _partition(
+        current_state.rules,
+        desired_state.rules,
+        lambda item: item.ownership_id,
+    )
+    return ComplianceChangeSet(
+        before_state=current_state,
+        expected_after=desired_state,
+        rules_to_create=rule_changes[0],
+        rules_to_update=rule_changes[1],
+        rules_to_remove=rule_changes[2],
+    )
+
+
+def _partition[
+    Resource: (ManagedBlockedSenderRule, ManagedAddressList, ManagedContentComplianceRule)
+](
     current: tuple[Resource, ...],
     desired: tuple[Resource, ...],
     identity: Callable[[Resource], UUID],
