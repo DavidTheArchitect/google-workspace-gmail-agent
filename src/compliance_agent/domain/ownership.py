@@ -20,6 +20,8 @@ class OwnershipRecord(FrozenModel):
     address_list_display_name: str = Field(min_length=1)
     target_ou: str = Field(default="/", min_length=1, max_length=1_000)
     created_at: datetime
+    rule_snapshot: ManagedBlockedSenderRule | None = None
+    address_list_snapshot: ManagedAddressList | None = None
 
     @model_validator(mode="after")
     def require_aware_creation_time(self) -> Self:
@@ -37,6 +39,7 @@ class AddressListOwnershipRecord(FrozenModel):
     target_ou: str = Field(default="/", min_length=1, max_length=1_000)
     purpose: Literal["bypass", "condition"]
     created_at: datetime
+    address_list_snapshot: ManagedAddressList | None = None
 
     @model_validator(mode="after")
     def require_aware_creation_time(self) -> Self:
@@ -53,6 +56,7 @@ class ComplianceOwnershipRecord(FrozenModel):
     display_name: str = Field(min_length=1, max_length=200)
     target_ou: str = Field(min_length=1, max_length=1_000)
     created_at: datetime
+    rule_snapshot: ManagedContentComplianceRule | None = None
 
     @model_validator(mode="after")
     def require_aware_creation_time(self) -> Self:

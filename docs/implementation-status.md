@@ -1,71 +1,62 @@
 # Implementation status
 
-Review date: 2026-07-11
+Review date: 2026-07-16
 
 ## Complete
 
-- Phase 0: public-API feasibility decision and threat model.
-- Phase 1: exact dependency pins and locks, settings validation, Ruff, strict mypy, branch coverage,
-  architecture checks, pre-commit, CI, secret scanning, and dependency audit.
-- Phase 2: resource/action schemas, normalization, ownership, desired state, deterministic diff,
-  canonical hashes, confirmation preconditions, reconciliation, verification, and status policy.
-- Phase 3: schema-constrained Ollama planning, compatibility extraction, corrective retries,
-  few-shot prompts, planner metadata, and deterministic direct-command plans.
-- Phase 7 deterministic orchestration: typed Agent Framework graph, clarification and login HITL,
-  mandatory confirmation, fresh pre-write read, drift reconfirmation, mutation routing, uncertain
-  result reconciliation, one safe retry, verification, and audit finalization.
-- Audit core: protected per-run writer, run-consistent hash-chained events, deterministic reports,
-  streaming artifact digests, terminal manifest creation and verification, structure-preserving
-  redaction, and protected redacted export.
-- Repository-wide hardening review: order-sensitive plan hashing, non-overlapping sensitive paths,
-  strict result-evidence invariants, deterministic exhausted-retry status, failure-safe browser and
-  process-lock cleanup, inert diagnostic HTML, and browser safety code included in coverage.
-- Integration foundations: incremental request/plan/preflight/state/change/confirmation/mutation/
-  reconciliation/verification audit artifacts and events; post-mutation audit degradation;
-  verified ownership-registry updates; expected adapter failure mapping; exclusive-lock composition
-  with runtime manifest metadata; and explicit plan-first audit retention.
-- Operator experience: loopback-only FastAPI/HTMX console, one-time in-memory session bootstrap,
-  Host/Origin/CSRF/CSP controls, guided readiness, natural-language and deterministic planning,
-  typed run projections, impact assessment, expiring server-owned approvals, run control, contract
-  gate inspection, ownership registry view, audit explorer, retention confirmation, and propagation
-  follow-up.
-- Operational hardening: explicit run modes with legacy migration, writer-free dry-run composition,
-  dry-run audit manifests, reviewed contract-pack digests, inert fixture inspection, exact-evidence
-  ownership recovery service with verified creation provenance, guarded asynchronous run
-  transitions, monotonic propagation evidence, and deterministic manifested redacted ZIP export.
+- Typed schema-v2 planning for standard blocked senders and Reject-only Gmail Content compliance.
+- Standard create, read, atomic update, enable/disable, and remove for owned rules, primary address
+  lists, approved-sender bypass lists, arbitrary organizational-unit paths, and custom notices.
+- Content compliance create, read, update, enable/disable, and remove across inbound, outbound,
+  internal-sending, and internal-receiving directions.
+- Simple, advanced, metadata, and edition-dependent predefined expressions; one-to-ten expression
+  limits; RE2 validation; all supported content locations and match operators; address-list
+  conditions; and envelope sender/recipient filters.
+- Dynamic local persona and rejection-notice generation with protected policy category/ID fields,
+  category-only disclosure, and randomized safe fallback.
+- Four-participant Microsoft Agent Framework `GroupChatBuilder` orchestration with deterministic
+  round-robin selection, two passes per specialist by default, strict framework-author attribution,
+  typed verdicts, complete-participant/order validation, and no model mutation authority.
+- Reflex operator console with UI-selectable plan-only, dry-run, and live modes; standard and
+  advanced editors; focused removal and enabled-state confirmations; managed ownership controls;
+  exact approval evidence; run history; settings; and verified audit history.
+- Built-in attended headed-Chrome driver for both Google Admin surfaces. It verifies the expected
+  administrator and Workspace domain, uses a local vision model for bounded semantic navigation,
+  supplies policy values only from typed application tokens, and refuses ambiguous controls.
+- Browser-backed dry-run preview, one-time live approval, approval expiry/cancellation, mandatory
+  pre-write re-read, drift rejection, exact permit binding, independent after-state verification,
+  and ownership persistence only after a complete match.
+- Hash-chained local audit events and terminal artifact manifests. Credentials, cookies, browser
+  profiles, screenshots, approval phrases, and unrelated tenant data are excluded.
+- Durable `agent-review.json` evidence bound to the plan hash, model tag, deterministic turn order,
+  and typed verdicts; interrupted run folders are surfaced as indeterminate instead of hidden.
+- Stale-preview invalidation after every policy edit and terminal audit finalization for cancelled,
+  rejected, failed-unchanged, uncertain, drifted, verified, and no-change outcomes.
+- Async draft revision guards, in-progress editor locking, clean sidebar create flow, exact focused
+  impact summaries, conditional expression controls, compatible metadata operators, and responsive
+  ownership/audit actions.
+- OneDrive-safe Reflex generation through `REFLEX_WEB_WORKDIR`, exact dependency locks, Ruff,
+  strict mypy, coverage enforcement, and production-build verification.
 
-## Implemented but awaiting live validation
+## Requires the operator's tenant at run time
 
-- Dedicated headed persistent Chrome session.
-- Exclusive process lock and documented stale-lock recovery.
-- Explicit page states and safe semantic locator contracts.
-- Deterministic administrator, Workspace, privilege, Gmail-context, blocked-senders-context, and
-  root-OU preflight policy.
-- Attended login and sanitized observation scripts.
+- A licensed Google Workspace tenant whose edition exposes the requested Gmail fields.
+- An administrator account with the required Gmail settings privileges.
+- Attended sign-in in the visible persistent Chrome profile.
+- The configured local Ollama models; the browser model must accept image input.
+- A fresh dry-run or live preview against Google's current Admin UI.
+- For live changes, the exact one-time phrase and acknowledgement shown after that preview.
 
-## Gated on supervised Admin console evidence
+These are operational preconditions, not missing application adapters. Google changes Admin console
+markup independently, so the agent deliberately discovers the current visible controls and aborts
+instead of guessing when the page is ambiguous. A supervised disposable-resource acceptance run is
+still strongly recommended for each tenant and current Admin UI before production use.
 
-- Live administrator/Workspace/privilege/OU observer locators.
-- Blocked-sender rule and address-list parsers.
-- Current rule-to-list relationship extraction.
-- Address-list and rule mutation locators.
-- Save-response observation and known-entry-point navigation details.
-- Sanitized HTML/ARIA fixtures for the current Admin console.
-- Supervised disposable-resource CRUD acceptance.
-- Injection of the accepted read adapters into the console dry-run coordinator.
-- Injection of the accepted live runner into the approval/execution control room.
+## Acceptance still to perform in a real tenant
 
-These items are not ordinary unfinished scaffolding. Implementing them from assumptions would
-violate the project's fail-closed selector policy. Run
-`scripts/observe_ui.py --output-directory <new-protected-path>` with an authorized Google
-Workspace administrator who has the Gmail Settings privilege. The observer handles attended
-sign-in, opens Google's current **Spam, Phishing and Malware** route, and captures evidence only
-after the operator confirms the correct page. A 404 can indicate the wrong account, missing
-privilege, or a Workspace edition without advanced Gmail settings.
+- Supervised standard rule create/read/update/disable/enable/remove/read.
+- Supervised Content compliance regex/header rule create/read/update/disable/enable/remove/read.
+- Admin audit-log review of those disposable changes.
+- Separately authorized mail-flow propagation and bounce-message delivery tests.
 
-## Pending after the live gate
-
-- Browser fixture parser and locator tests based on captured sanitized evidence.
-- Supervised create/read/update/read/delete/read testing.
-- Admin audit-log inspection and complete live audit-package review.
-- Separately authorized mail-flow propagation testing.
+No live tenant mutation was performed by the automated repository test suite.

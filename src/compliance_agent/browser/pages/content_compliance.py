@@ -137,6 +137,7 @@ class ContentCompliancePage:
             (),
             permit,
             mutation_allowed=False,
+            navigation_identity=rule.display_name,
         )
         snapshot = await self._aria_snapshot()
         return ComplianceBrowserRunResult(
@@ -223,6 +224,7 @@ class ContentCompliancePage:
         permit: ComplianceBrowserPermit,
         *,
         mutation_allowed: bool = True,
+        navigation_identity: str | None = None,
     ) -> tuple[tuple[str, ...], bool]:
         history: list[str] = []
         repeated_step_count = 0
@@ -262,7 +264,11 @@ class ContentCompliancePage:
                     (item for item in catalog.candidates if item.candidate_id == step.candidate_id),
                     None,
                 )
-            if not mutation_allowed and _is_readback_mutation(step.action, candidate):
+            if not mutation_allowed and _is_readback_mutation(
+                step.action,
+                candidate,
+                navigation_identity=navigation_identity,
+            ):
                 message = "read-back browser goal proposed a mutation"
                 raise SelectorNotFound(message)
             if candidate is not None and _is_commit_control(candidate.accessible_name):
@@ -270,6 +276,19 @@ class ContentCompliancePage:
                     message = "read-back cannot activate a commit control"
                     raise SelectorNotFound(message)
                 _require_target_ou_visible(snapshot, permit.target_ou)
+                _require_rule_identity_visible(snapshot, inputs)
+            elif (
+                mutation_allowed
+                and candidate is not None
+                and candidate.role == "button"
+                and _is_readback_mutation(
+                    step.action,
+                    candidate,
+                    navigation_identity=_input_rule_identity(inputs),
+                )
+            ):
+                _require_target_ou_visible(snapshot, permit.target_ou)
+                _require_rule_identity_visible(snapshot, inputs)
             await execute_step(self._page, catalog, step, inputs)
         return tuple(history), False
 
@@ -343,14 +362,59 @@ def _is_commit_control(name: str) -> bool:
     )
 
 
-def _is_readback_mutation(action: str, candidate: BrowserCandidate | None) -> bool:
+def _is_readback_mutation(
+    action: str,
+    candidate: BrowserCandidate | None,
+    *,
+    navigation_identity: str | None = None,
+) -> bool:
     """Allow navigation during read-back while rejecting all field-state changes."""
 
     if action in {"fill", "check", "uncheck", "select"}:
         return True
     if action != "click" or candidate is None:
-        return False
-    return candidate.role not in {"button", "link"}
+        return action == "click"
+    if candidate.role == "link":
+        return _is_commit_control(candidate.accessible_name) or not (
+            _is_navigation_control(candidate)
+            or _candidate_matches(candidate, navigation_identity)
+        )
+    if candidate.role != "button":
+        return True
+    return not _is_navigation_control(candidate) and not _candidate_matches(
+        candidate,
+        navigation_identity,
+    )
+
+
+def _is_navigation_control(candidate: BrowserCandidate) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(open|view|edit|show|expand|collapse|details|back|cancel|close|add|configure)"
+            r"(?:\s+.*)?",
+            candidate.accessible_name.strip(),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _candidate_matches(candidate: BrowserCandidate, expected: str | None) -> bool:
+    return expected is not None and " ".join(candidate.accessible_name.split()).casefold() == (
+        " ".join(expected.split()).casefold()
+    )
+
+
+def _input_rule_identity(inputs: tuple[BrowserInput, ...]) -> str | None:
+    return next((item.value for item in inputs if item.label == "Managed rule name"), None)
+
+
+def _require_rule_identity_visible(snapshot: str, inputs: tuple[BrowserInput, ...]) -> None:
+    identity = _input_rule_identity(inputs)
+    if identity is None or " ".join(identity.split()).casefold() not in " ".join(
+        snapshot.split()
+    ).casefold():
+        message = "approved managed Content compliance rule is not visible before commit"
+        raise StaleConfirmation(message)
 
 
 def _identity_inputs(rule: ManagedContentComplianceRule) -> tuple[BrowserInput, ...]:

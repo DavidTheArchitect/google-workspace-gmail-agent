@@ -19,8 +19,9 @@ and change-set hash; a local draft hash is never presented as permission to writ
 
 Content compliance remains a Google Admin UI-only workflow. The local Gemma browser navigator sees
 a screenshot and bounded accessibility snapshot, but can act only through opaque IDs for unique
-semantic controls and application-supplied values. Live writes remain gated on accepted supervised
-UI evidence for the administrator's current Admin console version.
+semantic controls and application-supplied values. The built-in attended driver reads the current
+Admin UI at run time, keeps the operator's headed Chrome window visible, and aborts on ambiguous or
+unverified controls.
 
 ## Safety boundary
 
@@ -95,8 +96,9 @@ uv run pytest
 ```
 
 Direct commands emit the same schema-v2 `TaskPlan` shape used by the LLM planner and do not require
-Ollama. Natural-language requests run through four Microsoft Agent Framework group-chat
-participants before the final schema-constrained plan. The default local model is `gemma4:12b`.
+Ollama. Console proposals run through four Microsoft Agent Framework group-chat participants in
+two round-robin passes by default, so every specialist can react to the group before the typed plan
+is approved. The default local model is `gemma4:12b`.
 
 For natural-language planning:
 
@@ -106,15 +108,23 @@ uv run compliance-agent plan "Block spammer.com with notice Mail rejected."
 
 Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
 `CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
-and new settings fails configuration validation. Browser-backed dry runs require supervised
-live-read contract evidence, and live composition requires an accepted contract-pack digest. The
-console Settings page can select and persist the run mode and can validate and save the expected
-administrator email and Workspace domain. Mode changes apply to new runs; a completed plan-only run
-can continue into a ready browser-backed mode without being drafted again. Other settings remain in
-`.env`, with `.env.example` documenting the safe starting values. The current web composition creates
-and reviews plans but does not install the accepted read adapter or live writer required for Google
-Admin preview or apply, so selecting those modes exposes their exact setup blockers instead of
-offering an action that cannot run.
+and new settings fails configuration validation. The console Settings page can select and persist
+the run mode, expected administrator email, Workspace domain, group-chat model, and browser vision
+model. Plan-only reviews never open Google. Dry runs open the attended browser and read the current
+Google configuration without writing. Live runs perform that same read, show exact before/change
+hashes, require a one-time phrase and acknowledgement, re-read for drift, then apply and verify.
+Changing any policy field invalidates the pending approval immediately. `.env.example` documents
+the safe starting values.
+
+Before a review, the console proves the configured Ollama model exists. Browser-backed modes also
+require the selected model to advertise vision capability. The four-agent Microsoft Agent
+Framework group chat accepts only strict, attributed JSON verdicts; incomplete, clarification,
+unsafe, or unattributed reviews never unlock execution. Accepted turns are persisted as hash-bound
+audit evidence and verified packages can be opened or exported from the Audits view.
+
+On Windows, Reflex's generated Node/build directory is kept under
+`~/.compliance_agent/reflex-web` by default so OneDrive file locking cannot strand frontend builds.
+Set `REFLEX_WEB_WORKDIR` or `GMAIL_AGENT_REFLEX_WEB_DIR` to override that generated location.
 
 Audit retention is non-destructive by default:
 

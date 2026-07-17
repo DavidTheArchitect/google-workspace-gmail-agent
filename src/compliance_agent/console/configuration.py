@@ -20,11 +20,14 @@ _EDITABLE_KEYS = frozenset(
     {
         "CA_EXPECTED_ADMIN_EMAIL",
         "CA_EXPECTED_WORKSPACE_DOMAIN",
+        "CA_OLLAMA_MODEL",
+        "CA_BROWSER_MODEL",
         "CA_RUN_MODE",
     }
 )
 _LEGACY_RUN_MODE_KEYS = frozenset({"CA_PLAN_ONLY", "CA_DRY_RUN"})
 _ASSIGNMENT = re.compile(r"^\s*#?\s*(CA_[A-Z0-9_]+)\s*=.*$")
+_MODEL_TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +58,19 @@ class LocalConfigurationStore:
 
         self.update({"CA_RUN_MODE": mode.value}, remove_keys=_LEGACY_RUN_MODE_KEYS)
         return mode
+
+    def save_agent_models(self, orchestration_model: str, browser_model: str) -> tuple[str, str]:
+        """Validate and persist separate local reasoning and vision model tags."""
+
+        orchestration = _validated_model_tag(orchestration_model, "orchestration model")
+        browser = _validated_model_tag(browser_model, "browser model")
+        self.update(
+            {
+                "CA_OLLAMA_MODEL": orchestration,
+                "CA_BROWSER_MODEL": browser,
+            }
+        )
+        return orchestration, browser
 
     def update(
         self,
@@ -114,3 +130,11 @@ def _validate_update_keys(values: Mapping[str, str], remove_keys: frozenset[str]
         names = ", ".join(sorted(unsupported_removals))
         message = f"configuration keys cannot be removed here: {names}"
         raise ValueError(message)
+
+
+def _validated_model_tag(value: str, label: str) -> str:
+    normalized = value.strip()
+    if _MODEL_TAG.fullmatch(normalized) is None:
+        message = f"{label} must be a valid local Ollama model tag"
+        raise ValueError(message)
+    return normalized

@@ -7,8 +7,14 @@ deterministic report, sanitized diagnostics, and trace.
 `run.jsonl` is append-only for the life of a run. Every canonical event includes a sequence,
 previous event hash, and SHA-256 hash over the event without `event_hash`. `manifest.json` records
 component versions, final status, and SHA-256 hashes for finalized artifacts.
-Browser-backed runs also record the reviewed UI contract-pack digest. Dry-run packages use
-`dry-run.json` and the terminal status `dry_run_preview_ready` when a mutation preview exists.
+Attended Reflex runs write `preview.json`, `before.json`, `expected_after.json`, and
+`change_set.json`; live execution also writes `execution_result.json` when a typed result exists.
+Dry-run packages use the terminal status `dry_run_preview_ready` when a mutation preview exists.
+The one-time approval phrase is deliberately excluded.
+Accepted Reflex group reviews write `agent-review.json` with the exact plan hash, local model tag,
+participant roster, bounded turn indexes, typed verdicts, and sanitized findings. Approval phrases,
+credentials, screenshots, and raw Google page content are excluded. A convention-named run folder
+left without a terminal manifest after interruption remains visible as indeterminate.
 
 Audit content must never include cookies, authorization headers, session tokens, password or 2SV
 fields, copied profile files, or unrelated organization data. Redacted export applies a second

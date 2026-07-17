@@ -1,10 +1,12 @@
 """Coverage for schema-v2 compliance blockers and local-agent boundaries."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
 import pytest
+from agent_framework import Message
 from pydantic import ValidationError
 
 import compliance_agent.llm.group_chat as group_chat_module
@@ -46,6 +48,7 @@ from compliance_agent.llm.group_chat import (
     GroupChatPlanner,
     GroupChatTranscript,
     _flatten_outputs,
+    _review_payload,
     build_policy_group_chat,
 )
 from compliance_agent.llm.persona import PersonaNoticeGenerator
@@ -89,6 +92,7 @@ from compliance_agent.schemas.plan import (
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.schemas.results import ComplianceVerificationResult
 from compliance_agent.settings import Settings
+from tests.conftest import domain, owned_state, registry_for
 
 PREFIX = "[Compliance Agent]"
 RULE_ID = UUID("10000000-0000-4000-8000-000000000001")
@@ -821,7 +825,13 @@ async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
         )
 
     monkeypatch.setattr("compliance_agent.reflex_console.state._review_plan", review)
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.ATTENDED_POLICY_SERVICE.record_plan_review",
+        lambda *_args: "a" * 32,
+    )
     state = ConsoleState(_reflex_internal_init=True)
+    state.expression_value = r"(?i)^x-policy:\s*restricted$"
+    state.regex_description = "Policy header marker"
     state.add_expression()
     state.update_expression("0", "value", "board-only")
     assert state.expression_count == 2
@@ -840,13 +850,11 @@ async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
     assert len(state.plan_hash) == 64
     state.acknowledged = True
     state.phrase_entry = state.approval_phrase
-    state.approve_plan()
     assert not state.approved
-    assert state.status == "Live read required"
+    assert state.status == "Plan ready"
 
     state.bind_live_evidence("a" * 64, "b" * 64)
-    state.approve_plan()
-    assert state.approved
+    assert state.live_evidence_bound
 
     state.select_section("standard")
     state.blocked_values = "example.com\nsender@example.com"
@@ -858,6 +866,97 @@ async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
     assert not state.expression_valid
 
 
+def test_reflex_draft_edit_invalidates_all_live_approval_evidence() -> None:
+    state = ConsoleState(_reflex_internal_init=True)
+    assert not state.draft_minimum_ready
+    state.expression_value = "restricted"
+    assert state.draft_minimum_ready
+    state.run_id = "a" * 32
+    state.preview_ready = True
+    state.live_evidence_bound = True
+    state.approval_phrase = "APPLY TEST"
+    state.plan_hash = "b" * 64
+    state.before_hash = "c" * 64
+    state.change_hash = "d" * 64
+
+    state.set_blocked_values("fresh.example")
+
+    assert not state.preview_ready
+    assert not state.live_evidence_bound
+    assert state.run_id == ""
+    assert state.approval_phrase == ""
+    assert state.before_hash == "pending-live-read"
+    assert state.status == "Draft updated"
+
+
+@pytest.mark.asyncio
+async def test_reflex_discards_review_if_draft_changes_while_agents_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = ConsoleState(_reflex_internal_init=True)
+    state.expression_value = "restricted"
+
+    async def review(_plan: TaskPlan) -> GroupChatTranscript:
+        state.set_policy_category("changed-during-review")
+        return GroupChatTranscript(
+            participants=tuple(spec.name for spec in PARTICIPANT_SPECS),
+            messages=tuple(
+                GroupChatMessage(
+                    participant=spec.name,
+                    display_name=spec.display_name,
+                    icon=spec.icon,
+                    round_index=index,
+                    text="reviewed",
+                )
+                for index, spec in enumerate(PARTICIPANT_SPECS)
+            ),
+            max_rounds=4,
+        )
+
+    monkeypatch.setattr("compliance_agent.reflex_console.state._review_plan", review)
+
+    assert [update async for update in state.preview()] == [None]
+    assert not state.preview_ready
+    assert state.plan_hash == ""
+    assert "changed while agents" in state.error_message
+
+
+def test_reflex_fresh_create_clears_old_operation_and_review_evidence() -> None:
+    state = ConsoleState(_reflex_internal_init=True)
+    state.operation = "remove"
+    state.target_rule_id = str(RULE_ID)
+    state.preview_ready = True
+    state.plan_hash = "b" * 64
+    state.agent_activity = [{"name": "old", "time": "old", "icon": "x", "status": "old"}]
+
+    state.start_create("standard")
+
+    assert state.operation == "create"
+    assert state.target_rule_id == ""
+    assert state.blocked_values == ""
+    assert not state.preview_ready
+    assert state.plan_hash == ""
+    assert state.agent_activity[0]["time"] == "Pending"
+
+
+def test_reflex_standard_snapshot_load_does_not_read_compliance_fields() -> None:
+    current = owned_state(entries=(domain("managed.example"),))
+    record = registry_for().resources[0].model_copy(
+        update={
+            "rule_snapshot": current.rules[0],
+            "address_list_snapshot": current.address_lists[0],
+        }
+    )
+    registry = registry_for().model_copy(update={"resources": (record,)})
+    state = ConsoleState(_reflex_internal_init=True)
+
+    state._load_standard_record(record, registry)
+
+    assert state.section == "standard"
+    assert state.blocked_values == "managed.example"
+    assert state.error_message == ""
+
+
 def test_reflex_review_failure_is_concise_and_group_requires_four_rounds() -> None:
     message = _review_failure_message(RuntimeError("provider stack with sensitive internals"))
     assert "specialist group could not finish" in message
@@ -867,6 +966,69 @@ def test_reflex_review_failure_is_concise_and_group_requires_four_rounds() -> No
 
     with pytest.raises(ValidationError, match="greater than or equal to 4"):
         Settings(group_chat_max_rounds=3)
+
+
+def test_group_chat_transcript_rejects_forged_or_blocking_turns() -> None:
+    participants = tuple(spec.name for spec in PARTICIPANT_SPECS)
+    messages = tuple(
+        GroupChatMessage(
+            participant=spec.name,
+            display_name=spec.display_name,
+            icon=spec.icon,
+            round_index=index,
+            text="reviewed",
+        )
+        for index, spec in enumerate(PARTICIPANT_SPECS)
+    )
+
+    with pytest.raises(ValidationError, match="roster"):
+        GroupChatTranscript(participants=participants[:-1], messages=messages, max_rounds=4)
+    with pytest.raises(ValidationError, match="round limit"):
+        GroupChatTranscript(participants=participants, messages=messages, max_rounds=3)
+    with pytest.raises(ValidationError, match="indexes"):
+        GroupChatTranscript(
+            participants=participants,
+            messages=(messages[0].model_copy(update={"round_index": 1}), *messages[1:]),
+            max_rounds=4,
+        )
+    with pytest.raises(ValidationError, match="speaker order"):
+        GroupChatTranscript(
+            participants=participants,
+            messages=(
+                messages[0].model_copy(update={"participant": participants[1]}),
+                messages[1].model_copy(update={"participant": participants[0]}),
+                *messages[2:],
+            ),
+            max_rounds=4,
+        )
+    with pytest.raises(ValidationError, match="clarification"):
+        GroupChatTranscript(
+            participants=participants,
+            messages=(
+                *messages[:2],
+                messages[2].model_copy(update={"verdict": "unsafe"}),
+                messages[3],
+            ),
+            max_rounds=4,
+        )
+    with pytest.raises(ValidationError, match="before every specialist"):
+        GroupChatTranscript(participants=participants, messages=messages[:3], max_rounds=4)
+
+
+def test_group_chat_review_payload_is_strict_and_bounded() -> None:
+    assert _review_payload("not json") is None
+    assert _review_payload("[]") is None
+    assert _review_payload('{"verdict":"pass","summary":"ok","findings":[]}') == (
+        "ok",
+        "pass",
+        (),
+    )
+    assert (
+        _review_payload('{"verdict":"maybe","summary":"ok","findings":[]}') is None
+    )
+    assert (
+        _review_payload('{"verdict":"pass","summary":"ok","findings":[""]}') is None
+    )
 
 
 @pytest.mark.asyncio
@@ -900,12 +1062,24 @@ def test_flatten_group_chat_outputs() -> None:
 
 @pytest.mark.asyncio
 async def test_group_chat_planner_refines_then_calls_typed_planner() -> None:
-    class _ReviewText:
-        text = "review"
-
     class _Result:
         def get_outputs(self) -> list[object]:
-            return ["architect", [_ReviewText(), "safety", "operator"]]
+            return [
+                Message(
+                    role="assistant",
+                    contents=[
+                        json.dumps(
+                            {
+                                "verdict": "pass",
+                                "summary": spec.name,
+                                "findings": [],
+                            }
+                        )
+                    ],
+                    author_name=spec.name,
+                )
+                for spec in PARTICIPANT_SPECS
+            ]
 
     class _Workflow:
         async def run(self, _message: object) -> _Result:
@@ -931,10 +1105,10 @@ async def test_group_chat_planner_refines_then_calls_typed_planner() -> None:
         max_rounds=6,
     ).plan("block a header")
     assert tuple(message.text for message in result.transcript.messages) == (
-        "architect",
-        "review",
-        "safety",
-        "operator",
+        "policy_architect",
+        "regex_reviewer",
+        "safety_reviewer",
+        "operator_advocate",
     )
     assert len(result.transcript.participants) == 4
     assert "block a header" in planner.request

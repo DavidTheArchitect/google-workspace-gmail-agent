@@ -17,8 +17,10 @@ from compliance_agent.schemas.plan import (
     ListBlockedSenderRules,
     RemoveBlockedEntries,
     RemoveBlockedSenderRule,
+    SetBlockedSenderRuleEnabled,
     SetRejectionNotice,
     TaskPlan,
+    UpdateBlockedSenderRule,
 )
 from compliance_agent.schemas.resources import (
     AddressEntry,
@@ -28,7 +30,7 @@ from compliance_agent.schemas.resources import (
 from compliance_agent.schemas.state import BlockedSenderState
 
 
-def calculate_desired_state(
+def calculate_desired_state(  # noqa: C901 - explicit action dispatch is intentionally linear.
     current_state: BlockedSenderState,
     plan: TaskPlan,
     ownership_registry: OwnershipRegistry,
@@ -71,6 +73,15 @@ def calculate_desired_state(
                 ownership_registry,
                 managed_prefix,
             )
+        elif isinstance(action, UpdateBlockedSenderRule):
+            _update_rule(
+                action,
+                rules,
+                address_lists,
+                ownership_registry,
+                identifiers,
+                managed_prefix,
+            )
         elif isinstance(action, SetRejectionNotice):
             affected_entry_count += _set_notice(
                 action,
@@ -79,6 +90,13 @@ def calculate_desired_state(
                 ownership_registry,
                 managed_prefix,
             )
+        elif isinstance(action, SetBlockedSenderRuleEnabled):
+            rule = _require_rule(action.target_rule_id, rules)
+            require_owned_rule(rule, ownership_registry, managed_prefix)
+            if rule.inherited:
+                message = "inherited blocked-sender rules cannot be enabled or disabled"
+                raise AmbiguousTarget(message)
+            rules[rule.ownership_id] = rule.model_copy(update={"enabled": action.enabled})
         elif isinstance(action, RemoveBlockedSenderRule):
             _remove_rule(
                 action,
@@ -105,6 +123,76 @@ def calculate_desired_state(
     )
 
 
+def _update_rule(  # noqa: PLR0913 - each collection has a distinct security role.
+    action: UpdateBlockedSenderRule,
+    rules: dict[UUID, ManagedBlockedSenderRule],
+    address_lists: dict[UUID, ManagedAddressList],
+    registry: OwnershipRegistry,
+    identifiers: Iterator[UUID],
+    prefix: str,
+) -> None:
+    rule = _require_rule(action.target_rule_id, rules)
+    require_owned_rule(rule, registry, prefix)
+    if rule.inherited:
+        message = "inherited blocked-sender rules cannot be edited"
+        raise AmbiguousTarget(message)
+    primary = _require_rule_list(rule, address_lists, registry, prefix)
+    address_lists[primary.ownership_id] = primary.model_copy(
+        update={"entries": _sorted_entries(action.entries)}
+    )
+    existing_bypass = _owned_bypass_lists(rule, address_lists, registry, prefix)
+    bypass_names: tuple[str, ...] = ()
+    if action.bypass_entries and existing_bypass:
+        bypass = existing_bypass[0]
+        address_lists[bypass.ownership_id] = bypass.model_copy(
+            update={"entries": _sorted_entries(action.bypass_entries)}
+        )
+        for surplus in existing_bypass[1:]:
+            del address_lists[surplus.ownership_id]
+        bypass_names = (bypass.display_name,)
+    elif action.bypass_entries:
+        try:
+            bypass_id = next(identifiers)
+        except StopIteration as error:
+            message = "blocked-sender update needs an injected bypass-list ownership ID"
+            raise ValueError(message) from error
+        _unused, bypass_name = managed_resource_names(prefix, bypass_id)
+        bypass_name = f"{bypass_name} bypass"
+        address_lists[bypass_id] = ManagedAddressList(
+            ownership_id=bypass_id,
+            display_name=bypass_name,
+            entries=_sorted_entries(action.bypass_entries),
+        )
+        bypass_names = (bypass_name,)
+    else:
+        for bypass in existing_bypass:
+            del address_lists[bypass.ownership_id]
+    rules[rule.ownership_id] = rule.model_copy(
+        update={
+            "bypass_address_list_names": bypass_names,
+            "rejection_notice": action.rejection_notice,
+            "enabled": action.enabled,
+        }
+    )
+
+
+def _owned_bypass_lists(
+    rule: ManagedBlockedSenderRule,
+    address_lists: dict[UUID, ManagedAddressList],
+    registry: OwnershipRegistry,
+    prefix: str,
+) -> tuple[ManagedAddressList, ...]:
+    lists: list[ManagedAddressList] = []
+    for name in rule.bypass_address_list_names:
+        matches = [item for item in address_lists.values() if item.display_name == name]
+        if len(matches) != 1:
+            message = f"owned bypass list is missing or ambiguous: {name}"
+            raise AmbiguousTarget(message)
+        require_owned_address_list(matches[0], registry, prefix)
+        lists.append(matches[0])
+    return tuple(lists)
+
+
 def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy reviewable.
     action: CreateBlockedSenderRule | AddBlockedEntries,
     rules: dict[UUID, ManagedBlockedSenderRule],
@@ -119,6 +207,7 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
             action.rejection_notice,
             action.target_ou,
             action.bypass_entries,
+            action.enabled,
             rules,
             address_lists,
             identifiers,
@@ -133,6 +222,7 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
             action.rejection_notice,
             action.target_ou,
             (),
+            True,
             rules,
             address_lists,
             identifiers,
@@ -150,6 +240,7 @@ def _apply_create_or_add(  # noqa: PLR0913 - explicit working sets keep policy r
             action.rejection_notice,
             action.target_ou,
             (),
+            True,
             rules,
             address_lists,
             identifiers,
@@ -196,6 +287,7 @@ def _create_rule(  # noqa: PLR0913 - construction inputs are distinct domain con
     notice: str | None,
     target_ou: str,
     bypass_entries: tuple[AddressEntry, ...],
+    enabled: bool,
     rules: dict[UUID, ManagedBlockedSenderRule],
     address_lists: dict[UUID, ManagedAddressList],
     identifiers: Iterator[UUID],
@@ -237,6 +329,7 @@ def _create_rule(  # noqa: PLR0913 - construction inputs are distinct domain con
         address_list_names=(list_name,),
         bypass_address_list_names=bypass_names,
         rejection_notice=notice,
+        enabled=enabled,
     )
 
 
