@@ -21,6 +21,7 @@ from compliance_agent.application.audit_catalog import AuditCatalog
 from compliance_agent.console.configuration import LocalConfigurationStore
 from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.regex_validation import validate_google_regex
+from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
 from compliance_agent.llm.persona import DEFAULT_PERSONA_ATTEMPTS, profile_signature
@@ -236,6 +237,12 @@ def _persona_generation_budget_seconds(settings: Settings) -> float:
 def _persona_failure_message(error: Exception) -> str:
     """Return a concise local-model error for the bounce-message writer."""
 
+    if isinstance(error, PlannerFailure) and isinstance(error.__cause__, ValueError):
+        return (
+            "The local model answered, but its drafts did not pass the plain-text safety and "
+            "format checks after several attempts. The existing rejection notice was preserved; "
+            "retry to sample a new profile."
+        )
     settings = load_settings()
     if isinstance(error, TimeoutError):
         return (

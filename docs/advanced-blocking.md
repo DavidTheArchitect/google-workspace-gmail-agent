@@ -78,10 +78,11 @@ console reports the failure rather than substituting canned copy.
 Every draft also passes a deterministic sender-safety quality gate before it reaches the operator.
 Drafts that leak escape-sequence artifacts, markup or structured-data characters, non-printable
 characters, fabricated email addresses, web addresses, domain names, or phone-number-like sequences,
-expose the internal policy-category label, or return a sentence-like role instead of a compact title
-fail the attempt and are resampled with fresh entropy. Drafts also fail when they omit a recognizable
-rejection outcome or message-delivery context, or fall back to the stock “this sender is blocked”
-formula. Line endings and stray whitespace are
+expose the internal policy-category label, return a sentence-like role instead of a compact title,
+or fall back to the stock “this sender is blocked” formula fail the attempt and are resampled with
+fresh entropy. Creative rejection wording is not judged by a fixed keyword list; the authoritative
+source-specific refusal premise is enforced in the model contract instead. Line endings and stray
+whitespace are
 normalized without rewriting the model's prose. The sampled identity is displayed beneath the
 notice so the operator can inspect the source facts separately from the model's wording. The
 bounce-message category itself is application-owned identity, is never included in the creative

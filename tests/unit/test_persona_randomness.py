@@ -142,6 +142,11 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         "must shape rhetorical stance",
         "every one of the three traits",
         "both goals",
+        "NON-NEGOTIABLE NOTICE PREMISE",
+        "not a judgment about the message or the person",
+        "do not advise rewriting",
+        "sole premise",
+        "source-specific non-delivery",
         "There are no required rejection keywords",
         'stock construction "this sender is blocked"',
         "professionalism and courtesy are optional",
@@ -256,14 +261,13 @@ def test_application_persona_brief_rejects_negative_seed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generator_requires_a_clear_rejection_without_fixed_blocked_sender_wording(
+async def test_generator_rejects_stock_wording_without_restricting_creative_language(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    vague = _draft(text="The recipient organization has a collection of unusual doors.")
     creative = _draft(
         text=(
-            "The brass gate has closed against this dispatch. Seek the recipient by another "
-            "published road."
+            "Saffron sails fold at dusk; your petition finds no harbor here. Seek the recipient "
+            "by another published road."
         )
     )
     stock = _draft(
@@ -272,22 +276,20 @@ async def test_generator_requires_a_clear_rejection_without_fixed_blocked_sender
             "another route."
         )
     )
-    _install_entropy(monkeypatch, seeds=(901, 902, 903))
-    client = RecordingCompletion(
-        (vague.model_dump_json(), stock.model_dump_json(), creative.model_dump_json())
-    )
+    _install_entropy(monkeypatch, seeds=(901, 902))
+    client = RecordingCompletion((stock.model_dump_json(), creative.model_dump_json()))
 
     notice = await PersonaNoticeGenerator(
         client,
         model="gemma4:12b",
         temperature=1.25,
-        max_attempts=3,
+        max_attempts=2,
     ).generate(policy_category="confidential-information", policy_id="MAIL-204")
 
-    assert notice.persona.seed == 903
+    assert notice.persona.seed == 902
     assert notice.text == creative.text
     assert "sender is blocked" not in notice.text.casefold()
-    assert len(client.calls) == 3
+    assert len(client.calls) == 2
 
 
 @pytest.mark.asyncio
