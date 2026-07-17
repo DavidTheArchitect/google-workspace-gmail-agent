@@ -20,6 +20,9 @@ entered only in the attended Chrome window and are never copied into Reflex stat
 
 The mode selector is available in the top bar and Settings. Settings also persists the expected
 administrator email, Workspace domain, group-chat/persona model, and vision-capable browser model.
+Both model fields are installed-model dropdowns backed by Ollama's local catalog. Operators can
+refresh that catalog or download an exact Ollama model tag; a downloaded model is added to both
+menus but is not assigned to either role until the operator selects it and saves.
 Changing modes, identities, models, policy scope, expressions, addresses, enabled state, or notice
 content invalidates any unused approval immediately.
 Draft, mode, and model controls are locked during an asynchronous agent review, Google read, or

@@ -25,7 +25,11 @@ from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
 from compliance_agent.llm.persona import DEFAULT_PERSONA_ATTEMPTS, profile_signature
 from compliance_agent.llm.planner import build_group_chat_reviewer, build_persona_generator
-from compliance_agent.llm.readiness import require_local_model
+from compliance_agent.llm.readiness import (
+    list_local_models,
+    pull_local_model,
+    require_local_model,
+)
 from compliance_agent.schemas.compliance import (
     AddressListCondition,
     AdvancedContentLocation,
@@ -237,7 +241,7 @@ def _persona_failure_message(error: Exception) -> str:
         )
     return (
         "The local persona writer could not finish. The existing rejection notice was "
-        "preserved; verify that Ollama is running and retry."
+        "preserved. Confirm that the selected local model can answer a short prompt, then retry."
     )
 
 
@@ -336,6 +340,10 @@ class ConsoleState(rx.State):
     model_label: str = "Gemma (local)"
     orchestration_model: str = "gemma4:12b"
     browser_model: str = "gemma4:12b"
+    available_models: list[str] = ["gemma4:12b"]  # noqa: RUF012
+    new_model_tag: str = ""
+    model_catalog_in_progress: bool = False
+    model_pull_in_progress: bool = False
     draft_revision: int = 0
     google_state_in_progress: bool = False
     google_state_error: str = ""
@@ -344,7 +352,7 @@ class ConsoleState(rx.State):
     observed_google_rules: list[dict[str, str]] = []  # noqa: RUF012
     observed_unmanaged_rules: list[str] = []  # noqa: RUF012
 
-    def load_runtime_settings(self) -> None:
+    async def load_runtime_settings(self) -> AsyncIterator[None]:
         """Load the persisted mode and non-secret Google identity expectations."""
 
         settings = load_settings()
@@ -354,8 +362,18 @@ class ConsoleState(rx.State):
         self.model_label = f"{settings.ollama_model} · local"
         self.orchestration_model = settings.ollama_model
         self.browser_model = settings.browser_model
+        self._set_available_models(())
         self._load_managed_policies()
         self._load_audit_history()
+        self.model_catalog_in_progress = True
+        yield
+        try:
+            self._set_available_models(await list_local_models(settings))
+        except RuntimeError as error:
+            self.configuration_message = str(error)
+            self.configuration_tone = "error"
+        finally:
+            self.model_catalog_in_progress = False
 
     @rx.var
     def run_mode_label(self) -> str:
@@ -372,6 +390,10 @@ class ConsoleState(rx.State):
     @rx.var
     def workflow_locked(self) -> bool:
         return self.review_in_progress or self.browser_in_progress or self.execution_in_progress
+
+    @rx.var
+    def model_controls_locked(self) -> bool:
+        return self.workflow_locked or self.model_catalog_in_progress or self.model_pull_in_progress
 
     @rx.var
     def standard_ou_locked(self) -> bool:
@@ -469,6 +491,11 @@ class ConsoleState(rx.State):
     def set_browser_model(self, value: str) -> None:
         self.browser_model = value
         self._reset_preview_evidence(status="Unsaved configuration")
+
+    def set_new_model_tag(self, value: str) -> None:
+        self.new_model_tag = value
+        self.configuration_message = ""
+        self.configuration_tone = "info"
 
     def set_rule_enabled(self, value: bool) -> None:
         self.rule_enabled = value
@@ -644,10 +671,66 @@ class ConsoleState(rx.State):
         self.configuration_tone = "success"
         self._reset_preview_evidence(status="Model settings changed · review again")
 
+    async def refresh_local_models(self) -> AsyncIterator[None]:
+        """Refresh installed Ollama choices without changing either selection."""
+
+        if self.model_catalog_in_progress or self.model_pull_in_progress:
+            return
+        self.model_catalog_in_progress = True
+        self.configuration_message = "Refreshing installed Ollama models…"
+        self.configuration_tone = "info"
+        yield
+        try:
+            self._set_available_models(await list_local_models(load_settings()))
+        except RuntimeError as error:
+            self.configuration_message = str(error)
+            self.configuration_tone = "error"
+        else:
+            self.configuration_message = (
+                f"Found {len(self.available_models)} installed Ollama models."
+            )
+            self.configuration_tone = "success"
+        finally:
+            self.model_catalog_in_progress = False
+
+    async def add_local_model(self) -> AsyncIterator[None]:
+        """Pull a new model locally, then expose it in both selection menus."""
+
+        if self.model_catalog_in_progress or self.model_pull_in_progress:
+            return
+        requested = self.new_model_tag
+        self.model_pull_in_progress = True
+        self.configuration_message = "Adding the model through local Ollama…"
+        self.configuration_tone = "info"
+        yield
+        try:
+            settings = load_settings()
+            added = await pull_local_model(settings, requested)
+            self._set_available_models(await list_local_models(settings))
+        except (RuntimeError, ValueError) as error:
+            self.configuration_message = str(error)
+            self.configuration_tone = "error"
+        else:
+            self.new_model_tag = ""
+            self.configuration_message = (
+                f"Added {added}. Choose where to use it, then save the selections."
+            )
+            self.configuration_tone = "success"
+        finally:
+            self.model_pull_in_progress = False
+
     def select_view(self, view: str) -> None:
         """Navigate among the operator surfaces without leaving the local console."""
 
         self.active_view = view
+
+    def _set_available_models(self, models: tuple[str, ...]) -> None:
+        choices = {
+            model
+            for model in (*models, self.orchestration_model, self.browser_model)
+            if model.strip()
+        }
+        self.available_models = sorted(choices, key=str.casefold)
 
     def open_audit_folder(self, run_id: str) -> None:
         """Open one catalog-validated local audit directory for inspection."""

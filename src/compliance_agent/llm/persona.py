@@ -91,7 +91,6 @@ class PersonaNoticeGenerator:
         last_error: Exception | None = None
         for _attempt_index in range(self._max_attempts):
             seed = secrets.randbits(63)
-            entropy = secrets.token_hex(16)
             sampling = CompletionSampling(
                 seed=seed,
                 top_p=_PERSONA_TOP_P,
@@ -101,7 +100,7 @@ class PersonaNoticeGenerator:
             )
             try:
                 raw = await self._client.complete(
-                    ({"role": "user", "content": _creative_prompt(entropy)},),
+                    ({"role": "user", "content": _creative_prompt()},),
                     CreativePersonaDraft.model_json_schema(),
                     self._model,
                     self._temperature,
@@ -151,7 +150,7 @@ def profile_signature(notice: GeneratedRejectionNotice) -> str:
     ).model_dump_json()
 
 
-def _creative_prompt(entropy: str) -> str:
+def _creative_prompt() -> str:
     return (
         "Invent one new fictional persona and a plain-text SMTP rejection notice. Choose the "
         "role, traits, voice, motif, sentence structure, length, diction, and presentation anew "
@@ -167,9 +166,8 @@ def _creative_prompt(entropy: str) -> str:
         "field. "
         "Write the notice as polished, grammatically complete plain prose a real sender could "
         "understand on first reading. Use only plain text: no markup, markdown, code, JSON, "
-        "escape sequences, or placeholder tokens in any field. "
-        f"Use entropy token {entropy!r} only to make this response independent; do not copy it "
-        "into any output field. Return only one object matching the supplied JSON schema."
+        "escape sequences, or placeholder tokens in any field. Return only one object matching "
+        "the supplied JSON schema."
     )
 
 

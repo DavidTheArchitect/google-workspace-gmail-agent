@@ -436,7 +436,11 @@ textarea { resize: vertical; }
 .audit-run-id { font-family: Consolas, monospace; letter-spacing: .03em; }
 .integrity-warning { color: var(--red); font-weight: 650; }
 .settings-divider { height: 1px; margin: 18px 0; background: var(--line); }
+.model-add-row { gap: 10px; align-items: center !important; }
+.model-add-row .secondary-action { flex: 0 0 auto; }
+.model-actions { margin-top: 12px; gap: 10px; align-items: center !important; }
 .configuration-message { display: block; margin-top: 14px; padding: 10px 12px; border-radius: 5px; font-size: 12px; }
+.configuration-message.info { color: var(--tint-ink); background: var(--tint); }
 .configuration-message.success { color: var(--success-ink); background: var(--success-soft); }
 .configuration-message.error { color: var(--danger-ink); background: var(--danger-soft); }
 .configuration-banner { min-height: 38px; padding: 8px 22px; gap: 8px; border-bottom: 1px solid; font-size: 12px; align-items: center !important; }
@@ -523,6 +527,8 @@ textarea { resize: vertical; }
   .home-actions { align-items: stretch !important; flex-direction: column !important; }
   .home-actions .rt-Spacer { display: none; }
   .home-actions .primary-action, .home-actions .secondary-action { width: 100% !important; }
+  .model-add-row, .model-actions { align-items: stretch !important; flex-direction: column !important; }
+  .model-add-row .secondary-action, .model-actions .secondary-action { width: 100% !important; }
   .home-metrics { grid-template-columns: 1fr !important; }
   .focused-operation { padding: 18px; }
   .expression-details { grid-template-columns: 1fr !important; }
