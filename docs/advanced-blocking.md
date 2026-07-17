@@ -56,14 +56,17 @@ union closed to Reject.
 
 Application code creates the identity before the local model writes anything. A fresh seed selects
 one coherent era frame and randomly combines an adult age, occupation, location, three distinct
-traits, two distinct goals, personality, current mood, and one of the nine D&D alignments.
+traits, two distinct goals, personality, current mood, one of the nine D&D alignments, and a
+delivery style that can be blunt, casual, ceremonial, deadpan, eccentric, folksy, lyrical, playful,
+professional, or theatrical.
 Time-appropriate occupation/location pairs prevent incoherent combinations while the remaining
 cross-product still provides broad variation. Each mood has an application-owned cadence/energy
 directive and each alignment has an application-owned rhetorical-stance directive. All nine
 alignments remain reachable, while the immediately previous alignment is excluded from the next
-random draw to prevent back-to-back repeats. The model receives that authoritative brief and both
-directives, then verbalizes them into a compact fictional role, voice, motif, and bounce message; it
-is explicitly told not to replace, contradict, omit, or disclose the sampled fields.
+random draw to prevent back-to-back repeats. The model receives that authoritative brief and a
+field-by-field influence contract, then verbalizes it into a compact fictional role, voice, motif,
+and bounce message. It may not replace, contradict, omit, or disclose the sampled fields, and an
+accepted notice must explicitly say that the sender is blocked.
 
 Every bounded attempt gets a new cryptographic seed for both application sampling and model
 sampling. The console keeps a short session history and resamples exact or near-duplicate profiles

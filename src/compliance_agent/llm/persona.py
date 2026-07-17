@@ -285,6 +285,37 @@ _ALIGNMENT_DRAFTING_EFFECTS = {
         "Use volatile, defiant energy and abrupt emphasis without threats, insults, or abuse."
     ),
 }
+_DELIVERY_STYLE_DRAFTING_EFFECTS = {
+    "blunt": (
+        "Use clipped, unadorned sentences. Skip greetings, softeners, and institutional ceremony."
+    ),
+    "casual": (
+        "Use contractions and plain everyday language, as if speaking directly across a counter."
+    ),
+    "ceremonial": (
+        "Use formal, ritual-like phrasing and deliberate repetition without becoming archaic."
+    ),
+    "deadpan": "Use dry understatement and a restrained hint of wit without sounding corporate.",
+    "eccentric": (
+        "Use surprising but understandable imagery and an off-center rhythm; avoid standard "
+        "administrative phrasing."
+    ),
+    "folksy": (
+        "Use warm, conversational phrasing and concrete comparisons without imitating an accent."
+    ),
+    "lyrical": (
+        "Use vivid cadence and one compact image while keeping the block unmistakably clear."
+    ),
+    "playful": (
+        "Use mischievous energy and light wordplay without trivializing or obscuring the block."
+    ),
+    "professional": (
+        "Use concise, polished administrative prose with a neutral institutional register."
+    ),
+    "theatrical": (
+        "Use dramatic timing and declarative flourishes without threats, insults, or melodrama."
+    ),
+}
 
 # Local models occasionally leak markup, escape artifacts, or invented contact
 # details into creative output; every leak below fails the attempt so the
@@ -299,6 +330,8 @@ _MODEL_FIELD_LABEL_PATTERN = re.compile(
     r"(?im)^\s*(?:description|fictional_role|motif|notice|text|voice)\s*:"
 )
 _SNAKE_CASE_TOKEN_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b", re.IGNORECASE)
+_BLOCKED_WORD_PATTERN = re.compile(r"\bblock(?:ed|ing|s)?\b", re.IGNORECASE)
+_SENDER_WORD_PATTERN = re.compile(r"\bsender\b", re.IGNORECASE)
 
 
 class CreativePersonaDraft(FrozenModel):
@@ -322,6 +355,7 @@ class ApplicationPersonaBrief(FrozenModel):
     time_period: str = Field(min_length=2, max_length=120)
     current_mood: str = Field(min_length=2, max_length=80)
     alignment: str = Field(min_length=2, max_length=40)
+    delivery_style: str = Field(min_length=2, max_length=40)
 
 
 class PersonaProfileSignature(FrozenModel):
@@ -340,6 +374,7 @@ class PersonaProfileSignature(FrozenModel):
     time_period: str = ""
     current_mood: str = ""
     alignment: str = ""
+    delivery_style: str = ""
 
 
 class PersonaNoticeGenerator:
@@ -444,6 +479,7 @@ def profile_signature(notice: GeneratedRejectionNotice) -> str:
             time_period=notice.persona.time_period,
             current_mood=notice.persona.current_mood,
             alignment=notice.persona.alignment,
+            delivery_style=notice.persona.delivery_style,
         )
     ).model_dump_json()
 
@@ -477,6 +513,7 @@ def sample_persona_brief(
         time_period=era.time_period,
         current_mood=generator.choice(tuple(_MOOD_DRAFTING_EFFECTS)),
         alignment=generator.choice(alignment_pool),
+        delivery_style=generator.choice(tuple(_DELIVERY_STYLE_DRAFTING_EFFECTS)),
     )
 
 
@@ -493,31 +530,44 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         f"Time period: {brief.time_period}\n"
         f"Current mood: {brief.current_mood}\n"
         f"D&D alignment: {brief.alignment}\n"
+        f"Delivery style: {brief.delivery_style}\n"
         f"Mood drafting effect: {_MOOD_DRAFTING_EFFECTS[brief.current_mood]}\n"
         f"Alignment drafting effect: {_ALIGNMENT_DRAFTING_EFFECTS[brief.alignment]}\n\n"
+        f"Delivery-style drafting effect: "
+        f"{_DELIVERY_STYLE_DRAFTING_EFFECTS[brief.delivery_style]}\n\n"
         "Render that exact brief as one fictional persona and one plain-text SMTP rejection "
         "notice. Use fictional_role for a concise, title-like noun phrase of two to seven words "
         "and no more than 64 characters, grounded in the supplied occupation and setting. It must "
         "identify only the role, not describe the character in a sentence or relative clause. "
-        "Use voice and motif to synthesize the supplied age, location, traits, goals, personality, "
-        "time period, current mood, and alignment into a coherent description rather than "
-        "inventing new persona facts. The current mood must shape cadence and energy, and the "
-        "alignment must shape rhetorical stance, exactly as directed by their application-supplied "
-        "drafting effects. These influences must be perceptible in the notice, but never name the "
-        "mood, alignment, or drafting directions to the sender. "
+        "Apply this field-influence contract to both voice and motif and, most importantly, to the "
+        "sender-facing notice: age must shape maturity and pacing; occupation must shape "
+        "vocabulary or metaphor; location and time period must shape imagery and idiom; every one "
+        "of the three "
+        "traits must affect temperament or sentence construction; both goals must affect what the "
+        "persona emphasizes; personality must govern the overall manner; current mood must shape "
+        "cadence and energy; alignment must shape rhetorical stance; and delivery style must "
+        "govern formality, rhythm, and presentation. Do not omit any field or flatten these "
+        "influences into "
+        "generic corporate prose. Follow the sampled delivery style even when it is casual, blunt, "
+        "eccentric, playful, lyrical, or theatrical. These influences must be perceptible in the "
+        "notice, but never name the age, occupation, location, time period, traits, goals, "
+        "personality, mood, alignment, delivery style, or drafting directions to the sender. "
         "Do not state or imply that the message concerns the persona's occupation, location, era, "
         "goals, or interests; keep the sender-facing reason a generic recipient email-policy "
         "refusal. "
         "The text value must contain only the sender-facing rejection notice. Let it embody the "
         "persona's voice without mechanically listing or narrating the profile fields. Do not put "
         "the role, a character description, headings, field names, labels, or key-value notation "
-        "inside text. State clearly that the message or delivery was refused by the recipient "
-        "organization's email policy. The notice may suggest contacting the recipient another way, "
+        "inside text. State clearly that the sender is blocked from delivering mail to the "
+        "recipient organization. The text must use the word sender and a form of the word blocked; "
+        "do not soften this into a generic delivery problem. The notice may suggest contacting the "
+        "recipient another way, "
         "but should vary its structure and should not name or invent a policy category, policy ID, "
         "match rule, header, regular expression, address, domain, metadata, security signal, "
         "credential, or internal identifier. Never fabricate contact details: no email address, "
-        "web address, domain name, or phone number may appear in any field. Write polished, "
-        "grammatically complete plain prose a real sender could understand on first reading. Use "
+        "web address, domain name, or phone number may appear in any field. Write grammatically "
+        "complete plain prose a real sender could understand on first reading; professionalism and "
+        "courtesy are optional unless the sampled fields call for them. Use "
         "only plain text: no markup, markdown, code, JSON, snake_case tokens, escape sequences, or "
         "placeholder tokens in any field. Return only one object matching the supplied JSON schema."
     )
@@ -584,6 +634,14 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
             "persona output leaked a snake-case token",
         ),
         (
+            not _SENDER_WORD_PATTERN.search(draft.text),
+            "persona output did not identify the blocked sender",
+        ),
+        (
+            not _BLOCKED_WORD_PATTERN.search(draft.text),
+            "persona output did not state that the sender is blocked",
+        ),
+        (
             bool(
                 normalized_category
                 and any(normalized_category in _normalize_signature(value) for value in fields)
@@ -622,6 +680,7 @@ def _bind_notice(
         time_period=brief.time_period,
         current_mood=brief.current_mood,
         alignment=brief.alignment,
+        delivery_style=brief.delivery_style,
     )
     return GeneratedRejectionNotice(
         text=draft.text,
@@ -651,6 +710,7 @@ def _draft_signature(
             time_period=brief.time_period,
             current_mood=brief.current_mood,
             alignment=brief.alignment,
+            delivery_style=brief.delivery_style,
         )
     )
 
@@ -670,6 +730,7 @@ def _normalized_signature(source: PersonaProfileSignature) -> PersonaProfileSign
         time_period=_normalize_signature(source.time_period),
         current_mood=_normalize_signature(source.current_mood),
         alignment=_normalize_signature(source.alignment),
+        delivery_style=_normalize_signature(source.delivery_style),
     )
 
 
@@ -714,6 +775,7 @@ def _is_near_duplicate(
                 and candidate.time_period == recent.time_period
                 and candidate.current_mood == recent.current_mood
                 and candidate.alignment == recent.alignment
+                and candidate.delivery_style == recent.delivery_style
             )
         ):
             return True
@@ -742,6 +804,7 @@ def _signature_tokens(signature: PersonaProfileSignature) -> frozenset[str]:
                 signature.time_period,
                 signature.current_mood,
                 signature.alignment,
+                signature.delivery_style,
             )
         ).split()
     )

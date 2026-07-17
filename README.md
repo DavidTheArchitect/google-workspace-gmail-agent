@@ -15,11 +15,13 @@ one proven-safe retry, independent verification, and audit finalization.
 The loopback-only Reflex operator console provides the policy composer, local Gemma 4 specialist
 group, application-sampled bounce-message personas, draft evidence, and a locked exact-approval
 surface. Each persona begins as randomly selected application-owned facts — age, occupation,
-location, traits, goals, personality, time period, current mood, and D&D alignment — which the local
-model then verbalizes into a role, voice, motif, and sender-facing notice. Mood supplies a concrete
-cadence/energy directive and alignment supplies a rhetorical-stance directive, so both affect the
-draft without being disclosed to the sender. All nine alignments are reachable, and a random draw
-excludes only the immediately previous alignment to avoid back-to-back repeats. Exact
+location, traits, goals, personality, time period, current mood, D&D alignment, and delivery style —
+which the local model then verbalizes into a role, voice, motif, and sender-facing notice. A
+field-influence contract requires every sampled fact to affect the writing without being disclosed.
+The independently sampled delivery style ranges from blunt, casual, and eccentric to lyrical,
+theatrical, and professional, so professional prose is only one possible result. All nine alignments
+are reachable, and a random draw excludes only the immediately previous alignment to avoid
+back-to-back repeats. Every accepted notice explicitly says the sender is blocked. Exact
 approval controls appear only after the headed browser supplies a fresh Google before-state read
 and change-set hash; a local draft hash is never presented as permission to write. The Ownership
 page can also read the current Google state on demand: the attended Playwright browser agent

@@ -38,16 +38,18 @@ approved write. A server-side revision check also discards late results if the d
    address-list behavior, and optional envelope sender/recipient filters.
 5. Review or randomize the plain-text rejection notice. The application first samples a complete
    persona brief — age, occupation, location, traits, goals, personality, and time period — from
-   coherent application-owned pools, along with a current mood and one of the nine D&D alignments.
-   Each mood maps to a cadence/energy direction and each alignment maps to a rhetorical-stance
-   direction. All nine alignments are eligible; only the immediately previous alignment is removed
-   from the next random draw. The local model receives those exact fields and required drafting
-   effects, then verbalizes them into the role, voice, motif, and notice instead of inventing the
-   identity from scratch.
+   coherent application-owned pools, along with a current mood, one of the nine D&D alignments, and
+   a separately randomized delivery style. Every field has a required writing influence, while the
+   delivery style makes casual, blunt, eccentric, lyrical, theatrical, and professional notices
+   independently reachable. All nine alignments are eligible; only the immediately previous
+   alignment is removed from the next random draw. The local model receives those exact fields and
+   required drafting effects, then verbalizes them into the role, voice, motif, and notice instead
+   of inventing the identity from scratch.
    The policy category and internal policy ID remain structured application identity and are never
    included in that prompt. Generated drafts must pass a deterministic quality gate (no markup,
    escape artifacts, fabricated contact details, exposed category label, or sentence-like persona
-   title) before they replace the visible draft.
+   title, or failure to explicitly identify the blocked sender) before they replace the visible
+   draft.
 6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
 7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
 8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.
