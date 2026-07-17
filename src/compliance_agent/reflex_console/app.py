@@ -786,6 +786,28 @@ def _standard_editor() -> rx.Component:
     )
 
 
+def _persona_fact(label: str, value: object, *, emphasis: bool = False) -> rx.Component:
+    return rx.hstack(
+        rx.text(label, class_name="persona-fact-label"),
+        rx.text(value, class_name="persona-fact-value"),
+        class_name=f"persona-fact{' emphasis' if emphasis else ''}",
+    )
+
+
+def _persona_detail(label: str, value: object, icon: str) -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            _icon(icon, 11),
+            rx.text(label, class_name="persona-detail-label"),
+            class_name="persona-detail-heading",
+        ),
+        rx.text(value, class_name="persona-detail-value"),
+        spacing="0",
+        align="start",
+        class_name="persona-detail",
+    )
+
+
 def _rejection_editor() -> rx.Component:
     return rx.box(
         rx.hstack(
@@ -804,7 +826,8 @@ def _rejection_editor() -> rx.Component:
             rx.vstack(
                 rx.text("Persona generator", class_name="randomness-title"),
                 rx.text(
-                    "Each attempt creates a new role, voice, and sender-safe notice.",
+                    "The application samples a complete identity, then the local model turns it "
+                    "into a sender-safe notice.",
                     class_name="randomness-copy",
                 ),
                 spacing="0",
@@ -849,10 +872,67 @@ def _rejection_editor() -> rx.Component:
             ),
             rx.hstack(
                 rx.hstack(
-                    rx.box("✦", class_name="persona-mark"),
+                    rx.box(_icon("drama", 18), class_name="persona-mark"),
                     rx.vstack(
-                        rx.text("Persona", class_name="persona-label"),
-                        rx.text(ConsoleState.persona_role, class_name="persona-role"),
+                        rx.hstack(
+                            rx.vstack(
+                                rx.text(
+                                    "Application-randomized profile",
+                                    class_name="persona-label",
+                                ),
+                                rx.text(ConsoleState.persona_role, class_name="persona-role"),
+                                rx.hstack(
+                                    _icon("map-pin", 11),
+                                    rx.text(
+                                        ConsoleState.persona_setting_line,
+                                        class_name="persona-setting",
+                                    ),
+                                    class_name="persona-setting-row",
+                                ),
+                                spacing="0",
+                                align="start",
+                            ),
+                            width="100%",
+                            class_name="persona-card-heading",
+                        ),
+                        rx.cond(
+                            ConsoleState.persona_generated,
+                            rx.vstack(
+                                rx.flex(
+                                    _persona_fact("Age", ConsoleState.persona_age),
+                                    _persona_fact("Era", ConsoleState.persona_time_period),
+                                    _persona_fact("Mood", ConsoleState.persona_mood),
+                                    _persona_fact(
+                                        "D&D alignment",
+                                        ConsoleState.persona_alignment,
+                                        emphasis=True,
+                                    ),
+                                    wrap="wrap",
+                                    class_name="persona-facts",
+                                ),
+                                rx.box(
+                                    _persona_detail(
+                                        "Traits",
+                                        ConsoleState.persona_traits_line,
+                                        "tags",
+                                    ),
+                                    _persona_detail(
+                                        "Personality",
+                                        ConsoleState.persona_personality,
+                                        "fingerprint",
+                                    ),
+                                    _persona_detail(
+                                        "Goals",
+                                        ConsoleState.persona_goals_line,
+                                        "target",
+                                    ),
+                                    class_name="persona-detail-grid",
+                                ),
+                                spacing="0",
+                                align="start",
+                                class_name="persona-brief",
+                            ),
+                        ),
                         spacing="0",
                         align="start",
                         class_name="persona-copy",

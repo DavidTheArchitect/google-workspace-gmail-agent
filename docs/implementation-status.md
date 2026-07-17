@@ -12,15 +12,20 @@ Review date: 2026-07-17
 - Simple, advanced, metadata, and edition-dependent predefined expressions; one-to-ten expression
   limits; RE2 validation; all supported content locations and match operators; address-list
   conditions; and envelope sender/recipient filters.
-- Dynamic local persona and rejection-notice generation with fresh entropy on every attempt,
-  recent-profile duplicate suppression, explicit bounded failure, protected policy category/ID
-  fields, and category-only disclosure. A deterministic sender-safety quality gate resamples drafts
-  that leak markup, escape artifacts, non-printable characters, or fabricated contact details, or
-  that expose the internal category label or return a sentence-like persona role. The category is
-  application-owned, is not sent to the creative model, and is not editable from the rejection-
-  notice editor. The overall generation budget covers every bounded attempt (not one model request),
-  each creative completion has a persona-specific output-token ceiling, and dropped or timed-out
-  Ollama requests retry with fresh entropy inside the bounded loop.
+- Dynamic local persona and rejection-notice generation with fresh entropy on every attempt.
+  Application code first samples a coherent age, occupation, location, three traits, two goals,
+  personality, time period, current mood, and D&D alignment, then constrains the local model to
+  verbalize those facts into the role, voice, motif, and notice. Application-owned mood and
+  alignment directives require the former to affect cadence/energy and the latter to affect
+  rhetorical stance while preserving sender safety. Recent-profile duplicate suppression includes
+  both the sampled brief and rendered prose. Explicit bounded failure, protected policy category/ID fields, and
+  category-only disclosure remain in force. A deterministic sender-safety quality gate resamples
+  drafts that leak markup, escape artifacts, non-printable characters, or fabricated contact
+  details, or that expose the internal category label or return a sentence-like persona role. The
+  category is application-owned, is not sent to the creative model, and is not editable from the
+  rejection-notice editor. The overall generation budget covers every bounded attempt (not one
+  model request), each creative completion has a persona-specific output-token ceiling, and dropped
+  or timed-out Ollama requests retry with fresh entropy inside the bounded loop.
 - Four-participant Microsoft Agent Framework `GroupChatBuilder` orchestration with deterministic
   round-robin selection, two passes per specialist by default, strict framework-author attribution,
   typed verdicts, complete-participant/order validation, and no model mutation authority.

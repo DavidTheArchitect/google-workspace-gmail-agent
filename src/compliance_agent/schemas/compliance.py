@@ -189,6 +189,14 @@ class PersonaProfile(FrozenModel):
     voice: str = Field(min_length=1, max_length=200)
     motif: str = Field(min_length=1, max_length=200)
     seed: int = Field(ge=0)
+    age: int | None = Field(default=None, ge=21, le=79)
+    occupation: str = Field(default="", max_length=120)
+    location: str = Field(default="", max_length=160)
+    goals: tuple[str, ...] = Field(default=(), max_length=2)
+    personality: str = Field(default="", max_length=200)
+    time_period: str = Field(default="", max_length=120)
+    current_mood: str = Field(default="", max_length=80)
+    alignment: str = Field(default="", max_length=40)
 
 
 class GeneratedRejectionNotice(FrozenModel):

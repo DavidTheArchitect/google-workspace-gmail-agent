@@ -54,22 +54,32 @@ union closed to Reject.
 
 ## Dynamic rejection personas
 
-The local model creates a fresh fictional role, traits, voice, motif, and bounce message at request
-time. Every attempt receives a new cryptographic sampler seed and entropy nonce, with no stock
-character bank, canned creative launch vector, example persona, or application-level tone filter.
-The console keeps a short session history and resamples exact or near-duplicate profiles instead of
-showing them twice in succession. Invalid structured output is retried with fresh entropy; if the
-bounded attempts fail, the previous draft stays visible and the console reports the failure rather
-than substituting canned copy.
+Application code creates the identity before the local model writes anything. A fresh seed selects
+one coherent era frame and randomly combines an adult age, occupation, location, three distinct
+traits, two distinct goals, personality, current mood, and one of the nine D&D alignments.
+Time-appropriate occupation/location pairs prevent incoherent combinations while the remaining
+cross-product still provides broad variation. Each mood has an application-owned cadence/energy
+directive and each alignment has an application-owned rhetorical-stance directive. All nine
+alignments remain reachable, while the immediately previous alignment is excluded from the next
+random draw to prevent back-to-back repeats. The model receives that authoritative brief and both
+directives, then verbalizes them into a compact fictional role, voice, motif, and bounce message; it
+is explicitly told not to replace, contradict, omit, or disclose the sampled fields.
+
+Every bounded attempt gets a new cryptographic seed for both application sampling and model
+sampling. The console keeps a short session history and resamples exact or near-duplicate profiles
+using the sampled facts and rendered prose together. Invalid structured output is retried with a
+new brief and fresh model entropy; if every attempt fails, the previous draft stays visible and the
+console reports the failure rather than substituting canned copy.
 
 Every draft also passes a deterministic sender-safety quality gate before it reaches the operator.
 Drafts that leak escape-sequence artifacts, markup or structured-data characters, non-printable
 characters, fabricated email addresses, web addresses, domain names, or phone-number-like sequences,
 expose the internal policy-category label, or return a sentence-like role instead of a compact title
 fail the attempt and are resampled with fresh entropy. Line endings and stray whitespace are
-normalized without rewriting the model's prose. The bounce-message category itself is
-application-owned identity, is never included in the creative prompt, and is not editable from the
-rejection-notice editor.
+normalized without rewriting the model's prose. The sampled identity is displayed beneath the
+notice so the operator can inspect the source facts separately from the model's wording. The
+bounce-message category itself is application-owned identity, is never included in the creative
+prompt, and is not editable from the rejection-notice editor.
 
 The application still owns policy identity and disclosure boundaries. The sender-facing text may
 explain the refusal in generic policy terms but never disclose the policy category, policy ID,
