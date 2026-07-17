@@ -15,7 +15,11 @@ one proven-safe retry, independent verification, and audit finalization.
 The loopback-only Reflex operator console provides the policy composer, local Gemma 4 specialist
 group, dynamic bounce-message personas, draft evidence, and a locked exact-approval surface. Exact
 approval controls appear only after the headed browser supplies a fresh Google before-state read
-and change-set hash; a local draft hash is never presented as permission to write.
+and change-set hash; a local draft hash is never presented as permission to write. The Ownership
+page can also read the current Google state on demand: the attended Playwright browser agent
+inventories the live blocked-sender and Content compliance configuration without writing, and each
+observed managed rule links straight into the edit, enable/disable, and remove approval flows. The
+console ships with a persisted light/dark theme toggle.
 
 Content compliance remains a Google Admin UI-only workflow. The local Gemma browser navigator sees
 a screenshot and bounded accessibility snapshot, but can act only through opaque IDs for unique

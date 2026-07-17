@@ -359,9 +359,7 @@ class PlaywrightAdminAgentSession:
 
         _validate_admin_permit(change_set, permit, surface="content_compliance")
         touched = (
-            change_set.rules_to_create
-            + change_set.rules_to_update
-            + change_set.rules_to_remove
+            change_set.rules_to_create + change_set.rules_to_update + change_set.rules_to_remove
         )
         if len(touched) != 1:
             message = "one compliance browser run must touch exactly one managed rule"
@@ -723,9 +721,7 @@ def _validate_admin_permit(
         message = "approved managed policy identity is absent from the bound state transition"
         raise StaleConfirmation(message)
     target_paths = {
-        rule.target_ou.path
-        if isinstance(rule, ManagedContentComplianceRule)
-        else rule.target_ou
+        rule.target_ou.path if isinstance(rule, ManagedContentComplianceRule) else rule.target_ou
         for rule in policy_versions
     }
     if target_paths != {permit.target_ou}:

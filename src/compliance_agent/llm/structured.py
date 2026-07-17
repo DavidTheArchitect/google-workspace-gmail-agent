@@ -9,7 +9,7 @@ from openai.types.shared_params.response_format_json_schema import (
     JSONSchema,
     ResponseFormatJSONSchema,
 )
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
 from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.llm.examples import FEW_SHOT_EXAMPLES
@@ -30,8 +30,19 @@ class CompletionClient(Protocol):
         schema: dict[str, object],
         model: str,
         temperature: float,
+        *,
+        sampling: "CompletionSampling | None" = None,
     ) -> str:
         """Return raw model text."""
+
+
+class CompletionSampling(FrozenModel):
+    """Optional per-request sampling controls for nondeterministic creative calls."""
+
+    seed: int = Field(ge=0, le=(1 << 63) - 1)
+    top_p: float = Field(gt=0, le=1)
+    frequency_penalty: float = Field(ge=-2, le=2)
+    presence_penalty: float = Field(ge=-2, le=2)
 
 
 class PlannerAttempt(FrozenModel):
@@ -69,24 +80,50 @@ class OllamaOpenAIClient:
         schema: dict[str, object],
         model: str,
         temperature: float,
+        *,
+        sampling: CompletionSampling | None = None,
     ) -> str:
         """Request one schema-constrained completion and preserve its exact text."""
 
         response_format = ResponseFormatJSONSchema(
             type="json_schema",
-            json_schema=JSONSchema(name="task_plan", schema=schema, strict=True),
+            json_schema=JSONSchema(name=_schema_name(schema), schema=schema, strict=True),
         )
-        response = await self._client.chat.completions.create(
-            model=model,
-            messages=list(messages),
-            temperature=temperature,
-            response_format=response_format,
-        )
+        if sampling is None:
+            response = await self._client.chat.completions.create(
+                model=model,
+                messages=list(messages),
+                temperature=temperature,
+                response_format=response_format,
+            )
+        else:
+            response = await self._client.chat.completions.create(
+                model=model,
+                messages=list(messages),
+                temperature=temperature,
+                response_format=response_format,
+                seed=sampling.seed,
+                top_p=sampling.top_p,
+                frequency_penalty=sampling.frequency_penalty,
+                presence_penalty=sampling.presence_penalty,
+            )
         content = response.choices[0].message.content
         if content is None:
             message = "Ollama returned no completion content"
             raise PlannerFailure(message)
         return content
+
+
+def _schema_name(schema: dict[str, object]) -> str:
+    title = schema.get("title")
+    candidate = title if isinstance(title, str) else "structured_output"
+    visible = "".join(
+        character
+        if character.isascii() and (character.isalnum() or character in {"-", "_"})
+        else "_"
+        for character in candidate
+    )
+    return visible.strip("_")[:64] or "structured_output"
 
 
 class StructuredPlanner:

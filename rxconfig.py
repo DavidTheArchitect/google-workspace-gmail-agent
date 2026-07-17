@@ -39,7 +39,7 @@ config = rx.Config(
     plugins=[
         rx.plugins.SitemapPlugin(),
         rx.plugins.RadixThemesPlugin(
-            theme=rx.theme(appearance="light", accent_color="blue", radius="medium")
+            theme=rx.theme(appearance="inherit", accent_color="blue", radius="medium")
         ),
     ],
 )

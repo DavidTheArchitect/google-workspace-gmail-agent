@@ -49,11 +49,9 @@ from compliance_agent.llm.group_chat import (
     GroupChatMessage,
     GroupChatPlanner,
     GroupChatTranscript,
-    _flatten_outputs,
     _review_payload,
     build_policy_group_chat,
 )
-from compliance_agent.llm.persona import PersonaNoticeGenerator, _fallback_notice
 from compliance_agent.llm.structured import PlannerResult
 from compliance_agent.reflex_console.state import (
     ConsoleState,
@@ -710,39 +708,11 @@ def test_compliance_audit_excludes_page_snapshot() -> None:
     assert "sensitive visible admin state" not in writer.artifacts["compliance-browser-result.json"]
 
 
-class _Completion:
-    def __init__(self, output: str) -> None:
-        self.output = output
-
-    async def complete(self, *_args: object, **_kwargs: object) -> str:
-        return self.output
-
-
-@pytest.mark.asyncio
-async def test_persona_generator_accepts_bound_identity_and_falls_back() -> None:
-    valid = _notice().model_copy(
-        update={
-            "persona": _notice().persona.model_copy(update={"seed": 42}),
-            "used_fallback": False,
-        }
-    )
-    generator = PersonaNoticeGenerator(
-        _Completion(valid.model_dump_json()), model="gemma4:12b", temperature=0.9
-    )
-    # The random seed cannot match our fixed output, so immutable-field enforcement falls back.
-    fallback = await generator.generate(policy_category="category", policy_id="MAIL-204")
-    assert fallback.used_fallback
-    assert fallback.disclosure == "category_only"
-    assert "MAIL-204" not in fallback.text
-
-
 def test_rejection_notice_keeps_internal_policy_id_out_of_sender_text() -> None:
     with pytest.raises(ValidationError, match="must not include the internal policy ID"):
         GeneratedRejectionNotice.model_validate(
             _notice()
-            .model_copy(
-                update={"text": "The message was refused. Internal reference MAIL-204."}
-            )
+            .model_copy(update={"text": "The message was refused. Internal reference MAIL-204."})
             .model_dump()
         )
 
@@ -760,16 +730,6 @@ def test_rejection_notice_keeps_internal_policy_id_out_of_sender_text() -> None:
         "Remove the internal policy ID from the rejection notice. Senders should see only the "
         "broad bounce-message category."
     )
-
-
-def test_fallback_personas_have_high_variance_without_policy_id_disclosure() -> None:
-    notices = tuple(_fallback_notice("category", "MAIL-204", seed) for seed in range(24))
-
-    assert len({notice.persona.fictional_role for notice in notices}) >= 20
-    assert len({notice.persona.voice for notice in notices}) >= 20
-    assert len({notice.persona.motif for notice in notices}) >= 20
-    assert len({notice.text for notice in notices}) >= 20
-    assert all("MAIL-204" not in notice.text for notice in notices)
 
 
 def test_browser_step_and_readback_helpers() -> None:
@@ -987,11 +947,15 @@ def test_reflex_fresh_create_clears_old_operation_and_review_evidence() -> None:
 
 def test_reflex_standard_snapshot_load_does_not_read_compliance_fields() -> None:
     current = owned_state(entries=(domain("managed.example"),))
-    record = registry_for().resources[0].model_copy(
-        update={
-            "rule_snapshot": current.rules[0],
-            "address_list_snapshot": current.address_lists[0],
-        }
+    record = (
+        registry_for()
+        .resources[0]
+        .model_copy(
+            update={
+                "rule_snapshot": current.rules[0],
+                "address_list_snapshot": current.address_lists[0],
+            }
+        )
     )
     registry = registry_for().model_copy(update={"resources": (record,)})
     state = ConsoleState(_reflex_internal_init=True)
@@ -1079,12 +1043,8 @@ def test_group_chat_review_payload_is_strict_and_bounded() -> None:
         )
         is None
     )
-    assert (
-        _review_payload('{"verdict":"maybe","summary":"ok","findings":[]}') is None
-    )
-    assert (
-        _review_payload('{"verdict":"pass","summary":"ok","findings":[""]}') is None
-    )
+    assert _review_payload('{"verdict":"maybe","summary":"ok","findings":[]}') is None
+    assert _review_payload('{"verdict":"pass","summary":"ok","findings":[""]}') is None
 
 
 @pytest.mark.asyncio
@@ -1107,13 +1067,6 @@ async def test_reflex_persona_generation_publishes_progress(
     assert not state.persona_in_progress
     assert state.persona_role == "library dragon"
     assert state.status == "Persona ready"
-
-
-def test_flatten_group_chat_outputs() -> None:
-    class _Text:
-        text = "review"
-
-    assert _flatten_outputs([_Text(), ["second", " "]]) == ("review", "second")
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@ def _nav_item(label: str, icon: str, view: str) -> rx.Component:
         _icon(icon),
         rx.text(label),
         on_click=ConsoleState.select_view(view),
+        custom_attrs={"aria-pressed": ConsoleState.active_view == view},
         class_name=rx.cond(
             ConsoleState.active_view == view,
             "side-nav-item active",
@@ -23,27 +24,31 @@ def _nav_item(label: str, icon: str, view: str) -> rx.Component:
 
 
 def _sidebar() -> rx.Component:
-    return rx.box(
+    return rx.el.aside(
         rx.text("Gmail Policy Agent", class_name="sidebar-brand"),
-        rx.vstack(
-            _nav_item("Home", "house", "home"),
-            rx.button(
-                _icon("square-plus"),
-                rx.text("New policy"),
-                on_click=ConsoleState.start_new_policy,
-                class_name=rx.cond(
-                    ConsoleState.active_view == "new_policy",
-                    "side-nav-item active",
-                    "side-nav-item",
+        rx.el.nav(
+            rx.vstack(
+                _nav_item("Home", "house", "home"),
+                rx.button(
+                    _icon("square-plus"),
+                    rx.text("New policy"),
+                    on_click=ConsoleState.start_new_policy,
+                    custom_attrs={"aria-pressed": ConsoleState.active_view == "new_policy"},
+                    class_name=rx.cond(
+                        ConsoleState.active_view == "new_policy",
+                        "side-nav-item active",
+                        "side-nav-item",
+                    ),
                 ),
+                _nav_item("Runs", "circle-play", "runs"),
+                _nav_item("Ownership", "users", "ownership"),
+                _nav_item("Audits", "shield", "audits"),
+                _nav_item("Settings", "settings", "settings"),
+                spacing="2",
+                align="stretch",
+                class_name="side-nav",
             ),
-            _nav_item("Runs", "circle-play", "runs"),
-            _nav_item("Ownership", "users", "ownership"),
-            _nav_item("Audits", "shield", "audits"),
-            _nav_item("Settings", "settings", "settings"),
-            spacing="2",
-            align="stretch",
-            class_name="side-nav",
+            custom_attrs={"aria-label": "Primary navigation"},
         ),
         rx.spacer(),
         rx.vstack(
@@ -63,12 +68,13 @@ def _top_status(icon: str, label: str, tone: str = "") -> rx.Component:
     return rx.hstack(
         _icon(icon, 17),
         rx.text(label),
+        custom_attrs={"aria-label": label},
         class_name=f"top-status {tone}".strip(),
     )
 
 
 def _topbar() -> rx.Component:
-    return rx.hstack(
+    return rx.el.header(
         rx.hstack(
             _top_status("monitor", ConsoleState.model_label),
             _top_status(
@@ -98,6 +104,10 @@ def _topbar() -> rx.Component:
                 custom_attrs={"aria-label": "Execution mode"},
                 disabled=ConsoleState.workflow_locked,
             ),
+            rx.color_mode.button(
+                class_name="theme-toggle",
+                custom_attrs={"aria-label": "Toggle light or dark theme"},
+            ),
             rx.avatar(fallback="AD", size="2", class_name="admin-avatar"),
             class_name="mode-controls",
         ),
@@ -110,6 +120,12 @@ def _policy_tabs() -> rx.Component:
         rx.button(
             "Blocked senders",
             on_click=ConsoleState.select_section("standard"),
+            id="tab-standard",
+            custom_attrs={
+                "role": "tab",
+                "aria-selected": ConsoleState.section == "standard",
+                "aria-controls": "policy-editor-panel",
+            },
             class_name=rx.cond(
                 ConsoleState.section == "standard", "policy-tab active", "policy-tab"
             ),
@@ -117,15 +133,24 @@ def _policy_tabs() -> rx.Component:
         rx.button(
             "Content compliance",
             on_click=ConsoleState.select_section("compliance"),
+            id="tab-compliance",
+            custom_attrs={
+                "role": "tab",
+                "aria-selected": ConsoleState.section == "compliance",
+                "aria-controls": "policy-editor-panel",
+            },
             class_name=rx.cond(
                 ConsoleState.section == "compliance", "policy-tab active", "policy-tab"
             ),
         ),
+        custom_attrs={"role": "tablist", "aria-label": "Policy type"},
         class_name="policy-tabs",
     )
 
 
-def _field_label(label: str) -> rx.Component:
+def _field_label(label: str, control_id: str | None = None) -> rx.Component:
+    if control_id is not None:
+        return rx.el.label(label, html_for=control_id, class_name="form-label")
     return rx.text(label, class_name="form-label")
 
 
@@ -195,7 +220,12 @@ def _primary_expression_row() -> rx.Component:
                 & (ConsoleState.match_type == "is_empty")
             ),
         ),
-        rx.button(_icon("trash-2", 16), class_name="icon-button muted", disabled=True),
+        rx.button(
+            _icon("trash-2", 16),
+            class_name="icon-button muted",
+            aria_label="The first expression is required",
+            disabled=True,
+        ),
         columns=(
             "36px minmax(100px, 128px) minmax(110px, 152px) "
             "minmax(130px, 168px) minmax(160px, 1fr) 42px"
@@ -209,10 +239,7 @@ def _primary_expression_row() -> rx.Component:
 def _additional_expression_details(row: object, index: object) -> rx.Component:
     return rx.cond(
         (row["type"] == "advanced")
-        & (
-            (row["match_type"] == "matches_regex")
-            | (row["match_type"] == "not_matches_regex")
-        ),
+        & ((row["match_type"] == "matches_regex") | (row["match_type"] == "not_matches_regex")),
         rx.grid(
             rx.input(
                 value=row["description"],
@@ -292,9 +319,7 @@ def _additional_expression_details(row: object, index: object) -> rx.Component:
                         type="number",
                         min="1",
                         value=row["minimum_match_count"],
-                        on_change=ConsoleState.update_expression(
-                            index, "minimum_match_count"
-                        ),
+                        on_change=ConsoleState.update_expression(index, "minimum_match_count"),
                         aria_label="Minimum matches",
                     ),
                     rx.select(
@@ -432,8 +457,9 @@ def _expression_details() -> rx.Component:
             ConsoleState.expression_type == "predefined",
             rx.grid(
                 rx.vstack(
-                    _field_label("Predefined detector"),
+                    _field_label("Predefined detector", "predefined-detector"),
                     rx.input(
+                        id="predefined-detector",
                         value=ConsoleState.predefined_detector,
                         on_change=ConsoleState.set_predefined_detector,
                     ),
@@ -441,8 +467,9 @@ def _expression_details() -> rx.Component:
                     spacing="1",
                 ),
                 rx.vstack(
-                    _field_label("Required edition capability"),
+                    _field_label("Required edition capability", "required-capability"),
                     rx.input(
+                        id="required-capability",
                         value=ConsoleState.required_capability,
                         on_change=ConsoleState.set_required_capability,
                     ),
@@ -450,8 +477,9 @@ def _expression_details() -> rx.Component:
                     spacing="1",
                 ),
                 rx.vstack(
-                    _field_label("Minimum matches"),
+                    _field_label("Minimum matches", "predefined-minimum-matches"),
                     rx.input(
+                        id="predefined-minimum-matches",
                         type="number",
                         min="1",
                         value=ConsoleState.minimum_match_count,
@@ -461,9 +489,10 @@ def _expression_details() -> rx.Component:
                     spacing="1",
                 ),
                 rx.vstack(
-                    _field_label("Confidence"),
+                    _field_label("Confidence", "predefined-confidence"),
                     rx.select(
                         ["none", "low", "medium", "high"],
+                        id="predefined-confidence",
                         value=ConsoleState.predefined_confidence,
                         on_change=ConsoleState.set_predefined_confidence,
                     ),
@@ -482,8 +511,9 @@ def _expression_details() -> rx.Component:
                 ),
                 rx.grid(
                     rx.vstack(
-                        _field_label("Regex description"),
+                        _field_label("Regex description", "regex-description"),
                         rx.input(
+                            id="regex-description",
                             value=ConsoleState.regex_description,
                             on_change=ConsoleState.set_regex_description,
                         ),
@@ -491,8 +521,9 @@ def _expression_details() -> rx.Component:
                         spacing="1",
                     ),
                     rx.vstack(
-                        _field_label("Minimum matches"),
+                        _field_label("Minimum matches", "regex-minimum-matches"),
                         rx.input(
+                            id="regex-minimum-matches",
                             type="number",
                             min="1",
                             value=ConsoleState.minimum_match_count,
@@ -516,13 +547,14 @@ def _compliance_scope_filters() -> rx.Component:
         rx.heading("Additional compliance scope", size="4"),
         rx.grid(
             rx.vstack(
-                _field_label("Address-list behavior"),
+                _field_label("Address-list behavior", "address-list-behavior"),
                 rx.select(
                     [
                         "No address-list condition",
                         "Bypass listed addresses",
                         "Only apply to listed addresses",
                     ],
+                    id="address-list-behavior",
                     value=ConsoleState.compliance_address_list_mode_label,
                     on_change=ConsoleState.set_compliance_address_list_mode_label,
                     custom_attrs={"aria-label": "Address-list behavior"},
@@ -531,8 +563,9 @@ def _compliance_scope_filters() -> rx.Component:
                 spacing="1",
             ),
             rx.vstack(
-                _field_label("Address-list names (one per line)"),
+                _field_label("Address-list names (one per line)", "address-list-names"),
                 rx.text_area(
+                    id="address-list-names",
                     value=ConsoleState.compliance_address_lists,
                     on_change=ConsoleState.set_compliance_address_lists,
                     placeholder="Trusted partners",
@@ -562,6 +595,7 @@ def _compliance_scope_filters() -> rx.Component:
                     value=ConsoleState.sender_filter_value,
                     on_change=ConsoleState.set_sender_filter_value,
                     placeholder="sender@example.com or RE2 pattern",
+                    aria_label="Envelope sender filter value",
                     disabled=~ConsoleState.sender_filter_enabled,
                 ),
                 align="stretch",
@@ -584,6 +618,7 @@ def _compliance_scope_filters() -> rx.Component:
                     value=ConsoleState.recipient_filter_value,
                     on_change=ConsoleState.set_recipient_filter_value,
                     placeholder="recipient@example.com or RE2 pattern",
+                    aria_label="Envelope recipient filter value",
                     disabled=~ConsoleState.recipient_filter_enabled,
                 ),
                 align="stretch",
@@ -600,8 +635,9 @@ def _compliance_scope_filters() -> rx.Component:
 def _compliance_editor() -> rx.Component:
     return rx.vstack(
         rx.vstack(
-            _field_label("Organizational unit"),
+            _field_label("Organizational unit", "organizational-unit"),
             rx.input(
+                id="organizational-unit",
                 value=ConsoleState.ou_path,
                 on_change=ConsoleState.set_ou_path,
                 placeholder="/ or /Finance/Accounts Payable",
@@ -639,9 +675,10 @@ def _compliance_editor() -> rx.Component:
             width="100%",
         ),
         rx.vstack(
-            _field_label("Expression combiner"),
+            _field_label("Expression combiner", "expression-combiner"),
             rx.select(
                 ["Match ANY expression", "Match ALL expressions"],
+                id="expression-combiner",
                 value=ConsoleState.combiner_label,
                 on_change=ConsoleState.set_combiner_label,
                 custom_attrs={"aria-label": "Expression combiner"},
@@ -685,6 +722,7 @@ def _compliance_editor() -> rx.Component:
                     )
                 ),
                 rx.text(ConsoleState.validation_message),
+                custom_attrs={"role": "status", "aria-live": "polite"},
                 class_name="validation-status",
             ),
             width="100%",
@@ -699,8 +737,9 @@ def _compliance_editor() -> rx.Component:
 def _standard_editor() -> rx.Component:
     return rx.vstack(
         rx.vstack(
-            _field_label("Organizational unit"),
+            _field_label("Organizational unit", "organizational-unit"),
             rx.input(
+                id="organizational-unit",
                 value=ConsoleState.ou_path,
                 on_change=ConsoleState.set_ou_path,
                 placeholder="/ or /Finance/Accounts Payable",
@@ -722,8 +761,9 @@ def _standard_editor() -> rx.Component:
         ),
         rx.grid(
             rx.vstack(
-                _field_label("Domains or email addresses"),
+                _field_label("Domains or email addresses", "blocked-values"),
                 rx.text_area(
+                    id="blocked-values",
                     value=ConsoleState.blocked_values,
                     on_change=ConsoleState.set_blocked_values,
                     rows="6",
@@ -733,8 +773,9 @@ def _standard_editor() -> rx.Component:
                 spacing="1",
             ),
             rx.vstack(
-                _field_label("Approved-sender bypasses"),
+                _field_label("Approved-sender bypasses", "bypass-values"),
                 rx.text_area(
+                    id="bypass-values",
                     value=ConsoleState.bypass_values,
                     on_change=ConsoleState.set_bypass_values,
                     rows="6",
@@ -758,7 +799,12 @@ def _rejection_editor() -> rx.Component:
     return rx.box(
         rx.hstack(
             rx.hstack(
-                rx.heading("Rejection notice", size="4", class_name="section-heading"),
+                rx.heading(
+                    "Rejection notice",
+                    size="4",
+                    id="rejection-notice-heading",
+                    class_name="section-heading",
+                ),
                 _icon("info", 15),
             ),
             rx.spacer(),
@@ -770,40 +816,26 @@ def _rejection_editor() -> rx.Component:
             width="100%",
             class_name="rejection-heading",
         ),
-        rx.grid(
+        rx.hstack(
+            rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
             rx.vstack(
-                _field_label("Bounce-message category"),
-                rx.input(
-                    value=ConsoleState.policy_category,
-                    on_change=ConsoleState.set_policy_category,
-                    placeholder="confidential-information",
+                rx.text("Open-ended persona generator", class_name="randomness-title"),
+                rx.text(
+                    "Fresh model entropy on every attempt, with no preset style bank, "
+                    "canned copy, or application tone filter.",
+                    class_name="randomness-copy",
                 ),
-                align="stretch",
-                spacing="1",
+                spacing="0",
+                align="start",
             ),
-            rx.hstack(
-                rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
-                rx.vstack(
-                    rx.text("Full-spectrum persona randomizer", class_name="randomness-title"),
-                    rx.text(
-                        "Role, temperament, voice, cadence, worldview, and motif reshuffle "
-                        "independently on every generation.",
-                        class_name="randomness-copy",
-                    ),
-                    spacing="0",
-                    align="start",
-                ),
-                class_name="randomness-card",
-            ),
-            columns="2",
-            gap="16px",
-            class_name="notice-meta-grid",
+            class_name="randomness-card notice-meta-row",
         ),
         rx.box(
             rx.hstack(
-                rx.hstack(
+                rx.el.label(
                     _icon("text", 15),
                     rx.text("Plain-text SMTP rejection notice"),
+                    html_for="rejection-notice",
                     class_name="plain-text-label",
                 ),
                 rx.spacer(),
@@ -816,17 +848,22 @@ def _rejection_editor() -> rx.Component:
                     ),
                     on_click=ConsoleState.generate_persona,
                     disabled=ConsoleState.persona_in_progress,
+                    aria_label="Generate a new persona and rejection notice",
                     class_name="persona-action",
                 ),
                 width="100%",
                 class_name="editor-toolbar",
             ),
             rx.text_area(
+                id="rejection-notice",
                 value=ConsoleState.rejection_notice,
                 on_change=ConsoleState.set_rejection_notice,
                 rows="8",
+                max_length=1000,
+                disabled=ConsoleState.persona_in_progress,
                 class_name="notice-textarea",
                 aria_label="Rejection notice text",
+                custom_attrs={"aria-describedby": "notice-character-count"},
             ),
             rx.hstack(
                 rx.hstack(
@@ -842,8 +879,15 @@ def _rejection_editor() -> rx.Component:
                 ),
                 rx.spacer(),
                 rx.vstack(
-                    rx.text(ConsoleState.notice_character_count, " characters"),
-                    rx.text("Fresh randomized profile"),
+                    rx.text(
+                        ConsoleState.notice_character_count,
+                        " / 1,000 characters",
+                        id="notice-character-count",
+                    ),
+                    rx.text(
+                        ConsoleState.persona_status_label,
+                        custom_attrs={"role": "status", "aria-live": "polite"},
+                    ),
                     spacing="0",
                     align="end",
                     class_name="notice-metadata",
@@ -851,6 +895,15 @@ def _rejection_editor() -> rx.Component:
                 class_name="editor-footer",
             ),
             class_name="notice-editor",
+        ),
+        rx.cond(
+            ConsoleState.persona_error != "",
+            rx.hstack(
+                _icon("triangle-alert", 15),
+                rx.text(ConsoleState.persona_error),
+                custom_attrs={"role": "alert", "aria-live": "assertive"},
+                class_name="persona-error",
+            ),
         ),
         class_name="form-section rejection-section",
     )
@@ -992,9 +1045,7 @@ def _draft_evidence() -> rx.Component:
 
 
 def _policy_editor() -> rx.Component:
-    focused_operation = (ConsoleState.operation == "remove") | (
-        ConsoleState.operation == "toggle"
-    )
+    focused_operation = (ConsoleState.operation == "remove") | (ConsoleState.operation == "toggle")
     return rx.box(
         rx.heading(
             rx.cond(
@@ -1051,6 +1102,15 @@ def _policy_editor() -> rx.Component:
                 ),
             ),
             disabled=ConsoleState.workflow_locked,
+            id="policy-editor-panel",
+            custom_attrs={
+                "role": "tabpanel",
+                "aria-labelledby": rx.cond(
+                    ConsoleState.section == "standard",
+                    "tab-standard",
+                    "tab-compliance",
+                ),
+            },
             class_name="editor-fieldset",
         ),
         _impact_summary(),
@@ -1082,7 +1142,9 @@ def _policy_editor() -> rx.Component:
                 on_click=ConsoleState.preview,
                 disabled=(~ConsoleState.draft_minimum_ready)
                 | ConsoleState.review_in_progress
-                | ConsoleState.browser_in_progress,
+                | ConsoleState.browser_in_progress
+                | ConsoleState.persona_in_progress,
+                aria_label="Review the current policy draft",
                 class_name="primary-action",
             ),
             width="100%",
@@ -1103,6 +1165,10 @@ def _agent_timeline_item(agent: object) -> rx.Component:
                 width="100%",
             ),
             rx.text(agent["status"], class_name="agent-message"),
+            rx.cond(
+                agent["findings"] != "",
+                rx.text(agent["findings"], class_name="agent-findings"),
+            ),
             align="stretch",
             spacing="2",
             width="100%",
@@ -1114,22 +1180,38 @@ def _agent_timeline_item(agent: object) -> rx.Component:
 
 
 def _agent_rail() -> rx.Component:
-    return rx.box(
+    return rx.el.aside(
         rx.hstack(
-            rx.text("Agent group chat", class_name="agent-rail-title"),
-            rx.hstack(_icon("users", 14), rx.text("4"), class_name="agent-count"),
+            rx.el.h2(
+                "Agent group chat",
+                id="agent-rail-title",
+                class_name="agent-rail-title",
+            ),
+            rx.hstack(
+                _icon("users", 14),
+                rx.text(ConsoleState.agent_activity.length(), " agents"),
+                class_name="agent-count",
+            ),
             rx.spacer(),
+            rx.text("Read-only", class_name="agent-rail-mode"),
             width="100%",
             class_name="agent-rail-header",
         ),
         rx.box(
             rx.foreach(ConsoleState.agent_activity, _agent_timeline_item),
+            custom_attrs={
+                "role": "log",
+                "aria-label": "Agent review activity",
+                "aria-live": "polite",
+                "aria-relevant": "additions text",
+            },
             class_name="agent-timeline",
         ),
-        rx.spacer(),
+        rx.spacer(class_name="agent-rail-spacer"),
         rx.box(
             rx.text(
                 ConsoleState.approval_state_label,
+                custom_attrs={"role": "status", "aria-live": "polite"},
                 class_name="approval-state",
             ),
             rx.cond(
@@ -1142,14 +1224,17 @@ def _agent_rail() -> rx.Component:
                         disabled=ConsoleState.execution_in_progress,
                     ),
                     rx.input(
+                        id="approval-phrase",
                         value=ConsoleState.phrase_entry,
                         on_change=ConsoleState.set_phrase_entry,
                         placeholder=ConsoleState.approval_phrase,
                         aria_label="Exact approval phrase",
+                        custom_attrs={"aria-describedby": "approval-phrase-help"},
                         disabled=ConsoleState.execution_in_progress,
                     ),
                     rx.text(
                         "Type " + ConsoleState.approval_phrase,
+                        id="approval-phrase-help",
                         class_name="approval-phrase-help",
                     ),
                     align="stretch",
@@ -1167,21 +1252,34 @@ def _agent_rail() -> rx.Component:
                     rx.cond(
                         ConsoleState.execution_in_progress,
                         "Applying…",
-                        rx.cond(ConsoleState.live_evidence_bound, "Approve & apply", "Locked"),
+                        rx.cond(
+                            ConsoleState.approval_ready,
+                            "Approve & apply",
+                            rx.cond(
+                                ConsoleState.live_evidence_bound,
+                                "Complete approval",
+                                "Locked",
+                            ),
+                        ),
                     ),
                     on_click=ConsoleState.approve_plan,
-                    disabled=(~ConsoleState.live_evidence_bound)
-                    | ConsoleState.execution_in_progress,
+                    disabled=(~ConsoleState.approval_ready) | ConsoleState.execution_in_progress,
+                    aria_label="Approve and apply this exact reviewed change",
                     class_name="approve-button",
                 ),
                 width="100%",
             ),
             rx.cond(
                 ConsoleState.error_message != "",
-                rx.text(ConsoleState.error_message, class_name="approval-error"),
+                rx.text(
+                    ConsoleState.error_message,
+                    custom_attrs={"role": "alert", "aria-live": "assertive"},
+                    class_name="approval-error",
+                ),
             ),
             class_name="approval-footer",
         ),
+        custom_attrs={"aria-labelledby": "agent-rail-title"},
         class_name="agent-rail",
     )
 
@@ -1284,24 +1382,27 @@ def _settings_view() -> rx.Component:
             class_name="secondary-subtitle",
         ),
         rx.el.fieldset(
-            _field_label("Run mode"),
+            _field_label("Run mode", "settings-run-mode"),
             rx.select(
                 ["Plan only", "Dry run", "Live"],
+                id="settings-run-mode",
                 value=ConsoleState.run_mode_label,
                 on_change=ConsoleState.change_run_mode,
                 width="100%",
                 custom_attrs={"aria-label": "Settings execution mode"},
                 disabled=ConsoleState.workflow_locked,
             ),
-            _field_label("Expected administrator email"),
+            _field_label("Expected administrator email", "expected-admin-email"),
             rx.input(
+                id="expected-admin-email",
                 value=ConsoleState.expected_admin_email,
                 on_change=ConsoleState.set_expected_admin_email,
                 placeholder="admin@example.com",
                 width="100%",
             ),
-            _field_label("Workspace domain"),
+            _field_label("Workspace domain", "workspace-domain"),
             rx.input(
+                id="workspace-domain",
                 value=ConsoleState.workspace_domain,
                 on_change=ConsoleState.set_workspace_domain,
                 placeholder="example.com",
@@ -1319,15 +1420,17 @@ def _settings_view() -> rx.Component:
                 "separate vision-capable browser model.",
                 class_name="field-help",
             ),
-            _field_label("Group-chat and persona model"),
+            _field_label("Group-chat and persona model", "orchestration-model"),
             rx.input(
+                id="orchestration-model",
                 value=ConsoleState.orchestration_model,
                 on_change=ConsoleState.set_orchestration_model,
                 placeholder="gemma4:12b",
                 width="100%",
             ),
-            _field_label("Browser vision model"),
+            _field_label("Browser vision model", "browser-model"),
             rx.input(
+                id="browser-model",
                 value=ConsoleState.browser_model,
                 on_change=ConsoleState.set_browser_model,
                 placeholder="gemma4:12b",
@@ -1342,6 +1445,14 @@ def _settings_view() -> rx.Component:
                 ConsoleState.configuration_message != "",
                 rx.text(
                     ConsoleState.configuration_message,
+                    custom_attrs={
+                        "role": rx.cond(
+                            ConsoleState.configuration_tone == "error", "alert", "status"
+                        ),
+                        "aria-live": rx.cond(
+                            ConsoleState.configuration_tone == "error", "assertive", "polite"
+                        ),
+                    },
                     class_name=rx.cond(
                         ConsoleState.configuration_tone == "error",
                         "configuration-message error",
@@ -1386,6 +1497,140 @@ def _managed_policy_item(policy: object) -> rx.Component:
     )
 
 
+def _observed_rule_row(rule: object) -> rx.Component:
+    return rx.grid(
+        rx.vstack(
+            rx.text(rule["name"], class_name="state-rule-name"),
+            rx.text(rule["detail"], class_name="field-help"),
+            spacing="1",
+        ),
+        rx.text(
+            rule["enabled"],
+            class_name=rx.cond(
+                rule["enabled"] == "Enabled",
+                "state-rule-status enabled",
+                "state-rule-status disabled",
+            ),
+        ),
+        rx.hstack(
+            rx.button(
+                "Edit",
+                on_click=ConsoleState.edit_policy(rule["surface"], rule["id"]),
+                class_name="table-action",
+            ),
+            rx.button(
+                rx.cond(rule["enabled"] == "Enabled", "Disable", "Enable"),
+                on_click=ConsoleState.toggle_policy(rule["surface"], rule["id"]),
+                class_name="table-action",
+            ),
+            rx.button(
+                "Remove",
+                on_click=ConsoleState.remove_policy(rule["surface"], rule["id"]),
+                class_name="table-action danger",
+            ),
+            spacing="2",
+        ),
+        columns="minmax(220px, 1fr) 90px 250px",
+        gap="10px",
+        class_name="state-rule-row",
+    )
+
+
+def _unmanaged_rule_chip(name: object) -> rx.Component:
+    return rx.text(name, class_name="unmanaged-chip")
+
+
+def _google_state_panel() -> rx.Component:
+    read_locked = ConsoleState.workflow_locked | ConsoleState.google_state_in_progress
+    return rx.box(
+        rx.hstack(
+            rx.vstack(
+                rx.text("Current Google state", class_name="google-state-title"),
+                rx.text(
+                    "The local browser agent opens the attended Chrome window with "
+                    "Playwright, reads the live Gmail policy configuration without "
+                    "writing, and reports it here. Rules stay editable and removable "
+                    "through the exact-approval flow below.",
+                    class_name="google-state-copy",
+                ),
+                align="start",
+                spacing="1",
+            ),
+            rx.spacer(),
+            rx.button(
+                rx.cond(
+                    ConsoleState.google_state_in_progress,
+                    "Reading…",
+                    "Read blocked senders",
+                ),
+                on_click=ConsoleState.assess_google_state("standard"),
+                disabled=read_locked,
+                aria_label="Read the current blocked-sender state from Google Admin",
+                class_name="secondary-action",
+            ),
+            rx.button(
+                rx.cond(
+                    ConsoleState.google_state_in_progress,
+                    "Reading…",
+                    "Read compliance rules",
+                ),
+                on_click=ConsoleState.assess_google_state("compliance"),
+                disabled=read_locked,
+                aria_label="Read the current Content compliance state from Google Admin",
+                class_name="secondary-action",
+            ),
+            width="100%",
+            class_name="google-state-header",
+        ),
+        rx.cond(
+            ConsoleState.google_state_error != "",
+            rx.hstack(
+                _icon("triangle-alert", 15),
+                rx.text(ConsoleState.google_state_error),
+                custom_attrs={"role": "alert", "aria-live": "assertive"},
+                class_name="google-state-error",
+            ),
+        ),
+        rx.cond(
+            ConsoleState.google_state_read_at != "",
+            rx.box(
+                rx.text(
+                    ConsoleState.google_state_surface_label,
+                    " · read ",
+                    ConsoleState.google_state_read_at,
+                    class_name="state-read-meta",
+                    custom_attrs={"role": "status", "aria-live": "polite"},
+                ),
+                rx.cond(
+                    ConsoleState.observed_google_rules.length() > 0,
+                    rx.box(rx.foreach(ConsoleState.observed_google_rules, _observed_rule_row)),
+                    rx.text(
+                        "No managed rules were observed on this surface.",
+                        class_name="field-help",
+                    ),
+                ),
+                rx.cond(
+                    ConsoleState.observed_unmanaged_rules.length() > 0,
+                    rx.box(
+                        rx.text(
+                            "Unmanaged rules visible in Google Admin (read-only):",
+                            class_name="field-help",
+                        ),
+                        rx.box(
+                            rx.foreach(
+                                ConsoleState.observed_unmanaged_rules,
+                                _unmanaged_rule_chip,
+                            ),
+                            class_name="unmanaged-list",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        class_name="google-state-panel",
+    )
+
+
 def _ownership_view() -> rx.Component:
     return rx.box(
         rx.hstack(
@@ -1413,6 +1658,7 @@ def _ownership_view() -> rx.Component:
             align="end",
             class_name="ownership-header",
         ),
+        _google_state_panel(),
         rx.cond(
             ConsoleState.managed_policies.length() > 0,
             rx.box(
@@ -1486,9 +1732,7 @@ def _audit_history_item(run: object) -> rx.Component:
             ),
             spacing="2",
         ),
-        columns=(
-            "120px minmax(170px, 1fr) minmax(150px, 1fr) 170px minmax(170px, auto)"
-        ),
+        columns=("120px minmax(170px, 1fr) minmax(150px, 1fr) 170px minmax(170px, auto)"),
         class_name="secondary-row audit-row",
     )
 
@@ -1645,6 +1889,7 @@ def _evidence_strip() -> rx.Component:
 
 def index() -> rx.Component:
     return rx.box(
+        rx.el.a("Skip to main content", href="#main-content", class_name="skip-link"),
         _sidebar(),
         rx.box(
             _topbar(),
@@ -1657,6 +1902,14 @@ def index() -> rx.Component:
                         _icon("circle-check", 15),
                     ),
                     rx.text(ConsoleState.configuration_message),
+                    custom_attrs={
+                        "role": rx.cond(
+                            ConsoleState.configuration_tone == "error", "alert", "status"
+                        ),
+                        "aria-live": rx.cond(
+                            ConsoleState.configuration_tone == "error", "assertive", "polite"
+                        ),
+                    },
                     class_name=rx.cond(
                         ConsoleState.configuration_tone == "error",
                         "configuration-banner error",
@@ -1665,10 +1918,19 @@ def index() -> rx.Component:
                 ),
             ),
             rx.grid(
-                rx.box(_main_view(), class_name="main-pane"),
+                rx.el.main(
+                    _main_view(),
+                    id="main-content",
+                    tab_index=-1,
+                    class_name="main-pane",
+                ),
                 _agent_rail(),
                 columns="minmax(0, 1fr) 334px",
-                class_name="content-grid",
+                class_name=rx.cond(
+                    ConsoleState.active_view == "new_policy",
+                    "content-grid",
+                    "content-grid content-grid-wide",
+                ),
             ),
             _evidence_strip(),
             class_name="workspace",

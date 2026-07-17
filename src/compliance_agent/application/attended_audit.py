@@ -36,9 +36,7 @@ class AttendedRunAudit:
         started_at: datetime,
     ) -> None:
         timestamp = started_at.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
-        self._writer = RunAuditWriter(
-            settings.audit_dir / "runs" / f"{timestamp}-{run_id}"
-        )
+        self._writer = RunAuditWriter(settings.audit_dir / "runs" / f"{timestamp}-{run_id}")
         self._settings = settings
         self._run_id = run_id
         self._started_at = started_at
@@ -153,9 +151,12 @@ def _json(model: BaseModel) -> str:
 
 
 def _json_value(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )

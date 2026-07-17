@@ -54,13 +54,27 @@ union closed to Reject.
 
 ## Dynamic rejection personas
 
-The local model creates a fresh fictional role, traits, temperament, voice, cadence, motif, and
-bounce message at request time. Each run starts from an independently randomized creative vector,
-including eccentric, surreal, chaotic, and deliberately unhinged styles. The structured output is
-checked against immutable policy category and internal policy ID fields, but the sender-facing text
-may disclose only the broad category. It never reveals the policy ID, triggering header, regular
-expression, address, domain, metadata value, or security signal. If the model is unavailable or
-changes a protected field, a high-variance safe local fallback is used.
+The local model creates a fresh fictional role, traits, voice, motif, and bounce message at request
+time. Every attempt receives a new cryptographic sampler seed and entropy nonce, with no stock
+character bank, canned creative launch vector, example persona, or application-level tone filter.
+The console keeps a short session history and resamples exact or near-duplicate profiles instead of
+showing them twice in succession. Invalid structured output is retried with fresh entropy; if the
+bounded attempts fail, the previous draft stays visible and the console reports the failure rather
+than substituting canned copy.
+
+Every draft also passes a deterministic sender-safety quality gate before it reaches the operator.
+Drafts that leak escape-sequence artifacts, markup or structured-data characters, non-printable
+characters, fabricated email addresses, web addresses, domain names, or phone-number-like sequences,
+or that omit the sender-visible policy category, fail the attempt and are resampled with fresh
+entropy. Line endings and stray whitespace are normalized without rewriting the model's prose. The
+bounce-message category itself is application-owned identity and is no longer editable from the
+rejection-notice editor.
+
+The application still owns policy identity and disclosure boundaries. The sender-facing text may
+disclose only the broad category and never the policy ID, triggering header, regular expression,
+address, domain, metadata value, security signal, credential, or another internal identifier. Those
+are data-protection invariants, not creative-content moderation. The local model may retain behavior
+learned during its own training that this application cannot disable.
 
 ## Multi-agent and browser execution
 

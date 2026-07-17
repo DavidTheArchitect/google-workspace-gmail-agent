@@ -119,11 +119,7 @@ def test_group_chat_ignores_unattributed_or_orchestrator_outputs() -> None:
     authored = [
         Message(
             role="assistant",
-            contents=[
-                json.dumps(
-                    {"verdict": "pass", "summary": spec.name, "findings": []}
-                )
-            ],
+            contents=[json.dumps({"verdict": "pass", "summary": spec.name, "findings": []})],
             author_name=spec.name,
             message_id=f"turn-{index}",
         )
