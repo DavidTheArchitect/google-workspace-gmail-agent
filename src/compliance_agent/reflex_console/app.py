@@ -109,6 +109,7 @@ def _topbar() -> rx.Component:
 def _policy_tabs() -> rx.Component:
     return rx.hstack(
         rx.button(
+            _icon("shield-ban", 14),
             "Blocked senders",
             on_click=ConsoleState.select_section("standard"),
             id="tab-standard",
@@ -122,6 +123,7 @@ def _policy_tabs() -> rx.Component:
             ),
         ),
         rx.button(
+            _icon("scan-search", 14),
             "Content compliance",
             on_click=ConsoleState.select_section("compliance"),
             id="tab-compliance",
@@ -143,6 +145,19 @@ def _field_label(label: str, control_id: str | None = None) -> rx.Component:
     if control_id is not None:
         return rx.el.label(label, html_for=control_id, class_name="form-label")
     return rx.text(label, class_name="form-label")
+
+
+def _editor_section_heading(icon: str, title: str, subtitle: str) -> rx.Component:
+    return rx.hstack(
+        rx.box(_icon(icon, 15), class_name="editor-section-icon"),
+        rx.vstack(
+            rx.text(title, class_name="editor-section-title"),
+            rx.text(subtitle, class_name="editor-section-subtitle"),
+            spacing="0",
+            align="start",
+        ),
+        class_name="editor-section-heading",
+    )
 
 
 def _direction(label: str, value: object, handler: object) -> rx.Component:
@@ -625,6 +640,11 @@ def _compliance_scope_filters() -> rx.Component:
 
 def _compliance_editor() -> rx.Component:
     return rx.vstack(
+        _editor_section_heading(
+            "sliders-horizontal",
+            "Compliance criteria",
+            "Choose where the rule applies and how messages are evaluated.",
+        ),
         rx.vstack(
             _field_label("Organizational unit", "organizational-unit"),
             rx.input(
@@ -727,6 +747,11 @@ def _compliance_editor() -> rx.Component:
 
 def _standard_editor() -> rx.Component:
     return rx.vstack(
+        _editor_section_heading(
+            "shield-ban",
+            "Sender controls",
+            "Define blocked identities and the approved senders that may bypass them.",
+        ),
         rx.vstack(
             _field_label("Organizational unit", "organizational-unit"),
             rx.input(
@@ -811,15 +836,23 @@ def _persona_detail(label: str, value: object, icon: str) -> rx.Component:
 def _rejection_editor() -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.heading(
-                "Rejection notice",
-                size="4",
-                id="rejection-notice-heading",
-                class_name="section-heading",
+            rx.box(_icon("message-square-text", 15), class_name="editor-section-icon"),
+            rx.vstack(
+                rx.heading(
+                    "Rejection notice",
+                    size="4",
+                    id="rejection-notice-heading",
+                    class_name="section-heading",
+                ),
+                rx.text(
+                    "Preview the sender-facing message and the persona that shapes its voice.",
+                    class_name="editor-section-subtitle",
+                ),
+                spacing="0",
+                align="start",
             ),
-            _icon("info", 15),
             width="100%",
-            class_name="rejection-heading heading-with-icon",
+            class_name="rejection-heading editor-section-heading",
         ),
         rx.hstack(
             rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
@@ -877,7 +910,7 @@ def _rejection_editor() -> rx.Component:
                         rx.hstack(
                             rx.vstack(
                                 rx.text(
-                                    "Application-randomized profile",
+                                    "Persona profile",
                                     class_name="persona-label",
                                 ),
                                 rx.text(ConsoleState.persona_role, class_name="persona-role"),
@@ -963,18 +996,35 @@ def _rejection_editor() -> rx.Component:
     )
 
 
-def _impact_row(
+def _impact_row(  # noqa: PLR0913 - arguments mirror the four comparison columns.
     scope: str,
     before: object,
     after: object,
     change: str,
+    icon: str,
     tone: str = "",
 ) -> rx.Component:
+    change_class = (
+        rx.cond(
+            ConsoleState.preview_ready,
+            "impact-change good",
+            "impact-change warning",
+        )
+        if tone == "dynamic"
+        else f"impact-change {tone}".strip()
+    )
     return rx.grid(
-        rx.text(scope, class_name="impact-scope"),
-        rx.text(before),
-        rx.text(after),
-        rx.text(change, class_name=f"impact-change {tone}".strip()),
+        rx.hstack(
+            rx.box(_icon(icon, 13), class_name="impact-row-icon"),
+            rx.text(scope),
+            class_name="impact-scope",
+        ),
+        rx.box(before, class_name="impact-cell impact-before"),
+        rx.box(after, class_name="impact-cell impact-after"),
+        rx.box(
+            rx.text(change, class_name=change_class),
+            class_name="impact-result-cell",
+        ),
         columns="190px 1fr 1fr 130px",
         class_name="impact-row",
     )
@@ -982,66 +1032,113 @@ def _impact_row(
 
 def _impact_summary() -> rx.Component:
     return rx.box(
-        rx.text("Impact summary (before → after)", class_name="impact-title"),
+        rx.hstack(
+            rx.hstack(
+                rx.box(_icon("arrow-right-left", 16), class_name="impact-heading-icon"),
+                rx.vstack(
+                    rx.text("Proposed policy impact", class_name="impact-title"),
+                    rx.text(
+                        "Current state compared with this draft",
+                        class_name="impact-subtitle",
+                    ),
+                    spacing="0",
+                    align="start",
+                ),
+                class_name="impact-heading-copy",
+            ),
+            rx.spacer(),
+            rx.text(
+                rx.cond(
+                    ConsoleState.preview_ready,
+                    ConsoleState.change_summary,
+                    "Fresh review needed",
+                ),
+                class_name=rx.cond(
+                    ConsoleState.preview_ready,
+                    "impact-summary-status ready",
+                    "impact-summary-status pending",
+                ),
+            ),
+            width="100%",
+            class_name="impact-heading",
+        ),
         rx.box(
             rx.grid(
-                rx.text("Scope"),
-                rx.text("Before (current policy)"),
-                rx.text("After (proposed policy)"),
-                rx.text("Change"),
+                rx.text("Area"),
+                rx.text("Current state"),
+                rx.text("Proposed state"),
+                rx.text("Result"),
                 columns="190px 1fr 1fr 130px",
                 class_name="impact-header",
             ),
             _impact_row(
-                "Current Google state",
+                "Google evidence",
                 ConsoleState.before_summary,
                 ConsoleState.after_summary,
                 ConsoleState.change_summary,
-                "good",
+                "database",
+                "dynamic",
             ),
             rx.cond(
                 ConsoleState.section == "compliance",
                 rx.box(
                     _impact_row(
                         "Email directions",
-                        "Current policy",
+                        "Existing configuration",
                         ConsoleState.direction_summary,
-                        "Scoped",
+                        "Will scope",
+                        "send",
                     ),
                     _impact_row(
                         "Expressions",
-                        "Current policy",
-                        ConsoleState.expression_count,
-                        "Typed",
+                        "Existing configuration",
+                        rx.text(ConsoleState.expression_count, " configured"),
+                        "Will evaluate",
+                        "braces",
                     ),
                 ),
                 rx.box(
                     _impact_row(
                         "Blocked identities",
-                        "Current policy",
-                        ConsoleState.blocked_entry_count,
-                        "Typed",
+                        "Existing configuration",
+                        rx.text(ConsoleState.blocked_entry_count, " configured"),
+                        "Will block",
+                        "ban",
                     ),
                     _impact_row(
                         "Approved bypasses",
-                        "Current policy",
-                        ConsoleState.bypass_entry_count,
-                        "Typed",
+                        "Existing configuration",
+                        rx.text(ConsoleState.bypass_entry_count, " configured"),
+                        "Will permit",
+                        "shield-check",
                     ),
                 ),
             ),
             _impact_row(
                 "Rejection notice",
-                "Default rejection",
-                "Persona-authored notice",
-                "Changed",
+                "Default system wording",
+                "Persona-authored plain text",
+                "Will replace",
+                "message-square-text",
                 "good",
             ),
             class_name="impact-table",
         ),
-        rx.text(
-            "Impact estimates stay pending until a fresh Google Admin read provides "
-            "tenant evidence.",
+        rx.hstack(
+            _icon("info", 14),
+            rx.text(
+                rx.cond(
+                    ConsoleState.live_evidence_bound,
+                    "Fresh Google Admin evidence is bound to this exact comparison.",
+                    rx.cond(
+                        ConsoleState.preview_ready,
+                        "This comparison reflects the reviewed draft; this mode did not bind "
+                        "live write evidence.",
+                        "Review the draft to replace placeholders with a verified before/after "
+                        "comparison.",
+                    ),
+                )
+            ),
             class_name="impact-note",
         ),
         class_name="form-section impact-section",
@@ -1101,22 +1198,45 @@ def _draft_evidence() -> rx.Component:
 def _policy_editor() -> rx.Component:
     focused_operation = (ConsoleState.operation == "remove") | (ConsoleState.operation == "toggle")
     return rx.box(
-        rx.heading(
-            rx.cond(
-                ConsoleState.operation == "create",
-                "Create Gmail policy",
-                rx.cond(
-                    ConsoleState.operation == "remove",
-                    "Remove managed Gmail policy",
+        rx.hstack(
+            rx.box(_icon("file-pen-line", 18), class_name="policy-page-icon"),
+            rx.vstack(
+                rx.text("Policy draft", class_name="policy-page-kicker"),
+                rx.heading(
                     rx.cond(
-                        ConsoleState.operation == "toggle",
-                        "Change managed policy state",
-                        "Edit managed Gmail policy",
+                        ConsoleState.operation == "create",
+                        "Create Gmail policy",
+                        rx.cond(
+                            ConsoleState.operation == "remove",
+                            "Remove managed Gmail policy",
+                            rx.cond(
+                                ConsoleState.operation == "toggle",
+                                "Change managed policy state",
+                                "Edit managed Gmail policy",
+                            ),
+                        ),
                     ),
+                    size="7",
+                    class_name="page-title",
+                ),
+                rx.text(
+                    "Configure the rule, sender response, and evidence review in one draft.",
+                    class_name="policy-page-subtitle",
+                ),
+                spacing="0",
+                align="start",
+            ),
+            rx.spacer(),
+            rx.text(
+                rx.cond(ConsoleState.workflow_locked, "Review in progress", "Editable draft"),
+                class_name=rx.cond(
+                    ConsoleState.workflow_locked,
+                    "policy-page-status busy",
+                    "policy-page-status",
                 ),
             ),
-            size="7",
-            class_name="page-title",
+            width="100%",
+            class_name="policy-page-header",
         ),
         rx.el.fieldset(
             rx.cond(
@@ -1139,13 +1259,24 @@ def _policy_editor() -> rx.Component:
                         ),
                     ),
                     rx.hstack(
+                        rx.box(_icon("power", 14), class_name="policy-state-icon"),
+                        rx.vstack(
+                            rx.text("Policy state", class_name="policy-state-title"),
+                            rx.text(
+                                "The rule will be active when this reviewed draft is applied.",
+                                class_name="policy-state-copy",
+                            ),
+                            spacing="0",
+                            align="start",
+                        ),
+                        rx.spacer(),
                         rx.checkbox(
-                            "Policy enabled",
+                            "Enabled",
                             checked=ConsoleState.rule_enabled,
                             on_change=ConsoleState.set_rule_enabled,
                         ),
                         width="100%",
-                        class_name="form-section",
+                        class_name="policy-state-card",
                     ),
                     rx.cond(
                         ConsoleState.section == "compliance",
@@ -1226,6 +1357,7 @@ def _agent_timeline_item(agent: object) -> rx.Component:
             align="stretch",
             spacing="2",
             width="100%",
+            class_name="agent-card",
         ),
         align="start",
         class_name="timeline-item",

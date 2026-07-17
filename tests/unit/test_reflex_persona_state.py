@@ -78,6 +78,12 @@ def test_rejection_editor_omits_redundant_status_and_browser_copy() -> None:
     assert "ConsoleState.persona_alignment" in source
     assert "persona-fact" in source
     assert "persona-detail-grid" in source
+    assert "Proposed policy impact" in source
+    assert "Fresh review needed" in source
+    assert "replace placeholders with a verified before/after" in source
+    assert "Compliance criteria" in source
+    assert "policy-state-card" in source
+    assert "agent-card" in source
 
 
 def test_settings_uses_installed_model_dropdowns_and_add_control() -> None:
