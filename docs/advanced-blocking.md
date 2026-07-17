@@ -94,10 +94,11 @@ first use. The writer supplies typed tokens for expression type, content locatio
 metadata attribute, predefined detector, address-list conditions, and envelope filters, then checks
 those same visible fields during independent read-back.
 
-## Live evidence gate
+## Current-UI acceptance
 
 Google changes the Admin console markup independently of this project. A live deployment must run
 the supervised fixture and selector acceptance procedure in
-[live-test-procedure.md](live-test-procedure.md) for its current tenant before the live writer is
-admitted. This is not a recommendation against Content compliance; it is the evidence needed to
-ensure an autonomous click targets the intended visible control.
+[live-test-procedure.md](live-test-procedure.md) for its current tenant before production use. The
+attended vision driver is built in and discovers current semantic controls, but a disposable-rule
+acceptance run remains the strongest evidence that the tenant edition and present Google UI expose
+the expected fields. This is not a recommendation against Content compliance.

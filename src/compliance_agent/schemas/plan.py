@@ -65,6 +65,7 @@ class CreateBlockedSenderRule(_NoticeAction):
     entries: tuple[AddressEntry, ...]
     target_ou: str = "/"
     bypass_entries: tuple[AddressEntry, ...] = ()
+    enabled: bool = True
 
     @model_validator(mode="after")
     def validate_target_and_bypass(self) -> Self:
@@ -77,10 +78,35 @@ class CreateBlockedSenderRule(_NoticeAction):
         return self
 
 
+class UpdateBlockedSenderRule(_NoticeAction):
+    """Replace every editable field on one exact managed blocked-sender rule."""
+
+    type: Literal["update_blocked_sender_rule"] = "update_blocked_sender_rule"
+    target_rule_id: UUID
+    entries: tuple[AddressEntry, ...]
+    bypass_entries: tuple[AddressEntry, ...] = ()
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_entries(self) -> Self:
+        blocked = {entry.normalized_value for entry in self.entries}
+        bypassed = {entry.normalized_value for entry in self.bypass_entries}
+        if blocked & bypassed:
+            message = "the same address cannot be blocked and bypassed"
+            raise ValueError(message)
+        return self
+
+
 class RemoveBlockedSenderRule(FrozenModel):
     type: Literal["remove_blocked_sender_rule"] = "remove_blocked_sender_rule"
     target_rule_id: UUID
     remove_owned_address_list: bool = False
+
+
+class SetBlockedSenderRuleEnabled(FrozenModel):
+    type: Literal["set_blocked_sender_rule_enabled"] = "set_blocked_sender_rule_enabled"
+    target_rule_id: UUID
+    enabled: bool
 
 
 class ListBlockedSenderRules(FrozenModel):
@@ -128,7 +154,9 @@ Action = Annotated[
     | RemoveBlockedEntries
     | SetRejectionNotice
     | CreateBlockedSenderRule
+    | UpdateBlockedSenderRule
     | RemoveBlockedSenderRule
+    | SetBlockedSenderRuleEnabled
     | ListBlockedSenderRules
     | CreateContentComplianceRule
     | UpdateContentComplianceRule

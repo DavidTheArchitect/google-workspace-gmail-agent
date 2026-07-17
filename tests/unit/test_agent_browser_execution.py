@@ -1,5 +1,6 @@
 """Focused integration tests for specialist attribution and browser action safety."""
 
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -87,7 +88,21 @@ def _permit(
 def test_group_chat_output_preserves_framework_authors() -> None:
     outputs = [
         AgentResponse(
-            messages=[Message(role="assistant", contents=[spec.name], author_name=spec.name)]
+            messages=[
+                Message(
+                    role="assistant",
+                    contents=[
+                        json.dumps(
+                            {
+                                "verdict": "pass",
+                                "summary": spec.name,
+                                "findings": [],
+                            }
+                        )
+                    ],
+                    author_name=spec.name,
+                )
+            ]
         )
         for spec in PARTICIPANT_SPECS
     ]
@@ -98,6 +113,39 @@ def test_group_chat_output_preserves_framework_authors() -> None:
         spec.name for spec in PARTICIPANT_SPECS
     ]
     assert [message.round_index for message in transcript] == [0, 1, 2, 3]
+
+
+def test_group_chat_ignores_unattributed_or_orchestrator_outputs() -> None:
+    authored = [
+        Message(
+            role="assistant",
+            contents=[
+                json.dumps(
+                    {"verdict": "pass", "summary": spec.name, "findings": []}
+                )
+            ],
+            author_name=spec.name,
+            message_id=f"turn-{index}",
+        )
+        for index, spec in enumerate(PARTICIPANT_SPECS)
+    ]
+    outputs: list[object] = [
+        "unattributed",
+        Message(role="user", contents=["operator"]),
+        Message(
+            role="assistant",
+            contents=['{"verdict":"pass","summary":"ignore","findings":[]}'],
+            author_name="policy_review_group",
+        ),
+        authored,
+        authored[0],
+    ]
+
+    transcript = _extract_messages(outputs)
+
+    assert [message.participant for message in transcript] == [
+        spec.name for spec in PARTICIPANT_SPECS
+    ]
 
 
 class _CountLocator:
@@ -193,7 +241,13 @@ async def test_browser_loop_stops_repeated_model_action(
     )
 
     with pytest.raises(SelectorNotFound, match="repeated"):
-        await page._run_goal("Open", (), _permit(), mutation_allowed=False)
+        await page._run_goal(
+            "Open",
+            (),
+            _permit(),
+            mutation_allowed=False,
+            navigation_identity="Rule",
+        )
     assert execute.await_count == 2
 
 

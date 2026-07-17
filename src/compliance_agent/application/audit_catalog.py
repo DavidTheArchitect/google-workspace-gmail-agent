@@ -1,7 +1,7 @@
 """Read-only audit history projections for the local operator console."""
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from compliance_agent.audit.manifest import RunManifest, verify_manifest
@@ -10,6 +10,7 @@ from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.status import RunStatus
 
 _RUN_ID = re.compile(r"^[0-9a-f]{32}$")
+_RUN_TIMESTAMP = "%Y%m%dT%H%M%SZ"
 
 
 class AuditRunSummary(FrozenModel):
@@ -44,8 +45,13 @@ class AuditCatalog:
 
     def _load(self, path: Path) -> AuditRunSummary | None:
         manifest_path = path / "manifest.json"
-        if not path.is_dir() or path.is_symlink() or not manifest_path.is_file():
+        if not path.is_dir() or path.is_symlink():
             return None
+        timestamp, separator, run_id = path.name.partition("-")
+        if not separator or _RUN_ID.fullmatch(run_id) is None:
+            return None
+        if not manifest_path.is_file():
+            return self._orphaned(path, timestamp, run_id)
         try:
             manifest = RunManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, ValueError):
@@ -53,9 +59,6 @@ class AuditCatalog:
         manifest_errors = verify_manifest(path, manifest)
         event_errors = verify_event_chain(path / "run.jsonl")
         errors = (*manifest_errors, *event_errors)
-        _timestamp, separator, run_id = path.name.partition("-")
-        if not separator or _RUN_ID.fullmatch(run_id) is None:
-            return None
         return AuditRunSummary(
             run_id=run_id,
             run_directory=path,
@@ -64,4 +67,26 @@ class AuditCatalog:
             status=manifest.final_status,
             integrity_valid=not errors,
             integrity_errors=errors,
+        )
+
+    def _orphaned(
+        self,
+        path: Path,
+        timestamp: str,
+        run_id: str,
+    ) -> AuditRunSummary | None:
+        """Surface interrupted runs instead of silently hiding missing terminal manifests."""
+
+        try:
+            started_at = datetime.strptime(timestamp, _RUN_TIMESTAMP).replace(tzinfo=UTC)
+        except ValueError:
+            return None
+        return AuditRunSummary(
+            run_id=run_id,
+            run_directory=path,
+            started_at=started_at,
+            ended_at=started_at,
+            status=RunStatus.INDETERMINATE,
+            integrity_valid=False,
+            integrity_errors=("terminal manifest is missing; the process may have stopped",),
         )

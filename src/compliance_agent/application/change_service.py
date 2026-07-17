@@ -21,6 +21,7 @@ from compliance_agent.schemas.plan import (
     CreateBlockedSenderRule,
     CreateContentComplianceRule,
     TaskPlan,
+    UpdateBlockedSenderRule,
 )
 from compliance_agent.schemas.state import BlockedSenderState
 
@@ -46,6 +47,10 @@ class ChangeService:
         )
         maximum_new_lists = sum(
             isinstance(action, CreateBlockedSenderRule) and bool(action.bypass_entries)
+            for action in plan.actions
+        )
+        maximum_new_lists += sum(
+            isinstance(action, UpdateBlockedSenderRule) and bool(action.bypass_entries)
             for action in plan.actions
         )
         proposed_ids = tuple(

@@ -1,75 +1,62 @@
-# Local operator console
+# Local Reflex operator console
 
-Start the console with:
+Start with `uv run gmail-agent`, or use `Setup-Gmail-Agent.cmd` once and then
+`Start-Gmail-Agent.cmd` on Windows. The console binds to loopback only. Google credentials are
+entered only in the attended Chrome window and are never copied into Reflex state or audit data.
 
-```powershell
-uv run gmail-agent
-```
+## Run modes
 
-On Windows, double-click `Setup-Gmail-Agent.cmd` once, then use `Start-Gmail-Agent.cmd`. Setup
-creates the safe `.env`, installs or repairs the locked environment, and runs `compliance-agent
-doctor`. The regular launcher repeats the non-mutating checks, waits until the server is ready,
-then opens and exchanges the one-time bootstrap link automatically. You should not need to copy or
-enter a token. Keep the launcher window open; press `Ctrl+C` there to stop the console.
+- **Plan only** validates the typed policy and runs the four-specialist group chat. Google Admin is
+  never opened and no approval control is enabled. Every configured specialist must respond in
+  deterministic order with a typed verdict; clarification, unsafe, incomplete, and unattributed
+  transcripts fail closed.
+- **Dry run** performs the same review, opens headed Chrome, verifies the configured administrator
+  and Workspace identities, reads the current Google policy, and presents the deterministic diff.
+  The browser session is read-only.
+- **Live** adds a short-lived server-owned approval envelope. The operator reviews the browser-
+  backed before/after evidence, acknowledges it, and types the exact displayed phrase. Execution
+  reopens Chrome, re-reads for drift, applies only the bound change, and independently reads back the
+  complete expected state.
 
-If the configured port is already occupied, a normal launch tries the next 20 loopback ports and
-prints the selected address. An explicitly supplied `--port` remains exact and fails with a clear
-message when occupied.
-
-`uv run compliance-agent console` remains available for advanced use, including `--port` and
-`--no-open`.
-
-Native execution binds only to `127.0.0.1` on `CA_CONSOLE_PORT` (default `8765`). The optional
-container binds on its internal interface, but Compose publishes that port only to host
-`127.0.0.1`; the browser-facing security boundary is unchanged. The per-launch 256-bit token is
-printed locally and placed after `#` in the bootstrap URL. A small local script posts the fragment
-once, clears it from browser history, and receives an in-memory `HttpOnly`, `SameSite=Strict`
-session cookie. Restarting the process invalidates the session and every pending approval.
-
-If the one-time link is used, expires, or is opened without its fragment, type `link` (or press
-Enter) in the terminal that owns the running console. The console rotates the launch token and
-prints a new sign-in URL; the previous URL becomes invalid immediately, while an existing signed-in
-session remains active. When standard input is unavailable (for example, some containers or
-detached Windows launchers), restart the console to obtain a fresh link. This recovery path adds no
-HTTP control endpoint.
-
-The server rejects unexpected Host values. After the one-time bootstrap exchange, it also requires
-the exact loopback Origin and a CSRF token for every state-changing form. API documentation is
-disabled, no CDN assets are served, and a restrictive Content Security Policy applies. It is not a
-LAN service and must not be placed behind a proxy.
+The mode selector is available in the top bar and Settings. Settings also persists the expected
+administrator email, Workspace domain, group-chat/persona model, and vision-capable browser model.
+Changing modes, identities, models, policy scope, expressions, addresses, enabled state, or notice
+content invalidates any unused approval immediately.
+Draft, mode, and model controls are locked during an asynchronous agent review, Google read, or
+approved write. A server-side revision check also discards late results if the draft changes.
 
 ## Operator flow
 
-1. Start on Home, which shows the available workflow and the explicit Google Admin capability
-   limit. In the default plan-only mode, no Google Admin configuration is required.
-2. Choose **Block a sender** and use the built-in form. It works without Ollama or Google access.
-   Natural-language planning with Ollama is an optional secondary path.
-3. If local AI cannot create a draft, the recovery page explains that account settings are not the
-   cause and prefills one safely recovered sender in the built-in form.
-4. Review the finished plan. A plan-only run ends here and never presents preview, approval, or
-   execution as unfinished work.
-5. Open **Settings** to see separate capability states for planning, the expected Google account,
-   and Google Admin integration. Expected identities are optional for planning. The authenticated
-   form validates and writes only those two non-secret values to the local `.env`; it does not sign
-   in to Google or unlock a writer.
-6. Browser preview also requires supervised UI evidence and an installed accepted read adapter.
-   The current web composition does not install that adapter. Once one is reviewed and injected, a
-   dry run performs preflight, a fresh root-OU read, ownership resolution, desired-state
-   calculation, deterministic diffing, and audit finalization.
-7. A live preview displays exact impact and server-owned hashes. Approval expires after ten minutes
-   and requires `APPLY <short-run-id>` plus an acknowledgement. Expiry discards the stale preview
-   and requires a fresh read. Cancellation is authoritative even if background planning or preview
-   work completes later.
-8. Execution remains unavailable until a reviewed accepted contract pack and live runner are
-   injected. A process restart or state drift always requires a new read and approval.
+1. Use **Home** or **Ownership** to create a blocked-sender or Content compliance policy.
+2. Enter the exact organizational-unit path. New Content compliance drafts default to inbound only;
+   blank required fields keep Review disabled.
+3. For blocked senders, enter domains/emails and optional approved-sender bypasses.
+4. For Content compliance, select directions, any/all combination, typed expressions, optional
+   address-list behavior, and optional envelope sender/recipient filters.
+5. Review or regenerate the plain-text rejection notice. The local persona model receives only the
+   broad policy category and policy ID, not the sensitive matching value.
+6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
+7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
+8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.
+9. Use **Runs** for session progress, **Audits** for verified terminal manifests, and **Ownership**
+   to edit, enable/disable, or remove only exact managed resources.
 
-The console also exposes protected audit history, integrity state, local ownership evidence,
-contract-gate status, explicit retention confirmation, and propagation follow-up. UI
-reconfirmation never claims mail-flow enforcement; a separately authorized mail-flow audit is
-required for that evidence level.
+Remove and enable/disable are focused confirmation flows: the full editor is hidden because those
+operations intentionally change only the selected state. Editing an existing resource locks the
+surface so a blocked-sender rule cannot accidentally become a Content compliance draft.
+The focused flows still render the exact human-readable before/after impact and bound hashes. The
+sidebar **New policy** action always resets to a clean create draft on the current surface.
 
-Ownership recovery is fail-closed. An observed managed-looking name is insufficient: the selected
-audit must have intact manifest and event-chain integrity, an applied-and-verified terminal report,
-an exact creation in `change_set.json`, and a matching `after.json` rule/list pair. Future mutation
-still requires a fresh Admin-console read. Interrupted execution is treated as outcome-uncertain;
-operators must reconcile audit evidence and current state before retrying.
+## Observability and failure behavior
+
+Every browser-backed run records plan, preview, before state, expected after state, change set,
+event chain, terminal result when available, and a digest manifest. The Audits page re-verifies the
+event chain and artifact hashes on load. A failure before mutation is finalized as unchanged; an
+exception after a commit sequence begins is finalized as indeterminate and must be reconciled.
+Ownership snapshots are updated only after exact browser read-back verification.
+Accepted specialist turns are saved in `agent-review.json`, bound to the typed plan hash and model
+tag. Interrupted folders remain visible as indeterminate; verified packages can be opened or
+exported as ZIP files directly from Audits.
+
+The UI never claims mail-flow propagation from an Admin-console save. Separately authorized
+mail-flow testing is required for that evidence level.

@@ -1219,6 +1219,13 @@ def test_local_configuration_store_collapses_duplicates_and_rejects_other_keys(
     store.save_run_mode(RunMode.DRY_RUN)
     content = path.read_text(encoding="utf-8")
     assert "CA_RUN_MODE=dry_run" in content
+    models = store.save_agent_models("gemma4:12b", "qwen3-vl:8b")
+    assert models == ("gemma4:12b", "qwen3-vl:8b")
+    content = path.read_text(encoding="utf-8")
+    assert "CA_OLLAMA_MODEL=gemma4:12b" in content
+    assert "CA_BROWSER_MODEL=qwen3-vl:8b" in content
+    with pytest.raises(ValueError, match="valid local Ollama model tag"):
+        store.save_agent_models("bad model", "gemma4:12b")
     with pytest.raises(ValueError, match="cannot be edited"):
         store.update({"CA_HEADLESS": "true"})
     with pytest.raises(ValueError, match="cannot be removed"):

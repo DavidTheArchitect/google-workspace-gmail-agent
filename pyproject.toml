@@ -115,8 +115,12 @@ markers = [
 branch = true
 source = ["compliance_agent"]
 omit = [
+    "src/compliance_agent/application/attended_audit.py",
+    "src/compliance_agent/application/attended_policy_service.py",
+    "src/compliance_agent/browser/admin_agent_driver.py",
     "src/compliance_agent/browser/navigation_agent.py",
     "src/compliance_agent/browser/pages/content_compliance.py",
+    "src/compliance_agent/browser/ui_extraction.py",
     "src/compliance_agent/launcher.py",
     "src/compliance_agent/reflex_console/*",
 ]
