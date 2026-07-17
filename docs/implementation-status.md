@@ -14,14 +14,15 @@ Review date: 2026-07-17
   conditions; and envelope sender/recipient filters.
 - Dynamic local persona and rejection-notice generation with fresh entropy on every attempt.
   Application code first samples a coherent age, occupation, location, three traits, two goals,
-  personality, time period, current mood, and D&D alignment, then constrains the local model to
-  verbalize those facts into the role, voice, motif, and notice. Application-owned mood and
-  alignment directives require the former to affect cadence/energy and the latter to affect
-  rhetorical stance while preserving sender safety. Recent-profile duplicate suppression includes
+  personality, time period, current mood, D&D alignment, and delivery style, then constrains the
+  local model to verbalize those facts into the role, voice, motif, and notice. A field-influence
+  contract covers every sampled fact, while the delivery-style pool deliberately ranges from
+  casual and eccentric to formal. Recent-profile duplicate suppression includes
   both the sampled brief and rendered prose. Explicit bounded failure, protected policy category/ID fields, and
   category-only disclosure remain in force. A deterministic sender-safety quality gate resamples
   drafts that leak markup, escape artifacts, non-printable characters, or fabricated contact
-  details, or that expose the internal category label or return a sentence-like persona role. The
+  details, expose the internal category label, return a sentence-like persona role, or fail to
+  explicitly say that the sender is blocked. The
   category is application-owned, is not sent to the creative model, and is not editable from the
   rejection-notice editor. The overall generation budget covers every bounded attempt (not one
   model request), each creative completion has a persona-specific output-token ceiling, and dropped

@@ -47,6 +47,7 @@ def _generated_notice() -> GeneratedRejectionNotice:
             time_period="1890s",
             current_mood="determined",
             alignment="lawful neutral",
+            delivery_style="deadpan",
         ),
     )
 
@@ -76,6 +77,7 @@ def test_rejection_editor_omits_redundant_status_and_browser_copy() -> None:
     assert "ConsoleState.persona_voice" not in source
     assert "ConsoleState.persona_mood" in source
     assert "ConsoleState.persona_alignment" in source
+    assert "ConsoleState.persona_delivery_style" in source
     assert "persona-fact" in source
     assert "persona-detail-grid" in source
     assert "Proposed policy impact" in source
@@ -180,6 +182,7 @@ async def test_generation_passes_recent_history_and_records_provenance(
     assert "Age 46" in state.persona_context_line
     assert "Mood: determined" in state.persona_character_line
     assert "Alignment: lawful neutral" in state.persona_character_line
+    assert "Delivery style: deadpan" in state.persona_character_line
     assert "Traits: elliptical, restless" in state.persona_character_line
     assert "Goals: keep a fragile public service dependable" in state.persona_character_line
 

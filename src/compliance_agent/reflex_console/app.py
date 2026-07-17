@@ -914,19 +914,28 @@ def _rejection_editor() -> rx.Component:
                                     class_name="persona-label",
                                 ),
                                 rx.text(ConsoleState.persona_role, class_name="persona-role"),
-                                rx.hstack(
-                                    _icon("map-pin", 11),
-                                    rx.text(
-                                        ConsoleState.persona_setting_line,
-                                        class_name="persona-setting",
+                                rx.cond(
+                                    ConsoleState.persona_generated,
+                                    rx.hstack(
+                                        _icon("map-pin", 11),
+                                        rx.text(
+                                            ConsoleState.persona_setting_line,
+                                            class_name="persona-setting",
+                                        ),
+                                        class_name="persona-setting-row",
                                     ),
-                                    class_name="persona-setting-row",
                                 ),
                                 spacing="0",
                                 align="start",
                             ),
-                            width="100%",
+                            rx.text(
+                                ConsoleState.notice_character_count,
+                                " / 1,000 characters",
+                                id="notice-character-count",
+                                class_name="notice-metadata",
+                            ),
                             class_name="persona-card-heading",
+                            width="100%",
                         ),
                         rx.cond(
                             ConsoleState.persona_generated,
@@ -935,6 +944,10 @@ def _rejection_editor() -> rx.Component:
                                     _persona_fact("Age", ConsoleState.persona_age),
                                     _persona_fact("Era", ConsoleState.persona_time_period),
                                     _persona_fact("Mood", ConsoleState.persona_mood),
+                                    _persona_fact(
+                                        "Delivery",
+                                        ConsoleState.persona_delivery_style,
+                                    ),
                                     _persona_fact(
                                         "D&D alignment",
                                         ConsoleState.persona_alignment,
@@ -971,13 +984,6 @@ def _rejection_editor() -> rx.Component:
                         class_name="persona-copy",
                     ),
                     class_name="persona-identity",
-                ),
-                rx.spacer(),
-                rx.text(
-                    ConsoleState.notice_character_count,
-                    " / 1,000 characters",
-                    id="notice-character-count",
-                    class_name="notice-metadata",
                 ),
                 class_name="editor-footer",
             ),

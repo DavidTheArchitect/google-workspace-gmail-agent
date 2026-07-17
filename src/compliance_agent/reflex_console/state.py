@@ -161,6 +161,7 @@ _STARTER_PERSONA_PERSONALITY = ""
 _STARTER_PERSONA_TIME_PERIOD = ""
 _STARTER_PERSONA_MOOD = ""
 _STARTER_PERSONA_ALIGNMENT = ""
+_STARTER_PERSONA_DELIVERY_STYLE = ""
 
 
 def _idle_agent_activity() -> list[dict[str, str]]:
@@ -178,8 +179,8 @@ def _idle_agent_activity() -> list[dict[str, str]]:
 
 def _starter_notice() -> str:
     return (
-        "Delivery was refused because this message did not meet the recipient organization's "
-        "email policy. Contact the recipient through another published channel if you need help."
+        "This sender is blocked from delivering mail to the recipient organization. Contact the "
+        "recipient through another published channel if needed."
     )
 
 
@@ -315,6 +316,7 @@ class ConsoleState(rx.State):
     persona_time_period: str = _STARTER_PERSONA_TIME_PERIOD
     persona_mood: str = _STARTER_PERSONA_MOOD
     persona_alignment: str = _STARTER_PERSONA_ALIGNMENT
+    persona_delivery_style: str = _STARTER_PERSONA_DELIVERY_STYLE
     persona_generated: bool = False
     persona_edited: bool = False
     persona_error: str = ""
@@ -580,6 +582,7 @@ class ConsoleState(rx.State):
         self.persona_time_period = _STARTER_PERSONA_TIME_PERIOD
         self.persona_mood = _STARTER_PERSONA_MOOD
         self.persona_alignment = _STARTER_PERSONA_ALIGNMENT
+        self.persona_delivery_style = _STARTER_PERSONA_DELIVERY_STYLE
         self.persona_generated = False
         self.persona_edited = False
         self.persona_error = ""
@@ -598,6 +601,7 @@ class ConsoleState(rx.State):
         self.persona_time_period = persona.time_period
         self.persona_mood = persona.current_mood
         self.persona_alignment = persona.alignment
+        self.persona_delivery_style = persona.delivery_style
         self.persona_generated = True
         self.persona_edited = False
         self.persona_error = ""
@@ -909,7 +913,8 @@ class ConsoleState(rx.State):
         goals = "; ".join(self.persona_goals)
         return (
             f"Mood: {self.persona_mood} · Alignment: {self.persona_alignment} · "
-            f"Traits: {traits} · Personality: {self.persona_personality} · Goals: {goals}"
+            f"Delivery style: {self.persona_delivery_style} · Traits: {traits} · "
+            f"Personality: {self.persona_personality} · Goals: {goals}"
         )
 
     @rx.var
@@ -2009,6 +2014,7 @@ class ConsoleState(rx.State):
             time_period=self.persona_time_period,
             current_mood=self.persona_mood,
             alignment=self.persona_alignment,
+            delivery_style=self.persona_delivery_style,
         )
         notice = GeneratedRejectionNotice(
             text=self.rejection_notice,

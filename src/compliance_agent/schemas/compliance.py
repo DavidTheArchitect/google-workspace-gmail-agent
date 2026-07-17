@@ -197,6 +197,7 @@ class PersonaProfile(FrozenModel):
     time_period: str = Field(default="", max_length=120)
     current_mood: str = Field(default="", max_length=80)
     alignment: str = Field(default="", max_length=40)
+    delivery_style: str = Field(default="", max_length=40)
 
 
 class GeneratedRejectionNotice(FrozenModel):

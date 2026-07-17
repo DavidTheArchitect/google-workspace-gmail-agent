@@ -23,8 +23,8 @@ from compliance_agent.llm.structured import CompletionSampling, OllamaOpenAIClie
 def _draft(
     *,
     text: str = (
-        "The archive has declined delivery under the category policy. Contact the recipient "
-        "organization by another route."
+        "This sender is blocked from delivering mail to the recipient organization. Try another "
+        "route if contact is still needed."
     ),
     fictional_role: str = "midnight archive cartographer",
     voice: str = "syncopated marginal notes",
@@ -106,6 +106,7 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         notice.persona.time_period,
         notice.persona.current_mood,
         notice.persona.alignment,
+        notice.persona.delivery_style,
     ) == (
         expected_brief.age,
         expected_brief.occupation,
@@ -116,6 +117,7 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         expected_brief.time_period,
         expected_brief.current_mood,
         expected_brief.alignment,
+        expected_brief.delivery_style,
     )
     assert not notice.used_fallback
     assert client.calls[0]["schema"] == CreativePersonaDraft.model_json_schema()
@@ -126,14 +128,22 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         f"Age: {expected_brief.age}",
         f"Occupation: {expected_brief.occupation}",
         f"Location: {expected_brief.location}",
+        f"Traits: {', '.join(expected_brief.traits)}",
+        f"Goals: {'; '.join(expected_brief.goals)}",
+        f"Personality: {expected_brief.personality}",
         f"Time period: {expected_brief.time_period}",
         f"Current mood: {expected_brief.current_mood}",
         f"D&D alignment: {expected_brief.alignment}",
+        f"Delivery style: {expected_brief.delivery_style}",
         "Mood drafting effect:",
         "Alignment drafting effect:",
+        "Delivery-style drafting effect:",
         "must shape cadence and energy",
         "must shape rhetorical stance",
-        "generic recipient email-policy refusal",
+        "every one of the three traits",
+        "both goals",
+        "word sender and a form of the word blocked",
+        "professionalism and courtesy are optional",
         "two to seven words",
     )
     assert all(value in prompt for value in required_prompt_content)
@@ -149,11 +159,13 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         signature.occupation,
         signature.current_mood,
         signature.alignment,
+        signature.delivery_style,
     ) == (
         expected_brief.age,
         expected_brief.occupation.casefold(),
         expected_brief.current_mood,
         expected_brief.alignment,
+        expected_brief.delivery_style,
     )
 
 
@@ -162,6 +174,7 @@ def test_application_persona_briefs_are_seeded_coherent_and_diverse() -> None:
     repeated = sample_persona_brief(904)
     briefs = [sample_persona_brief(seed) for seed in range(40)]
     alignments = {sample_persona_brief(seed).alignment for seed in range(500)}
+    delivery_styles = {sample_persona_brief(seed).delivery_style for seed in range(500)}
     expected_alignments = {
         "lawful good",
         "neutral good",
@@ -183,6 +196,18 @@ def test_application_persona_briefs_are_seeded_coherent_and_diverse() -> None:
     assert 21 <= first.age <= 79
     assert first.alignment in expected_alignments
     assert alignments == expected_alignments
+    assert delivery_styles == {
+        "blunt",
+        "casual",
+        "ceremonial",
+        "deadpan",
+        "eccentric",
+        "folksy",
+        "lyrical",
+        "playful",
+        "professional",
+        "theatrical",
+    }
     assert first.current_mood
     assert len({brief.model_dump_json() for brief in briefs}) == len(briefs)
 
@@ -230,6 +255,30 @@ def test_application_persona_brief_rejects_negative_seed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generator_retries_until_notice_explicitly_blocks_the_sender(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    vague = _draft(
+        text="Delivery could not be completed under the recipient organization's email policy."
+    )
+    explicit = _draft()
+    _install_entropy(monkeypatch, seeds=(901, 902))
+    client = RecordingCompletion((vague.model_dump_json(), explicit.model_dump_json()))
+
+    notice = await PersonaNoticeGenerator(
+        client,
+        model="gemma4:12b",
+        temperature=1.25,
+        max_attempts=2,
+    ).generate(policy_category="confidential-information", policy_id="MAIL-204")
+
+    assert notice.persona.seed == 902
+    assert "sender" in notice.text.casefold()
+    assert "blocked" in notice.text.casefold()
+    assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -242,16 +291,16 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     ).generate(policy_category="confidential-information", policy_id="MAIL-204")
     repeated_role = _draft(
         text=(
-            "A basalt turnstile rejected the category transmission. Find the organization by "
-            "another communication route."
+            "A basalt turnstile marks this sender as blocked at the category gate. Find the "
+            "organization by another communication route."
         ),
         voice="slow geometric declarations",
         motif="basalt rings beneath a red lake",
     )
     fresh = _draft(
         text=(
-            "A copper violin announces that the category gate refused this dispatch. Reach the "
-            "recipient organization through a different channel."
+            "A copper violin announces the verdict: this sender is blocked at the category gate. "
+            "Reach the recipient organization through a different channel."
         ),
         fictional_role="subterranean violin registrar",
         voice="percussive and asymmetrical",
@@ -321,8 +370,8 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
     )
     clean = _draft(
         text=(
-            "Delivery was refused under the category policy. Reach the recipient "
-            "organization through a channel it already publishes."
+            "This sender is blocked under the category policy. Reach the recipient organization "
+            "through a channel it already publishes."
         ),
         fictional_role="registrar of refused letters",
         voice="measured ledger entries",
@@ -388,7 +437,7 @@ async def test_windows_line_endings_and_padding_are_normalized(
 ) -> None:
     messy = _draft(
         text=(
-            "Delivery was refused under the   category policy.\r\nReach the recipient "
+            "This sender is blocked under the   category policy.\r\nReach the recipient "
             "organization through a channel it already publishes.  "
         ),
     )
