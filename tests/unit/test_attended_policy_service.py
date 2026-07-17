@@ -233,9 +233,7 @@ def test_atomic_blocked_sender_update_replaces_every_editable_field() -> None:
     bypass_name = desired.rules[0].bypass_address_list_names[0]
     assert lists[primary_name].entries[0].value == "new.example"
     assert lists[bypass_name].entries[0].value == "safe@new.example"
-    assert desired.rules[0].bypass_address_list_names == (
-        bypass_name,
-    )
+    assert desired.rules[0].bypass_address_list_names == (bypass_name,)
     with pytest.raises(ValueError, match="same address"):
         UpdateBlockedSenderRule(
             target_rule_id=OWNERSHIP_ID,
@@ -281,11 +279,7 @@ def test_standard_create_and_toggle_preserve_explicit_enabled_state() -> None:
 
     inherited_base = owned_state(entries=(domain("inherited.example"),))
     inherited = inherited_base.model_copy(
-        update={
-            "rules": (
-                inherited_base.rules[0].model_copy(update={"inherited": True}),
-            )
-        }
+        update={"rules": (inherited_base.rules[0].model_copy(update={"inherited": True}),)}
     )
     with pytest.raises(AmbiguousTarget, match="inherited blocked-sender rules"):
         calculate_desired_state(
@@ -355,11 +349,15 @@ async def test_live_entry_only_update_keeps_policy_identity_for_approval(
     _FakeBrowserSession.fail_during_apply = False
     settings = _settings(tmp_path, RunMode.LIVE)
     current = owned_state(entries=(domain("old.example"),))
-    record = registry_for().resources[0].model_copy(
-        update={
-            "rule_snapshot": current.rules[0],
-            "address_list_snapshot": current.address_lists[0],
-        }
+    record = (
+        registry_for()
+        .resources[0]
+        .model_copy(
+            update={
+                "rule_snapshot": current.rules[0],
+                "address_list_snapshot": current.address_lists[0],
+            }
+        )
     )
     OwnershipStore(settings.state_dir).save(
         registry_for().model_copy(update={"resources": (record,)})

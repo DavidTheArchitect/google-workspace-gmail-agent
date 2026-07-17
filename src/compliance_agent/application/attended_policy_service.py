@@ -366,9 +366,7 @@ class AttendedPolicyService:
                 observed = await _verification_read(browser, preview, settings)
         except Exception:
             pending.audit.finalize(
-                RunStatus.INDETERMINATE
-                if mutation_started
-                else RunStatus.FAILED_UNCHANGED
+                RunStatus.INDETERMINATE if mutation_started else RunStatus.FAILED_UNCHANGED
             )
             raise
         desired = preview.standard_after or preview.compliance_after
@@ -466,9 +464,7 @@ def _standard_snapshot(registry: OwnershipRegistry, target_ou: str) -> BlockedSe
         raise ValueError(message)
     rules = tuple(record.rule_snapshot for record in records if record.rule_snapshot is not None)
     referenced_names = {
-        name
-        for rule in rules
-        for name in rule.address_list_names + rule.bypass_address_list_names
+        name for rule in rules for name in rule.address_list_names + rule.bypass_address_list_names
     }
     lists = [
         record.address_list_snapshot
@@ -495,9 +491,7 @@ def _standard_snapshot(registry: OwnershipRegistry, target_ou: str) -> BlockedSe
 
 def _compliance_snapshot(registry: OwnershipRegistry) -> ContentComplianceState:
     missing = [
-        record.display_name
-        for record in registry.compliance_rules
-        if record.rule_snapshot is None
+        record.display_name for record in registry.compliance_rules if record.rule_snapshot is None
     ]
     if missing:
         message = (

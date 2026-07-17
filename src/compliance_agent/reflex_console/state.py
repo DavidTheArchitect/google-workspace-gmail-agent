@@ -23,6 +23,7 @@ from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.regex_validation import validate_google_regex
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
+from compliance_agent.llm.persona import profile_signature
 from compliance_agent.llm.planner import build_group_chat_reviewer, build_persona_generator
 from compliance_agent.llm.readiness import require_local_model
 from compliance_agent.schemas.compliance import (
@@ -47,6 +48,8 @@ from compliance_agent.schemas.compliance import (
 from compliance_agent.schemas.operations import RunMode
 from compliance_agent.schemas.plan import (
     CreateContentComplianceRule,
+    ListBlockedSenderRules,
+    ListContentComplianceRules,
     RemoveBlockedSenderRule,
     RemoveContentComplianceRule,
     SetBlockedSenderRuleEnabled,
@@ -139,6 +142,12 @@ _METADATA_OPERATOR_LABELS = {
     "malware_detected": "Malware detected",
 }
 _LOGGER = logging.getLogger(__name__)
+_MAX_NOTICE_CHARACTERS = 1_000
+_PERSONA_HISTORY_LIMIT = 6
+_STARTER_PERSONA_ROLE = "No generated persona"
+_STARTER_PERSONA_VOICE = "Neutral starter draft"
+_STARTER_PERSONA_MOTIF = "None"
+_STARTER_PERSONA_TRAITS = ("neutral",)
 
 
 def _idle_agent_activity() -> list[dict[str, str]]:
@@ -148,9 +157,18 @@ def _idle_agent_activity() -> list[dict[str, str]]:
             "time": "Pending",
             "icon": spec.icon,
             "status": "Waiting for a typed policy draft to review.",
+            "findings": "",
         }
         for spec in PARTICIPANT_SPECS
     ]
+
+
+def _starter_notice(policy_category: str) -> str:
+    category = policy_category.strip() or "configured"
+    return (
+        f"Delivery was refused under the {category} policy. If you need help, contact the "
+        "recipient organization through another channel."
+    )
 
 
 async def _review_plan(plan: TaskPlan) -> GroupChatTranscript:
@@ -256,19 +274,16 @@ class ConsoleState(rx.State):
     bypass_values: str = ""
     policy_category: str = "confidential-information"
     policy_id: str = "GW-1042"
-    rejection_notice: str = (
-        "Tiny thunder. Dramatic cape. The confidential-information policy declined this "
-        "delivery before the mail queue could wander into forbidden territory. If that seems "
-        "unexpected, contact the recipient organization through another trusted channel. "
-        "The imaginary lighthouse has blinked twice and returned to work."
-    )
-    persona_role: str = "wild-eyed lighthouse oracle from a parallel Tuesday"
-    persona_voice: str = (
-        "delightfully unhinged in presentation; warm, precise, and operationally clear"
-    )
-    persona_motif: str = "tiny thunderclouds colliding with lighthouse beams"
-    persona_seed: int = 1042
-    persona_traits: list[str] = ["protective", "clear", "playful"]  # noqa: RUF012
+    rejection_notice: str = _starter_notice("confidential-information")
+    persona_role: str = _STARTER_PERSONA_ROLE
+    persona_voice: str = _STARTER_PERSONA_VOICE
+    persona_motif: str = _STARTER_PERSONA_MOTIF
+    persona_seed: int = 0
+    persona_traits: list[str] = list(_STARTER_PERSONA_TRAITS)  # noqa: RUF012
+    persona_generated: bool = False
+    persona_edited: bool = False
+    persona_error: str = ""
+    persona_history: list[str] = []  # noqa: RUF012
     expression_valid: bool = False
     validation_message: str = "Enter a match expression to continue"
     preview_ready: bool = False
@@ -307,6 +322,12 @@ class ConsoleState(rx.State):
     orchestration_model: str = "gemma4:12b"
     browser_model: str = "gemma4:12b"
     draft_revision: int = 0
+    google_state_in_progress: bool = False
+    google_state_error: str = ""
+    google_state_surface_label: str = ""
+    google_state_read_at: str = ""
+    observed_google_rules: list[dict[str, str]] = []  # noqa: RUF012
+    observed_unmanaged_rules: list[str] = []  # noqa: RUF012
 
     def load_runtime_settings(self) -> None:
         """Load the persisted mode and non-secret Google identity expectations."""
@@ -354,14 +375,26 @@ class ConsoleState(rx.State):
 
     @rx.var
     def approval_state_label(self) -> str:
-        if self.live_evidence_bound:
+        if self.approval_ready:
             return "Approval ready"
+        if self.live_evidence_bound and not self.acknowledged:
+            return "Review acknowledgment required"
+        if self.live_evidence_bound:
+            return "Exact approval phrase required"
         if self.preview_ready and self.status == "No change":
             return "No change · approval not required"
         return (
-            "Live approval locked"
-            if self.run_mode == "live"
-            else "No live approval in this mode"
+            "Live approval locked" if self.run_mode == "live" else "No live approval in this mode"
+        )
+
+    @rx.var
+    def approval_ready(self) -> bool:
+        return (
+            self.live_evidence_bound
+            and self.acknowledged
+            and bool(self.approval_phrase)
+            and self.phrase_entry.strip() == self.approval_phrase
+            and not self.execution_in_progress
         )
 
     @rx.var
@@ -451,6 +484,15 @@ class ConsoleState(rx.State):
         self.rule_enabled = True
         self.blocked_values = ""
         self.bypass_values = ""
+        self.rejection_notice = _starter_notice(self.policy_category)
+        self.persona_role = _STARTER_PERSONA_ROLE
+        self.persona_voice = _STARTER_PERSONA_VOICE
+        self.persona_motif = _STARTER_PERSONA_MOTIF
+        self.persona_seed = 0
+        self.persona_traits = list(_STARTER_PERSONA_TRAITS)
+        self.persona_generated = False
+        self.persona_edited = False
+        self.persona_error = ""
         if section == "compliance":
             self.inbound = True
             self.outbound = False
@@ -573,9 +615,9 @@ class ConsoleState(rx.State):
         """Persist the local group-chat and browser-vision model selections."""
 
         try:
-            orchestration, browser = LocalConfigurationStore(
-                Path.cwd() / ".env"
-            ).save_agent_models(self.orchestration_model, self.browser_model)
+            orchestration, browser = LocalConfigurationStore(Path.cwd() / ".env").save_agent_models(
+                self.orchestration_model, self.browser_model
+            )
         except ValueError as error:
             self.configuration_message = str(error)
             self.configuration_tone = "error"
@@ -684,6 +726,16 @@ class ConsoleState(rx.State):
         return len(self.rejection_notice)
 
     @rx.var
+    def persona_status_label(self) -> str:
+        if self.persona_error:
+            return "Generation failed · previous draft preserved"
+        if self.persona_edited:
+            return "Edited after generation" if self.persona_generated else "Manually edited draft"
+        if self.persona_generated:
+            return "Fresh model-generated profile"
+        return "Starter draft · generate a persona"
+
+    @rx.var
     def blocked_entry_count(self) -> int:
         return len([value for value in self.blocked_values.splitlines() if value.strip()])
 
@@ -692,7 +744,9 @@ class ConsoleState(rx.State):
         return len([value for value in self.bypass_values.splitlines() if value.strip()])
 
     @rx.var
-    def draft_minimum_ready(self) -> bool:  # noqa: PLR0911 - mirrors typed surfaces.
+    def draft_minimum_ready(self) -> bool:  # noqa: C901, PLR0911 - mirrors typed surfaces.
+        if self.persona_in_progress or len(self.rejection_notice) > _MAX_NOTICE_CHARACTERS:
+            return False
         if self.browser_mode and (
             not self.expected_admin_email.strip() or not self.workspace_domain.strip()
         ):
@@ -703,9 +757,7 @@ class ConsoleState(rx.State):
             return False
         if self.section == "standard":
             return self.blocked_entry_count > 0
-        if not any(
-            (self.inbound, self.outbound, self.internal_sending, self.internal_receiving)
-        ):
+        if not any((self.inbound, self.outbound, self.internal_sending, self.internal_receiving)):
             return False
         if not self.policy_id.strip() or not self.policy_category.strip():
             return False
@@ -723,7 +775,11 @@ class ConsoleState(rx.State):
         return True
 
     @rx.var
-    def draft_readiness_message(self) -> str:  # noqa: PLR0911 - mirrors readiness gates.
+    def draft_readiness_message(self) -> str:  # noqa: C901, PLR0911 - readiness gates.
+        if self.persona_in_progress:
+            return "Wait for persona generation to finish."
+        if len(self.rejection_notice) > _MAX_NOTICE_CHARACTERS:
+            return "Shorten the rejection notice to 1,000 characters or fewer."
         if self.browser_mode and (
             not self.expected_admin_email.strip() or not self.workspace_domain.strip()
         ):
@@ -732,14 +788,18 @@ class ConsoleState(rx.State):
             return "Select one managed policy from Ownership first."
         if not self.ou_path.startswith("/"):
             return "Enter an absolute organizational-unit path beginning with /."
+        if not self.rejection_notice.strip():
+            return "Enter a rejection notice or generate a persona."
         if self.section == "standard" and self.blocked_entry_count == 0:
             return "Add at least one domain or email address to block."
         if self.section == "compliance" and not any(
             (self.inbound, self.outbound, self.internal_sending, self.internal_receiving)
         ):
             return "Select at least one email direction."
-        if self.section == "compliance" and not self.expression_value.strip() and (
-            self.expression_type in {"advanced", "simple"} and self.match_type != "is_empty"
+        if (
+            self.section == "compliance"
+            and not self.expression_value.strip()
+            and (self.expression_type in {"advanced", "simple"} and self.match_type != "is_empty")
         ):
             return "Enter the first match expression."
         if self.section == "compliance" and any(
@@ -818,30 +878,38 @@ class ConsoleState(rx.State):
         elif field == "type":
             normalized_value = value.casefold()
         elif field == "location":
-            normalized_value = value if value in _ADVANCED_LOCATIONS else {
-                "Full headers": "full_headers",
-                "Headers and body": "headers_and_body",
-                "Body": "body",
-                "Subject": "subject",
-                "Sender header": "sender_header",
-                "Recipient header": "recipient_header",
-                "Envelope sender": "envelope_sender",
-                "Envelope recipient": "envelope_recipient",
-                "Raw message": "raw_message",
-            }.get(value, "subject")
+            normalized_value = (
+                value
+                if value in _ADVANCED_LOCATIONS
+                else {
+                    "Full headers": "full_headers",
+                    "Headers and body": "headers_and_body",
+                    "Body": "body",
+                    "Subject": "subject",
+                    "Sender header": "sender_header",
+                    "Recipient header": "recipient_header",
+                    "Envelope sender": "envelope_sender",
+                    "Envelope recipient": "envelope_recipient",
+                    "Raw message": "raw_message",
+                }.get(value, "subject")
+            )
         elif field == "match_type":
-            normalized_value = value if value in _ADVANCED_MATCH_TYPES else {
-                "Matches regex": "matches_regex",
-                "Does not match regex": "not_matches_regex",
-                "Contains": "contains",
-                "Does not contain": "not_contains",
-                "Equals": "equals",
-                "Starts with": "starts_with",
-                "Ends with": "ends_with",
-                "Is empty": "is_empty",
-                "Matches any word": "matches_any_word",
-                "Matches all words": "matches_all_words",
-            }.get(value, "contains")
+            normalized_value = (
+                value
+                if value in _ADVANCED_MATCH_TYPES
+                else {
+                    "Matches regex": "matches_regex",
+                    "Does not match regex": "not_matches_regex",
+                    "Contains": "contains",
+                    "Does not contain": "not_contains",
+                    "Equals": "equals",
+                    "Starts with": "starts_with",
+                    "Ends with": "ends_with",
+                    "Is empty": "is_empty",
+                    "Matches any word": "matches_any_word",
+                    "Matches all words": "matches_all_words",
+                }.get(value, "contains")
+            )
 
         updated_rows = [dict(row) for row in self.additional_expressions]
         updated_rows[row_index][target_field] = normalized_value
@@ -1014,6 +1082,9 @@ class ConsoleState(rx.State):
 
     def set_policy_category(self, value: str) -> None:
         self.policy_category = value
+        if not self.persona_generated and not self.persona_edited:
+            self.rejection_notice = _starter_notice(value)
+        self.persona_error = ""
         self._mark_draft_changed()
 
     def set_policy_id(self, value: str) -> None:
@@ -1022,6 +1093,8 @@ class ConsoleState(rx.State):
 
     def set_rejection_notice(self, value: str) -> None:
         self.rejection_notice = value
+        self.persona_edited = True
+        self.persona_error = ""
         self._mark_draft_changed()
 
     def set_acknowledged(self, value: bool) -> None:
@@ -1073,29 +1146,145 @@ class ConsoleState(rx.State):
 
         if self.persona_in_progress:
             return
+        generation_revision = self.draft_revision
+        generation_category = self.policy_category
+        generation_policy_id = self.policy_id
+        recent_signatures = tuple(self.persona_history)
         self.persona_in_progress = True
         self.status = "Generating persona"
         self.status_tone = "working"
         self.error_message = ""
+        self.persona_error = ""
         yield
         try:
             settings = load_settings()
             async with asyncio.timeout(settings.llm_request_timeout_seconds):
                 generated = await build_persona_generator(settings).generate(
-                    policy_category=self.policy_category,
-                    policy_id=self.policy_id,
+                    policy_category=generation_category,
+                    policy_id=generation_policy_id,
+                    recent_profile_signatures=recent_signatures,
                 )
         except Exception as error:
             _LOGGER.exception("Local persona generation failed")
             self.status = "Persona failed"
             self.status_tone = "error"
-            self.error_message = _persona_failure_message(error)
+            self.persona_error = _persona_failure_message(error)
+            self.persona_in_progress = False
+            return
+        if (
+            self.draft_revision != generation_revision
+            or self.policy_category != generation_category
+            or self.policy_id != generation_policy_id
+        ):
+            self.status = "Persona result discarded"
+            self.status_tone = "attention"
+            self.persona_error = (
+                "The draft changed while the persona was being generated. Your edits were "
+                "preserved; generate again when ready."
+            )
             self.persona_in_progress = False
             return
         self._apply_generated_notice(generated)
         self.persona_in_progress = False
         self.status = "Persona ready"
         self.status_tone = "ready"
+
+    async def assess_google_state(self, surface: str) -> AsyncIterator[None]:
+        """Read one surface's current Google Admin state through the attended browser."""
+
+        if self.google_state_in_progress or self.workflow_locked:
+            return
+        self.google_state_error = ""
+        settings = load_settings(run_mode=RunMode(self.run_mode))
+        if settings.run_mode == RunMode.PLAN_ONLY:
+            self.google_state_error = (
+                "Plan-only mode never opens Google Admin. Switch to dry run or live in "
+                "the top bar, then read the current state."
+            )
+            return
+        plan = TaskPlan(
+            status="plan",
+            actions=(
+                (ListBlockedSenderRules(),)
+                if surface == "standard"
+                else (ListContentComplianceRules(),)
+            ),
+        )
+        self.google_state_in_progress = True
+        self.browser_in_progress = True
+        self.status = "Reading current Google state"
+        self.status_tone = "working"
+        yield
+        try:
+            await require_local_model(
+                settings,
+                settings.browser_model,
+                require_vision=True,
+            )
+            preview = await ATTENDED_POLICY_SERVICE.preview(settings, plan)
+        except Exception as error:
+            _LOGGER.exception("Attended Google state read failed")
+            self.google_state_error = _browser_failure_message(error)
+            self.status = "State read blocked"
+            self.status_tone = "error"
+            self.google_state_in_progress = False
+            self.browser_in_progress = False
+            return
+        self.google_state_in_progress = False
+        self.browser_in_progress = False
+        self._bind_observed_state(surface, preview)
+
+    def _bind_observed_state(self, surface: str, preview: AttendedPolicyPreview) -> None:
+        """Project one fresh read-only browser state into the operator console."""
+
+        if surface == "standard":
+            state = preview.standard_before
+            label = "Blocked senders"
+            rows = [
+                {
+                    "id": str(rule.ownership_id),
+                    "surface": "standard",
+                    "name": rule.display_name,
+                    "enabled": "Enabled" if rule.enabled else "Disabled",
+                    "detail": (
+                        f"OU {rule.target_ou} · "
+                        f"{len(rule.address_list_names)} blocked list(s) · "
+                        f"{len(rule.bypass_address_list_names)} bypass list(s)"
+                    ),
+                }
+                for rule in (state.rules if state is not None else ())
+            ]
+        else:
+            state = preview.compliance_before
+            label = "Content compliance"
+            rows = [
+                {
+                    "id": str(rule.ownership_id),
+                    "surface": "compliance",
+                    "name": rule.display_name,
+                    "enabled": "Enabled" if rule.enabled else "Disabled",
+                    "detail": (
+                        f"OU {rule.target_ou.path} · "
+                        f"{len(rule.expressions)} expression(s) · "
+                        f"{len(rule.directions)} direction(s)"
+                    ),
+                }
+                for rule in (state.rules if state is not None else ())
+            ]
+        unmanaged = list(state.unmanaged_rule_names) if state is not None else []
+        self.google_state_surface_label = label
+        self.google_state_read_at = (
+            datetime.now().astimezone().strftime("%b %d, %Y · %I:%M %p").lstrip("0")
+        )
+        self.observed_google_rules = rows
+        self.observed_unmanaged_rules = unmanaged
+        self.status = "Current Google state read"
+        self.status_tone = "ready"
+        self._record_run(
+            "State read",
+            f"{label}: {len(rows)} managed · {len(unmanaged)} unmanaged",
+        )
+        self._load_audit_history()
 
     async def preview(self) -> AsyncIterator[None]:  # noqa: PLR0911, PLR0915
         """Build the typed plan, then run the real bounded specialist group review."""
@@ -1122,6 +1311,7 @@ class ConsoleState(rx.State):
                 "time": "Reviewing",
                 "icon": spec.icon,
                 "status": "Reading the typed proposal and the other specialists' messages.",
+                "findings": "",
             }
             for spec in PARTICIPANT_SPECS
         ]
@@ -1140,6 +1330,7 @@ class ConsoleState(rx.State):
                     "time": "Unavailable",
                     "icon": spec.icon,
                     "status": "No specialist output was accepted for this draft.",
+                    "findings": "",
                 }
                 for spec in PARTICIPANT_SPECS
             ]
@@ -1157,6 +1348,7 @@ class ConsoleState(rx.State):
                 "time": reviewed_at,
                 "icon": message.icon,
                 "status": message.text,
+                "findings": "\n".join(f"• {finding}" for finding in message.findings),
             }
             for message in transcript.messages
         ]
@@ -1321,14 +1513,10 @@ class ConsoleState(rx.State):
         self.approval_phrase = preview.approval_phrase or ""
         self.phrase_entry = ""
         self.acknowledged = False
-        self.live_evidence_bound = (
-            preview.mode == RunMode.LIVE and preview.has_mutations
-        )
+        self.live_evidence_bound = preview.mode == RunMode.LIVE and preview.has_mutations
         self.preview_ready = True
         self.approved = False
-        self.before_summary, self.after_summary, self.change_summary = _preview_summaries(
-            preview
-        )
+        self.before_summary, self.after_summary, self.change_summary = _preview_summaries(preview)
         if not preview.has_mutations:
             self.status = "No change"
             self.status_tone = "ready"
@@ -1471,6 +1659,14 @@ class ConsoleState(rx.State):
         self.blocked_values = "\n".join(entry.value for entry in primary.entries)
         self.bypass_values = "\n".join(entry.value for entry in bypass_entries)
         self.rejection_notice = rule.rejection_notice or self.rejection_notice
+        self.persona_role = _STARTER_PERSONA_ROLE
+        self.persona_voice = _STARTER_PERSONA_VOICE
+        self.persona_motif = _STARTER_PERSONA_MOTIF
+        self.persona_seed = 0
+        self.persona_traits = list(_STARTER_PERSONA_TRAITS)
+        self.persona_generated = False
+        self.persona_edited = bool(rule.rejection_notice)
+        self.persona_error = ""
         self.rule_enabled = rule.enabled
 
     def _load_compliance_record(self, rule: object) -> None:
@@ -1496,6 +1692,11 @@ class ConsoleState(rx.State):
         self.persona_motif = notice.persona.motif
         self.persona_seed = notice.persona.seed
         self.persona_traits = list(notice.persona.traits)
+        self.persona_generated = True
+        self.persona_edited = False
+        self.persona_error = ""
+        signature = profile_signature(notice)
+        self.persona_history = [*self.persona_history, signature][-_PERSONA_HISTORY_LIMIT:]
         self.rule_enabled = rule.enabled
         condition = rule.address_list_condition
         self.compliance_address_list_mode = condition.mode if condition is not None else "none"
@@ -1542,6 +1743,11 @@ class ConsoleState(rx.State):
         self.persona_motif = generated.persona.motif
         self.persona_seed = generated.persona.seed
         self.persona_traits = list(generated.persona.traits)
+        self.persona_generated = True
+        self.persona_edited = False
+        self.persona_error = ""
+        signature = profile_signature(generated)
+        self.persona_history = [*self.persona_history, signature][-_PERSONA_HISTORY_LIMIT:]
 
     def _build_plan(self) -> TaskPlan:  # noqa: PLR0911 - typed operation dispatch is explicit.
         if self.section == "standard":
@@ -1607,9 +1813,7 @@ class ConsoleState(rx.State):
         if self.operation == "remove":
             return TaskPlan(
                 status="plan",
-                actions=(
-                    RemoveContentComplianceRule(target_rule_id=UUID(self.target_rule_id)),
-                ),
+                actions=(RemoveContentComplianceRule(target_rule_id=UUID(self.target_rule_id)),),
             )
         if self.operation == "toggle":
             return TaskPlan(
@@ -1652,9 +1856,7 @@ class ConsoleState(rx.State):
             *tuple(_expression_from_row(row) for row in self.additional_expressions),
         )
         address_list_names = tuple(
-            name.strip()
-            for name in self.compliance_address_lists.splitlines()
-            if name.strip()
+            name.strip() for name in self.compliance_address_lists.splitlines() if name.strip()
         )
         address_list_condition = (
             AddressListCondition(
@@ -1734,9 +1936,7 @@ class ConsoleState(rx.State):
                 detector=self.predefined_detector,
                 minimum_match_count=self.minimum_match_count,
                 confidence=(
-                    None
-                    if self.predefined_confidence == "none"
-                    else self.predefined_confidence
+                    None if self.predefined_confidence == "none" else self.predefined_confidence
                 ),
                 required_edition_capability=self.required_capability,
             )
@@ -1849,8 +2049,7 @@ def _standard_state_summary(state: object) -> str:
     if not rules:
         return "No managed blocked-sender rules in this OU"
     return "; ".join(
-        f"{rule.display_name} ({'enabled' if rule.enabled else 'disabled'})"
-        for rule in rules
+        f"{rule.display_name} ({'enabled' if rule.enabled else 'disabled'})" for rule in rules
     )
 
 
@@ -1883,9 +2082,7 @@ def _expression_from_row(row: dict[str, str]) -> ComplianceExpression:
         return PredefinedContentMatch(
             detector=row.get("detector", "Financial account number"),
             minimum_match_count=int(row.get("minimum_match_count", "1")),
-            confidence=(
-                None if row.get("confidence", "none") == "none" else row["confidence"]
-            ),
+            confidence=(None if row.get("confidence", "none") == "none" else row["confidence"]),
             required_edition_capability=row.get("required_capability", "dlp_predefined_detectors"),
         )
     match_type = AdvancedMatchType(row.get("match_type", "contains"))
@@ -1902,8 +2099,7 @@ def _expression_from_row(row: dict[str, str]) -> ComplianceExpression:
         ),
         minimum_match_count=(
             int(row.get("minimum_match_count", "1"))
-            if match_type
-            in {AdvancedMatchType.MATCHES_REGEX, AdvancedMatchType.NOT_MATCHES_REGEX}
+            if match_type in {AdvancedMatchType.MATCHES_REGEX, AdvancedMatchType.NOT_MATCHES_REGEX}
             else 1
         ),
     )

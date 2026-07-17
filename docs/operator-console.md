@@ -35,7 +35,9 @@ approved write. A server-side revision check also discards late results if the d
    address-list behavior, and optional envelope sender/recipient filters.
 5. Review or randomize the plain-text rejection notice. The local persona model binds the broad
    category and internal policy ID as structured identity, but the message reveals neither the ID
-   nor any sensitive matching value.
+   nor any sensitive matching value. Generated drafts must pass a deterministic quality gate (no
+   markup, escape artifacts, or fabricated contact details, and the category must be conveyed)
+   before they replace the visible draft.
 6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
 7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
 8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.
@@ -47,6 +49,25 @@ operations intentionally change only the selected state. Editing an existing res
 surface so a blocked-sender rule cannot accidentally become a Content compliance draft.
 The focused flows still render the exact human-readable before/after impact and bound hashes. The
 sidebar **New policy** action always resets to a clean create draft on the current surface.
+
+## Current Google state
+
+The **Ownership** page includes a *Current Google state* panel. In dry-run or live mode, the
+**Read blocked senders** and **Read compliance rules** actions open the attended Chrome window with
+Playwright, let the browser agent read the live Gmail policy configuration without writing, and
+project the observed managed rules — with Edit, Enable/Disable, and Remove entry points into the
+exact-approval flow — plus any unmanaged rule names, which stay read-only because they lack local
+ownership evidence. Plan-only mode never opens Google, and the panel explains that instead of
+failing silently. Each read is recorded in Runs and finalized as a no-change audit package.
+
+## Appearance
+
+The top bar includes a light/dark theme toggle. The selection persists locally in the browser and
+every surface, including the policy editor, agent rail, and evidence panels, renders in both themes.
+
+When the specialist group returns findings with a passing verdict, each specialist's findings are
+listed under its message in the agent rail so the operator can see the reasoning, not only the
+summary.
 
 ## Observability and failure behavior
 

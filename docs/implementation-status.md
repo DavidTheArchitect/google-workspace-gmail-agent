@@ -12,8 +12,12 @@ Review date: 2026-07-16
 - Simple, advanced, metadata, and edition-dependent predefined expressions; one-to-ten expression
   limits; RE2 validation; all supported content locations and match operators; address-list
   conditions; and envelope sender/recipient filters.
-- Dynamic local persona and rejection-notice generation with protected policy category/ID fields,
-  category-only disclosure, and randomized safe fallback.
+- Dynamic local persona and rejection-notice generation with fresh entropy on every attempt,
+  recent-profile duplicate suppression, explicit bounded failure, protected policy category/ID
+  fields, and category-only disclosure. A deterministic sender-safety quality gate resamples drafts
+  that leak markup, escape artifacts, non-printable characters, or fabricated contact details, or
+  that omit the sender-visible category; the category is application-owned and not editable from
+  the rejection-notice editor.
 - Four-participant Microsoft Agent Framework `GroupChatBuilder` orchestration with deterministic
   round-robin selection, two passes per specialist by default, strict framework-author attribution,
   typed verdicts, complete-participant/order validation, and no model mutation authority.
@@ -35,6 +39,12 @@ Review date: 2026-07-16
 - Async draft revision guards, in-progress editor locking, clean sidebar create flow, exact focused
   impact summaries, conditional expression controls, compatible metadata operators, and responsive
   ownership/audit actions.
+- Ownership-page *Current Google state* panel: attended Playwright reads of the live blocked-sender
+  and Content compliance configuration in dry-run or live mode, projecting managed rules with Edit,
+  Enable/Disable, and Remove entry points plus read-only unmanaged rule names, recorded as
+  no-change audit packages.
+- Specialist findings rendered under each agent-rail message, and a persisted light/dark theme
+  toggle covering every console surface.
 - OneDrive-safe Reflex generation through `REFLEX_WEB_WORKDIR`, exact dependency locks, Ruff,
   strict mypy, coverage enforcement, and production-build verification.
 

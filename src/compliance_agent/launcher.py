@@ -32,9 +32,7 @@ def _run_reflex_console() -> int:
     preferred_port = settings.console_port
     selected_port = choose_console_port(preferred_port)
     if selected_port != preferred_port:
-        sys.stdout.write(
-            f"Console port {preferred_port} is busy; using {selected_port} instead.\n"
-        )
+        sys.stdout.write(f"Console port {preferred_port} is busy; using {selected_port} instead.\n")
     environment = dict(os.environ)
     environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
     environment["GMAIL_AGENT_CONSOLE_PORT"] = str(selected_port)

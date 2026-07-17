@@ -65,15 +65,9 @@ class GroupChatTranscript(FrozenModel):
         for index, turn in enumerate(self.messages):
             expected_speaker = expected_participants[index % len(expected_participants)]
             if turn.participant != expected_speaker:
-                error_message = (
-                    "group chat speaker order does not match deterministic selection"
-                )
+                error_message = "group chat speaker order does not match deterministic selection"
                 raise ValueError(error_message)
-        blocking = [
-            message.display_name
-            for message in self.messages
-            if message.verdict != "pass"
-        ]
+        blocking = [message.display_name for message in self.messages if message.verdict != "pass"]
         if blocking:
             names = ", ".join(blocking)
             error_message = f"specialist review requires operator clarification: {names}"
@@ -285,12 +279,6 @@ def _framework_messages(value: object) -> Sequence[Message]:
     return ()
 
 
-def _render_output(value: object) -> str:
-    text = getattr(value, "text", None)
-    rendered = text if isinstance(text, str) else str(value)
-    return rendered.strip()
-
-
 def _review_payload(
     value: str,
 ) -> tuple[str, Literal["pass", "clarification", "unsafe"], tuple[str, ...]] | None:
@@ -335,22 +323,3 @@ def _transcript_message(
         verdict=verdict,
         findings=findings,
     )
-
-
-def _flatten_outputs(outputs: Sequence[object]) -> tuple[str, ...]:
-    """Compatibility helper for legacy callers that only need rendered output text."""
-
-    flattened: list[str] = []
-    for output in outputs:
-        values = output if isinstance(output, list) else [output]
-        for value in values:
-            messages = _framework_messages(value)
-            if messages:
-                flattened.extend(
-                    message.text.strip() for message in messages if message.text.strip()
-                )
-                continue
-            rendered = _render_output(value)
-            if rendered:
-                flattened.append(rendered)
-    return tuple(flattened)

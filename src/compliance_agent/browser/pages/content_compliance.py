@@ -376,8 +376,7 @@ def _is_readback_mutation(
         return action == "click"
     if candidate.role == "link":
         return _is_commit_control(candidate.accessible_name) or not (
-            _is_navigation_control(candidate)
-            or _candidate_matches(candidate, navigation_identity)
+            _is_navigation_control(candidate) or _candidate_matches(candidate, navigation_identity)
         )
     if candidate.role != "button":
         return True
@@ -410,9 +409,10 @@ def _input_rule_identity(inputs: tuple[BrowserInput, ...]) -> str | None:
 
 def _require_rule_identity_visible(snapshot: str, inputs: tuple[BrowserInput, ...]) -> None:
     identity = _input_rule_identity(inputs)
-    if identity is None or " ".join(identity.split()).casefold() not in " ".join(
-        snapshot.split()
-    ).casefold():
+    if (
+        identity is None
+        or " ".join(identity.split()).casefold() not in " ".join(snapshot.split()).casefold()
+    ):
         message = "approved managed Content compliance rule is not visible before commit"
         raise StaleConfirmation(message)
 

@@ -27,3 +27,4 @@ test-results/
 /browser-profile/
 /audit/
 /state/
+.claude/
