@@ -199,6 +199,15 @@ class GeneratedRejectionNotice(FrozenModel):
     disclosure: Literal["category_only"] = "category_only"
     used_fallback: bool = False
 
+    @model_validator(mode="after")
+    def keep_internal_policy_id_out_of_notice(self) -> Self:
+        """Keep approval identity internal rather than disclosing it to senders."""
+
+        if self.policy_id.casefold() in self.text.casefold():
+            message = "rejection notice must not include the internal policy ID"
+            raise ValueError(message)
+        return self
+
 
 class ContentComplianceRuleDraft(FrozenModel):
     """A proposed advanced blocker before managed identity is assigned."""

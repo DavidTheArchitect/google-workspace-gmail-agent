@@ -53,10 +53,11 @@ from compliance_agent.llm.group_chat import (
     _review_payload,
     build_policy_group_chat,
 )
-from compliance_agent.llm.persona import PersonaNoticeGenerator
+from compliance_agent.llm.persona import PersonaNoticeGenerator, _fallback_notice
 from compliance_agent.llm.structured import PlannerResult
 from compliance_agent.reflex_console.state import (
     ConsoleState,
+    _draft_error_message,
     _persona_failure_message,
     _review_failure_message,
 )
@@ -104,7 +105,7 @@ NOW = datetime(2026, 7, 15, tzinfo=UTC)
 
 def _notice() -> GeneratedRejectionNotice:
     return GeneratedRejectionNotice(
-        text="A library dragon declined this message under category policy (MAIL-204).",
+        text="A library dragon declined this message under the category policy.",
         policy_category="category",
         policy_id="MAIL-204",
         persona=PersonaProfile(
@@ -732,6 +733,43 @@ async def test_persona_generator_accepts_bound_identity_and_falls_back() -> None
     fallback = await generator.generate(policy_category="category", policy_id="MAIL-204")
     assert fallback.used_fallback
     assert fallback.disclosure == "category_only"
+    assert "MAIL-204" not in fallback.text
+
+
+def test_rejection_notice_keeps_internal_policy_id_out_of_sender_text() -> None:
+    with pytest.raises(ValidationError, match="must not include the internal policy ID"):
+        GeneratedRejectionNotice.model_validate(
+            _notice()
+            .model_copy(
+                update={"text": "The message was refused. Internal reference MAIL-204."}
+            )
+            .model_dump()
+        )
+
+    with pytest.raises(ValidationError, match="must not include the internal policy ID"):
+        GeneratedRejectionNotice(
+            text="The message was refused under mail-204.",
+            policy_category="category",
+            policy_id="MAIL-204",
+            persona=_notice().persona,
+        )
+
+    assert _draft_error_message(
+        ValueError("rejection notice must not include the internal policy ID")
+    ) == (
+        "Remove the internal policy ID from the rejection notice. Senders should see only the "
+        "broad bounce-message category."
+    )
+
+
+def test_fallback_personas_have_high_variance_without_policy_id_disclosure() -> None:
+    notices = tuple(_fallback_notice("category", "MAIL-204", seed) for seed in range(24))
+
+    assert len({notice.persona.fictional_role for notice in notices}) >= 20
+    assert len({notice.persona.voice for notice in notices}) >= 20
+    assert len({notice.persona.motif for notice in notices}) >= 20
+    assert len({notice.text for notice in notices}) >= 20
+    assert all("MAIL-204" not in notice.text for notice in notices)
 
 
 def test_browser_step_and_readback_helpers() -> None:

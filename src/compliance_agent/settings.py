@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     plan_only: bool | None = None
     llm_max_retries: int = Field(default=3, ge=0, le=3)
     llm_temperature: float = Field(default=0, ge=0, le=0)
-    persona_temperature: float = Field(default=0.9, ge=0.1, le=1.5)
+    persona_temperature: float = Field(default=1.25, ge=0.1, le=1.5)
     llm_request_timeout_seconds: int = Field(default=120, ge=10, le=600)
     group_chat_max_rounds: int = Field(default=8, ge=4, le=12)
     group_chat_timeout_seconds: int = Field(default=300, ge=30, le=1_800)

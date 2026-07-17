@@ -53,7 +53,7 @@ FEW_SHOT_EXAMPLES: tuple[tuple[str, TaskPlan], ...] = (
                             "rejection_notice": {
                                 "text": (
                                     "Our stargazing postmaster could not deliver this message "
-                                    "under the campaign-integrity policy (MAIL-204). Please "
+                                    "under the campaign-integrity policy. Please "
                                     "contact the organization another way."
                                 ),
                                 "policy_category": "campaign-integrity",
