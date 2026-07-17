@@ -1,6 +1,6 @@
 # Implementation status
 
-Review date: 2026-07-16
+Review date: 2026-07-17
 
 ## Complete
 
@@ -16,8 +16,11 @@ Review date: 2026-07-16
   recent-profile duplicate suppression, explicit bounded failure, protected policy category/ID
   fields, and category-only disclosure. A deterministic sender-safety quality gate resamples drafts
   that leak markup, escape artifacts, non-printable characters, or fabricated contact details, or
-  that omit the sender-visible category; the category is application-owned and not editable from
-  the rejection-notice editor.
+  that expose the internal category label or return a sentence-like persona role. The category is
+  application-owned, is not sent to the creative model, and is not editable from the rejection-
+  notice editor. The overall generation budget covers every bounded attempt (not one model request),
+  each creative completion has a persona-specific output-token ceiling, and dropped or timed-out
+  Ollama requests retry with fresh entropy inside the bounded loop.
 - Four-participant Microsoft Agent Framework `GroupChatBuilder` orchestration with deterministic
   round-robin selection, two passes per specialist by default, strict framework-author attribution,
   typed verdicts, complete-participant/order validation, and no model mutation authority.

@@ -23,7 +23,7 @@ from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.domain.regex_validation import validate_google_regex
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
-from compliance_agent.llm.persona import profile_signature
+from compliance_agent.llm.persona import DEFAULT_PERSONA_ATTEMPTS, profile_signature
 from compliance_agent.llm.planner import build_group_chat_reviewer, build_persona_generator
 from compliance_agent.llm.readiness import require_local_model
 from compliance_agent.schemas.compliance import (
@@ -59,7 +59,7 @@ from compliance_agent.schemas.plan import (
     UpdateContentComplianceRule,
 )
 from compliance_agent.schemas.resources import AddressEntry
-from compliance_agent.settings import load_settings
+from compliance_agent.settings import Settings, load_settings
 
 _SHA256_HEX_LENGTH = 64
 _MAX_ADDITIONAL_EXPRESSIONS = 9
@@ -143,6 +143,7 @@ _METADATA_OPERATOR_LABELS = {
 }
 _LOGGER = logging.getLogger(__name__)
 _MAX_NOTICE_CHARACTERS = 1_000
+_PERSONA_TIMEOUT_MARGIN_SECONDS = 5.0
 _PERSONA_HISTORY_LIMIT = 6
 _STARTER_PERSONA_ROLE = "No generated persona"
 _STARTER_PERSONA_VOICE = "Neutral starter draft"
@@ -163,11 +164,10 @@ def _idle_agent_activity() -> list[dict[str, str]]:
     ]
 
 
-def _starter_notice(policy_category: str) -> str:
-    category = policy_category.strip() or "configured"
+def _starter_notice() -> str:
     return (
-        f"Delivery was refused under the {category} policy. If you need help, contact the "
-        "recipient organization through another channel."
+        "Delivery was refused because this message did not meet the recipient organization's "
+        "email policy. Contact the recipient through another published channel if you need help."
     )
 
 
@@ -206,14 +206,29 @@ def _review_failure_message(error: Exception) -> str:
     )
 
 
+def _persona_generation_budget_seconds(settings: Settings) -> float:
+    """Budget every bounded persona attempt, not just one model request.
+
+    Duplicate suppression and the sender-safety quality gate legitimately
+    consume several attempts, so the overall limit must cover each attempt's
+    own per-request client timeout.
+    """
+
+    return (
+        settings.llm_request_timeout_seconds * DEFAULT_PERSONA_ATTEMPTS
+        + _PERSONA_TIMEOUT_MARGIN_SECONDS
+    )
+
+
 def _persona_failure_message(error: Exception) -> str:
     """Return a concise local-model error for the bounce-message writer."""
 
     settings = load_settings()
     if isinstance(error, TimeoutError):
         return (
-            "Persona generation reached its bounded time limit. The existing rejection notice "
-            "was preserved; verify Ollama capacity and retry."
+            "Persona generation reached its overall bounded time limit across every "
+            "attempt. The existing rejection notice was preserved; verify Ollama "
+            "capacity and retry."
         )
     if "not found" in str(error).lower():
         return (
@@ -274,7 +289,7 @@ class ConsoleState(rx.State):
     bypass_values: str = ""
     policy_category: str = "confidential-information"
     policy_id: str = "GW-1042"
-    rejection_notice: str = _starter_notice("confidential-information")
+    rejection_notice: str = _starter_notice()
     persona_role: str = _STARTER_PERSONA_ROLE
     persona_voice: str = _STARTER_PERSONA_VOICE
     persona_motif: str = _STARTER_PERSONA_MOTIF
@@ -484,7 +499,7 @@ class ConsoleState(rx.State):
         self.rule_enabled = True
         self.blocked_values = ""
         self.bypass_values = ""
-        self.rejection_notice = _starter_notice(self.policy_category)
+        self.rejection_notice = _starter_notice()
         self.persona_role = _STARTER_PERSONA_ROLE
         self.persona_voice = _STARTER_PERSONA_VOICE
         self.persona_motif = _STARTER_PERSONA_MOTIF
@@ -1083,7 +1098,7 @@ class ConsoleState(rx.State):
     def set_policy_category(self, value: str) -> None:
         self.policy_category = value
         if not self.persona_generated and not self.persona_edited:
-            self.rejection_notice = _starter_notice(value)
+            self.rejection_notice = _starter_notice()
         self.persona_error = ""
         self._mark_draft_changed()
 
@@ -1158,7 +1173,7 @@ class ConsoleState(rx.State):
         yield
         try:
             settings = load_settings()
-            async with asyncio.timeout(settings.llm_request_timeout_seconds):
+            async with asyncio.timeout(_persona_generation_budget_seconds(settings)):
                 generated = await build_persona_generator(settings).generate(
                     policy_category=generation_category,
                     policy_id=generation_policy_id,
@@ -1988,7 +2003,7 @@ def _browser_failure_message(error: Exception) -> str:
         return text
     return (
         "The attended Google Admin run stopped safely before authorization could continue. "
-        "Review the visible Chrome window, local model availability, and configured identities."
+        "Review the visible browser window, local model availability, and configured identities."
     )
 
 
