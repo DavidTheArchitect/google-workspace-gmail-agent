@@ -51,15 +51,7 @@ def _sidebar() -> rx.Component:
             custom_attrs={"aria-label": "Primary navigation"},
         ),
         rx.spacer(),
-        rx.vstack(
-            rx.hstack(rx.box(class_name="model-ready-dot"), rx.text("Local model configured")),
-            rx.text(ConsoleState.model_label, class_name="sidebar-meta"),
-            rx.hstack(_icon("lock", 14), rx.text("Credentials stay in Chrome")),
-            rx.text("v1.0.0", class_name="sidebar-version"),
-            spacing="3",
-            align="start",
-            class_name="sidebar-status",
-        ),
+        rx.text("v1.0.0", class_name="sidebar-version"),
         class_name="sidebar",
     )
 
@@ -90,7 +82,6 @@ def _topbar() -> rx.Component:
                 ),
                 "warning",
             ),
-            _top_status("lock", "Credentials stay in Chrome"),
             class_name="topbar-statuses",
         ),
         rx.spacer(),
@@ -798,31 +789,22 @@ def _standard_editor() -> rx.Component:
 def _rejection_editor() -> rx.Component:
     return rx.box(
         rx.hstack(
-            rx.hstack(
-                rx.heading(
-                    "Rejection notice",
-                    size="4",
-                    id="rejection-notice-heading",
-                    class_name="section-heading",
-                ),
-                _icon("info", 15),
+            rx.heading(
+                "Rejection notice",
+                size="4",
+                id="rejection-notice-heading",
+                class_name="section-heading",
             ),
-            rx.spacer(),
-            rx.hstack(
-                _icon("lock-keyhole", 13),
-                rx.text("Internal identifiers hidden from senders"),
-                class_name="internal-id-badge",
-            ),
+            _icon("info", 15),
             width="100%",
-            class_name="rejection-heading",
+            class_name="rejection-heading heading-with-icon",
         ),
         rx.hstack(
             rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
             rx.vstack(
-                rx.text("Open-ended persona generator", class_name="randomness-title"),
+                rx.text("Persona generator", class_name="randomness-title"),
                 rx.text(
-                    "Fresh model entropy on every attempt, with no preset style bank, "
-                    "canned copy, or application tone filter.",
+                    "Each attempt creates a new role, voice, and sender-safe notice.",
                     class_name="randomness-copy",
                 ),
                 spacing="0",
@@ -869,8 +851,8 @@ def _rejection_editor() -> rx.Component:
                 rx.hstack(
                     rx.box("✦", class_name="persona-mark"),
                     rx.vstack(
+                        rx.text("Persona", class_name="persona-label"),
                         rx.text(ConsoleState.persona_role, class_name="persona-role"),
-                        rx.text(ConsoleState.persona_voice, class_name="persona-voice"),
                         spacing="0",
                         align="start",
                         class_name="persona-copy",
@@ -878,18 +860,10 @@ def _rejection_editor() -> rx.Component:
                     class_name="persona-identity",
                 ),
                 rx.spacer(),
-                rx.vstack(
-                    rx.text(
-                        ConsoleState.notice_character_count,
-                        " / 1,000 characters",
-                        id="notice-character-count",
-                    ),
-                    rx.text(
-                        ConsoleState.persona_status_label,
-                        custom_attrs={"role": "status", "aria-live": "polite"},
-                    ),
-                    spacing="0",
-                    align="end",
+                rx.text(
+                    ConsoleState.notice_character_count,
+                    " / 1,000 characters",
+                    id="notice-character-count",
                     class_name="notice-metadata",
                 ),
                 class_name="editor-footer",
@@ -1378,7 +1352,7 @@ def _settings_view() -> rx.Component:
         rx.heading("Settings", size="7", class_name="page-title"),
         rx.text(
             "Execution mode changes apply immediately to the next review. Google credentials "
-            "are entered only in the headed Chrome window.",
+            "are entered only in the attended browser window.",
             class_name="secondary-subtitle",
         ),
         rx.el.fieldset(
@@ -1547,7 +1521,7 @@ def _google_state_panel() -> rx.Component:
             rx.vstack(
                 rx.text("Current Google state", class_name="google-state-title"),
                 rx.text(
-                    "The local browser agent opens the attended Chrome window with "
+                    "The local browser agent opens an attended browser window with "
                     "Playwright, reads the live Gmail policy configuration without "
                     "writing, and reports it here. Rules stay editable and removable "
                     "through the exact-approval flow below.",

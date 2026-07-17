@@ -65,16 +65,18 @@ than substituting canned copy.
 Every draft also passes a deterministic sender-safety quality gate before it reaches the operator.
 Drafts that leak escape-sequence artifacts, markup or structured-data characters, non-printable
 characters, fabricated email addresses, web addresses, domain names, or phone-number-like sequences,
-or that omit the sender-visible policy category, fail the attempt and are resampled with fresh
-entropy. Line endings and stray whitespace are normalized without rewriting the model's prose. The
-bounce-message category itself is application-owned identity and is no longer editable from the
+expose the internal policy-category label, or return a sentence-like role instead of a compact title
+fail the attempt and are resampled with fresh entropy. Line endings and stray whitespace are
+normalized without rewriting the model's prose. The bounce-message category itself is
+application-owned identity, is never included in the creative prompt, and is not editable from the
 rejection-notice editor.
 
 The application still owns policy identity and disclosure boundaries. The sender-facing text may
-disclose only the broad category and never the policy ID, triggering header, regular expression,
-address, domain, metadata value, security signal, credential, or another internal identifier. Those
-are data-protection invariants, not creative-content moderation. The local model may retain behavior
-learned during its own training that this application cannot disable.
+explain the refusal in generic policy terms but never disclose the policy category, policy ID,
+triggering header, regular expression, address, domain, metadata value, security signal, credential,
+or another internal identifier. Those are data-protection invariants, not creative-content
+moderation. The local model may retain behavior learned during its own training that this
+application cannot disable.
 
 ## Multi-agent and browser execution
 

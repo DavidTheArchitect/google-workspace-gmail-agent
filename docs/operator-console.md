@@ -34,10 +34,11 @@ approved write. A server-side revision check also discards late results if the d
 4. For Content compliance, select directions, any/all combination, typed expressions, optional
    address-list behavior, and optional envelope sender/recipient filters.
 5. Review or randomize the plain-text rejection notice. The local persona model binds the broad
-   category and internal policy ID as structured identity, but the message reveals neither the ID
-   nor any sensitive matching value. Generated drafts must pass a deterministic quality gate (no
-   markup, escape artifacts, or fabricated contact details, and the category must be conveyed)
-   before they replace the visible draft.
+   category and internal policy ID as structured identity without receiving either value in its
+   creative prompt. The message reveals neither identifier nor any sensitive matching value.
+   Generated drafts must pass a deterministic quality gate (no markup, escape artifacts, fabricated
+   contact details, exposed category label, or sentence-like persona title) before they replace the
+   visible draft.
 6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
 7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
 8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.

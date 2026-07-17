@@ -4,6 +4,7 @@ import re
 import secrets
 from collections.abc import Sequence
 
+from openai import APIConnectionError, APIStatusError
 from pydantic import Field, ValidationError
 
 from compliance_agent.exceptions import PlannerFailure
@@ -15,12 +16,17 @@ from compliance_agent.llm.structured import (
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.schemas.compliance import GeneratedRejectionNotice, PersonaProfile
 
-_DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_PERSONA_ATTEMPTS = 3
 _MAX_ATTEMPTS = 5
 _NEAR_DUPLICATE_SIMILARITY = 0.82
 _PERSONA_TOP_P = 0.98
 _PERSONA_FREQUENCY_PENALTY = 0.8
 _PERSONA_PRESENCE_PENALTY = 0.8
+_PERSONA_MAX_OUTPUT_TOKENS = 640
+_MIN_ROLE_WORDS = 2
+_MAX_ROLE_WORDS = 7
+_ROLE_SENTENCE_MARKERS = (" who ", " that ", " which ", " whose ", " where ", " when ")
+_ROLE_SENTENCE_PUNCTUATION = frozenset(",.;:!?")
 
 # Local models occasionally leak markup, escape artifacts, or invented contact
 # details into creative output; every leak below fails the attempt so the
@@ -37,7 +43,7 @@ class CreativePersonaDraft(FrozenModel):
     """Creative model output, deliberately excluding application-owned policy identity."""
 
     text: str = Field(min_length=1, max_length=1_000)
-    fictional_role: str = Field(min_length=1, max_length=120)
+    fictional_role: str = Field(min_length=2, max_length=64)
     traits: tuple[str, ...] = Field(min_length=1, max_length=6)
     voice: str = Field(min_length=1, max_length=200)
     motif: str = Field(min_length=1, max_length=200)
@@ -62,7 +68,7 @@ class PersonaNoticeGenerator:
         *,
         model: str,
         temperature: float,
-        max_attempts: int = _DEFAULT_MAX_ATTEMPTS,
+        max_attempts: int = DEFAULT_PERSONA_ATTEMPTS,
     ) -> None:
         if not 1 <= max_attempts <= _MAX_ATTEMPTS:
             message = f"persona max_attempts must be between one and {_MAX_ATTEMPTS}"
@@ -91,10 +97,11 @@ class PersonaNoticeGenerator:
                 top_p=_PERSONA_TOP_P,
                 frequency_penalty=_PERSONA_FREQUENCY_PENALTY,
                 presence_penalty=_PERSONA_PRESENCE_PENALTY,
+                max_tokens=_PERSONA_MAX_OUTPUT_TOKENS,
             )
             try:
                 raw = await self._client.complete(
-                    ({"role": "user", "content": _creative_prompt(policy_category, entropy)},),
+                    ({"role": "user", "content": _creative_prompt(entropy)},),
                     CreativePersonaDraft.model_json_schema(),
                     self._model,
                     self._temperature,
@@ -104,7 +111,16 @@ class PersonaNoticeGenerator:
                     CreativePersonaDraft.model_validate_json(extract_json_block(raw))
                 )
                 notice = _bind_notice(draft, policy_category, policy_id, seed)
-            except (PlannerFailure, ValidationError, ValueError) as error:
+            except (
+                PlannerFailure,
+                ValidationError,
+                ValueError,
+                APIConnectionError,
+                APIStatusError,
+            ) as error:
+                # A dropped or timed-out Ollama request is retried with fresh
+                # entropy exactly like an invalid draft; the attempt bound and
+                # the caller's overall budget keep the loop finite.
                 last_error = error
                 continue
             quality_error = _draft_quality_error(draft, policy_category)
@@ -135,18 +151,20 @@ def profile_signature(notice: GeneratedRejectionNotice) -> str:
     ).model_dump_json()
 
 
-def _creative_prompt(policy_category: str, entropy: str) -> str:
+def _creative_prompt(entropy: str) -> str:
     return (
         "Invent one new fictional persona and a plain-text SMTP rejection notice. Choose the "
         "role, traits, voice, motif, sentence structure, length, diction, and presentation anew "
         "for this response without relying on a stock character or reusable message template. "
-        f"The broad sender-visible policy category is {policy_category!r}. State clearly that "
-        "delivery was refused under that category, naming the category itself, and advise the "
-        "sender to reach the recipient organization through a channel it already publishes. "
-        "The category is the only discloseable policy data: do not invent or expose a policy ID, "
-        "match rule, header, regular expression, address, domain, metadata, security signal, "
-        "credential, or internal identifier. Never fabricate contact details: no email address, "
-        "web address, domain name, or phone number may appear in any field. "
+        "Set fictional_role to a concise, title-like noun phrase of two to seven words and no "
+        "more than 64 characters. It must identify only the role, not describe the character in "
+        "a sentence or relative clause. State clearly that the message or delivery was refused "
+        "by the recipient organization's email policy. The notice may suggest contacting the "
+        "recipient another way, but should vary its structure and should not name or invent a "
+        "policy category, policy ID, match rule, header, regular expression, address, domain, "
+        "metadata, security signal, credential, or internal identifier. Never fabricate contact "
+        "details: no email address, web address, domain name, or phone number may appear in any "
+        "field. "
         "Write the notice as polished, grammatically complete plain prose a real sender could "
         "understand on first reading. Use only plain text: no markup, markdown, code, JSON, "
         "escape sequences, or placeholder tokens in any field. "
@@ -176,6 +194,9 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
     """Explain why a creative draft is unfit for senders, or return None."""
 
     fields = (draft.text, draft.fictional_role, *draft.traits, draft.voice, draft.motif)
+    role_words = draft.fictional_role.split()
+    normalized_role = f" {_normalize_signature(draft.fictional_role)} "
+    normalized_category = _normalize_signature(policy_category)
     artifact_checks: tuple[tuple[bool, str], ...] = (
         (
             any(artifact in value for value in fields for artifact in _ESCAPE_ARTIFACTS),
@@ -206,8 +227,18 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
             "persona output fabricated a phone-number-like sequence",
         ),
         (
-            _normalize_signature(policy_category) not in _normalize_signature(draft.text),
-            "persona output omitted the sender-visible policy category",
+            bool(
+                normalized_category
+                and any(normalized_category in _normalize_signature(value) for value in fields)
+            ),
+            "persona output exposed the internal policy category",
+        ),
+        (
+            len(role_words) < _MIN_ROLE_WORDS
+            or len(role_words) > _MAX_ROLE_WORDS
+            or any(character in _ROLE_SENTENCE_PUNCTUATION for character in draft.fictional_role)
+            or any(marker in normalized_role for marker in _ROLE_SENTENCE_MARKERS),
+            "persona role must be a concise title rather than a sentence",
         ),
     )
     return next((message for failed, message in artifact_checks if failed), None)

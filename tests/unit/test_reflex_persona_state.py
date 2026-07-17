@@ -1,9 +1,25 @@
 """Reflex persona state stays honest and never overwrites newer operator edits."""
 
+from pathlib import Path
+
 import pytest
 
-from compliance_agent.reflex_console.state import ConsoleState
+from compliance_agent.llm.persona import DEFAULT_PERSONA_ATTEMPTS
+from compliance_agent.reflex_console.state import (
+    ConsoleState,
+    _persona_generation_budget_seconds,
+)
 from compliance_agent.schemas.compliance import GeneratedRejectionNotice, PersonaProfile
+from compliance_agent.settings import Settings
+
+
+def test_generation_budget_covers_every_bounded_attempt() -> None:
+    settings = Settings(llm_request_timeout_seconds=120)
+
+    budget = _persona_generation_budget_seconds(settings)
+
+    assert budget > 120 * DEFAULT_PERSONA_ATTEMPTS
+    assert budget < 120 * (DEFAULT_PERSONA_ATTEMPTS + 1)
 
 
 def _generated_notice() -> GeneratedRejectionNotice:
@@ -33,8 +49,20 @@ def test_initial_persona_is_an_honest_neutral_starter() -> None:
     assert "wild-eyed" not in visible
     assert "tiny thunder" not in visible
     assert "unhinged" not in visible
+    assert "confidential-information" not in visible
     assert not state.persona_generated
     assert state.persona_status_label == "Starter draft · generate a persona"
+
+
+def test_rejection_editor_omits_redundant_status_and_browser_copy() -> None:
+    source = (
+        Path(__file__).parents[2] / "src" / "compliance_agent" / "reflex_console" / "app.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Credentials stay in Chrome" not in source
+    assert "Internal identifiers hidden from senders" not in source
+    assert "ConsoleState.persona_status_label" not in source
+    assert "ConsoleState.persona_voice" not in source
 
 
 @pytest.mark.asyncio

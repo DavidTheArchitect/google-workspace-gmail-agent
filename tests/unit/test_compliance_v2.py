@@ -973,6 +973,7 @@ def test_reflex_review_failure_is_concise_and_group_requires_four_rounds() -> No
     assert "sensitive internals" not in message
     assert "bounded time limit" in _review_failure_message(TimeoutError())
     assert "bounded time limit" in _persona_failure_message(TimeoutError())
+    assert "every attempt" in _persona_failure_message(TimeoutError())
 
     with pytest.raises(ValidationError, match="greater than or equal to 4"):
         Settings(group_chat_max_rounds=3)
