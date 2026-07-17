@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 
+
 def _external_web_directory() -> Path:
     """Keep generated Node trees out of OneDrive-backed repositories on Windows."""
 

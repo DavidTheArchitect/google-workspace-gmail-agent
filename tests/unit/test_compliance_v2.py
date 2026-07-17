@@ -1,8 +1,10 @@
 """Coverage for schema-v2 compliance blockers and local-agent boundaries."""
 
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import get_type_hints
 from uuid import UUID
 
 import pytest
@@ -866,6 +868,12 @@ async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
     assert not state.expression_valid
 
 
+def test_reflex_async_event_annotations_resolve_at_runtime() -> None:
+    assert get_type_hints(ConsoleState.generate_persona.fn)["return"] == AsyncIterator[None]
+    assert get_type_hints(ConsoleState.preview.fn)["return"] == AsyncIterator[None]
+    assert get_type_hints(ConsoleState.approve_plan.fn)["return"] == AsyncIterator[None]
+
+
 def test_reflex_draft_edit_invalidates_all_live_approval_evidence() -> None:
     state = ConsoleState(_reflex_internal_init=True)
     assert not state.draft_minimum_ready
@@ -1022,6 +1030,16 @@ def test_group_chat_review_payload_is_strict_and_bounded() -> None:
         "ok",
         "pass",
         (),
+    )
+    assert _review_payload(
+        'Review result:\n```json\n{"verdict":"pass","summary":"ok","findings":[]}\n```'
+    ) == ("ok", "pass", ())
+    assert (
+        _review_payload(
+            '{"verdict":"pass","summary":"first","findings":[]}'
+            '{"verdict":"pass","summary":"second","findings":[]}'
+        )
+        is None
     )
     assert (
         _review_payload('{"verdict":"maybe","summary":"ok","findings":[]}') is None

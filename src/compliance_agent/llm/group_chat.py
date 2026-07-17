@@ -10,7 +10,7 @@ from agent_framework_orchestrations import GroupChatBuilder, GroupChatState
 from openai import AsyncOpenAI
 from pydantic import Field, model_validator
 
-from compliance_agent.llm.structured import PlannerResult, StructuredPlanner
+from compliance_agent.llm.structured import PlannerResult, StructuredPlanner, extract_json_block
 from compliance_agent.schemas.base import FrozenModel
 from compliance_agent.settings import Settings
 
@@ -297,8 +297,8 @@ def _review_payload(
     """Accept only the bounded JSON review contract emitted by a specialist."""
 
     try:
-        payload = json.loads(value)
-    except (TypeError, json.JSONDecodeError):
+        payload = json.loads(extract_json_block(value))
+    except (TypeError, ValueError, json.JSONDecodeError):
         return None
     if not isinstance(payload, dict):
         return None

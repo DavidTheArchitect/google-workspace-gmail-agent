@@ -10,6 +10,7 @@ import webbrowser
 from pathlib import Path
 
 from compliance_agent.settings import load_settings
+from compliance_agent.startup import choose_console_port
 
 
 def run(arguments: list[str]) -> int:
@@ -28,16 +29,25 @@ def _run_reflex_console() -> int:
     if not (node_dir / "node.exe").is_file():
         message = "project-local Node is missing; run Setup-Gmail-Agent.cmd"
         raise SystemExit(message)
+    preferred_port = settings.console_port
+    selected_port = choose_console_port(preferred_port)
+    if selected_port != preferred_port:
+        sys.stdout.write(
+            f"Console port {preferred_port} is busy; using {selected_port} instead.\n"
+        )
     environment = dict(os.environ)
     environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
-    url = f"http://127.0.0.1:{settings.console_port}"
-    opener = threading.Thread(
-        target=_open_when_ready,
-        args=(settings.console_port, url),
-        daemon=True,
-        name="reflex-console-opener",
-    )
-    opener.start()
+    environment["GMAIL_AGENT_CONSOLE_PORT"] = str(selected_port)
+    environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] = str(selected_port)
+    url = f"http://127.0.0.1:{selected_port}"
+    if settings.console_open_browser:
+        opener = threading.Thread(
+            target=_open_when_ready,
+            args=(selected_port, url),
+            daemon=True,
+            name="reflex-console-opener",
+        )
+        opener.start()
     command = [
         sys.executable,
         "-m",
@@ -46,9 +56,9 @@ def _run_reflex_console() -> int:
         "--env",
         "prod",
         "--frontend-port",
-        str(settings.console_port),
+        str(selected_port),
         "--backend-port",
-        str(settings.console_port),
+        str(selected_port),
         "--backend-host",
         "127.0.0.1",
         "--single-port",

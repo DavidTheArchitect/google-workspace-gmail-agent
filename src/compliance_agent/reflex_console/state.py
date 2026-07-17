@@ -6,9 +6,9 @@ import asyncio
 import logging
 import shutil
 import webbrowser
+from collections.abc import AsyncIterator  # noqa: TC003 - Reflex resolves event hints at runtime.
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 import reflex as rx
@@ -57,9 +57,6 @@ from compliance_agent.schemas.plan import (
 )
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.settings import load_settings
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 _SHA256_HEX_LENGTH = 64
 _MAX_ADDITIONAL_EXPRESSIONS = 9
