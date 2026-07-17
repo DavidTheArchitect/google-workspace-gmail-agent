@@ -179,8 +179,8 @@ def _idle_agent_activity() -> list[dict[str, str]]:
 
 def _starter_notice() -> str:
     return (
-        "This sender is blocked from delivering mail to the recipient organization. Contact the "
-        "recipient through another published channel if needed."
+        "Delivery cannot pass this recipient organization's mail gate. Use another published route "
+        "if you still need to make contact."
     )
 
 

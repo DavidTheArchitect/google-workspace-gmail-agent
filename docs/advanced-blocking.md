@@ -66,7 +66,8 @@ alignments remain reachable, while the immediately previous alignment is exclude
 random draw to prevent back-to-back repeats. The model receives that authoritative brief and a
 field-by-field influence contract, then verbalizes it into a compact fictional role, voice, motif,
 and bounce message. It may not replace, contradict, omit, or disclose the sampled fields, and an
-accepted notice must explicitly say that the sender is blocked.
+accepted notice must make the rejection outcome and delivery context clear without relying on a
+fixed blocked-sender sentence.
 
 Every bounded attempt gets a new cryptographic seed for both application sampling and model
 sampling. The console keeps a short session history and resamples exact or near-duplicate profiles
@@ -78,7 +79,9 @@ Every draft also passes a deterministic sender-safety quality gate before it rea
 Drafts that leak escape-sequence artifacts, markup or structured-data characters, non-printable
 characters, fabricated email addresses, web addresses, domain names, or phone-number-like sequences,
 expose the internal policy-category label, or return a sentence-like role instead of a compact title
-fail the attempt and are resampled with fresh entropy. Line endings and stray whitespace are
+fail the attempt and are resampled with fresh entropy. Drafts also fail when they omit a recognizable
+rejection outcome or message-delivery context, or fall back to the stock “this sender is blocked”
+formula. Line endings and stray whitespace are
 normalized without rewriting the model's prose. The sampled identity is displayed beneath the
 notice so the operator can inspect the source facts separately from the model's wording. The
 bounce-message category itself is application-owned identity, is never included in the creative
