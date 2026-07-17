@@ -440,6 +440,91 @@ def test_short_launcher_starts_console(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls == [["console"]]
 
 
+def test_reflex_launcher_propagates_automatic_port_fallback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node_dir = tmp_path / ".node" / "node-v22.22.3-win-x64"
+    node_dir.mkdir(parents=True)
+    (node_dir / "node.exe").touch()
+    captured: dict[str, object] = {}
+
+    class FakeThread:
+        def __init__(
+            self,
+            *,
+            target: object,
+            args: tuple[int, str],
+            daemon: bool,
+            name: str,
+        ) -> None:
+            captured["thread"] = (target, args, daemon, name)
+
+        def start(self) -> None:
+            captured["thread_started"] = True
+
+    def fake_call(command: list[str], *, env: dict[str, str]) -> int:
+        captured["command"] = command
+        captured["environment"] = env
+        return 17
+
+    monkeypatch.setattr(
+        launcher,
+        "load_settings",
+        lambda: SimpleNamespace(console_port=8765, console_open_browser=True),
+    )
+    monkeypatch.setattr(launcher, "choose_console_port", lambda _port: 8766)
+    monkeypatch.setattr(launcher.Path, "cwd", lambda: tmp_path)
+    monkeypatch.setattr(launcher.threading, "Thread", FakeThread)
+    monkeypatch.setattr(launcher.subprocess, "call", fake_call)
+
+    assert launcher._run_reflex_console() == 17
+
+    command = cast("list[str]", captured["command"])
+    environment = cast("dict[str, str]", captured["environment"])
+    assert command[command.index("--frontend-port") + 1] == "8766"
+    assert command[command.index("--backend-port") + 1] == "8766"
+    assert environment["GMAIL_AGENT_CONSOLE_PORT"] == "8766"
+    assert environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] == "8766"
+    assert captured["thread"] == (
+        launcher._open_when_ready,
+        (8766, "http://127.0.0.1:8766"),
+        True,
+        "reflex-console-opener",
+    )
+    assert captured["thread_started"] is True
+    assert "port 8765 is busy; using 8766 instead" in capsys.readouterr().out
+
+
+def test_reflex_launcher_respects_disabled_browser_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    node_dir = tmp_path / ".node" / "node-v22.22.3-win-x64"
+    node_dir.mkdir(parents=True)
+    (node_dir / "node.exe").touch()
+    thread_started = False
+
+    class FakeThread:
+        def __init__(self, **_kwargs: object) -> None:
+            nonlocal thread_started
+            thread_started = True
+
+    monkeypatch.setattr(
+        launcher,
+        "load_settings",
+        lambda: SimpleNamespace(console_port=8765, console_open_browser=False),
+    )
+    monkeypatch.setattr(launcher, "choose_console_port", lambda port: port)
+    monkeypatch.setattr(launcher.Path, "cwd", lambda: tmp_path)
+    monkeypatch.setattr(launcher.threading, "Thread", FakeThread)
+    monkeypatch.setattr(launcher.subprocess, "call", lambda _command, *, env: 0)
+
+    assert launcher._run_reflex_console() == 0
+    assert not thread_started
+
+
 def test_cli_audit_prune_defaults_to_plan_and_requires_apply(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
