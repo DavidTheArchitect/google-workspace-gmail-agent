@@ -23,7 +23,12 @@ from compliance_agent.domain.hashing import canonical_hash
 from compliance_agent.exceptions import AmbiguousTarget, StaleConfirmation
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm import readiness as readiness_module
-from compliance_agent.llm.readiness import _ollama_native_endpoint, require_local_model
+from compliance_agent.llm.readiness import (
+    _ollama_native_endpoint,
+    list_local_models,
+    pull_local_model,
+    require_local_model,
+)
 from compliance_agent.schemas.compliance import (
     AdvancedContentLocation,
     AdvancedContentMatch,
@@ -187,6 +192,55 @@ async def test_local_model_readiness_hides_provider_failure(
             require_vision=False,
         )
     assert "provider internals" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_local_model_catalog_lists_and_pulls_validated_tags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class _Response:
+        def __init__(self, payload: object) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> object:
+            return self._payload
+
+    class _Client:
+        async def __aenter__(self) -> "_Client":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, endpoint: str) -> _Response:
+            assert endpoint == "http://localhost:11434/api/tags"
+            return _Response(
+                {
+                    "models": [
+                        {"model": "qwen3:14b"},
+                        {"name": "gemma4:12b"},
+                        {"model": "bad model"},
+                        {"model": "qwen3:14b"},
+                    ]
+                }
+            )
+
+        async def post(self, endpoint: str, *, json: object) -> _Response:
+            assert endpoint == "http://localhost:11434/api/pull"
+            assert json == {"model": "qwen3:14b", "stream": False}
+            return _Response({"status": "success"})
+
+    monkeypatch.setattr(readiness_module.httpx2, "AsyncClient", lambda **_kwargs: _Client())
+    settings = _settings(tmp_path, RunMode.PLAN_ONLY)
+
+    assert await list_local_models(settings) == ("gemma4:12b", "qwen3:14b")
+    assert await pull_local_model(settings, " qwen3:14b ") == "qwen3:14b"
+    with pytest.raises(ValueError, match="valid local Ollama model tag"):
+        await pull_local_model(settings, "bad model")
 
 
 def test_audit_catalog_surfaces_interrupted_run(tmp_path: Path) -> None:

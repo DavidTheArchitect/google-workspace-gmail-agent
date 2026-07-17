@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from compliance_agent.domain.normalization import normalize_domain, normalize_email
 from compliance_agent.infrastructure.permissions import restrict_permissions
+from compliance_agent.llm.readiness import normalize_model_tag
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,7 +28,6 @@ _EDITABLE_KEYS = frozenset(
 )
 _LEGACY_RUN_MODE_KEYS = frozenset({"CA_PLAN_ONLY", "CA_DRY_RUN"})
 _ASSIGNMENT = re.compile(r"^\s*#?\s*(CA_[A-Z0-9_]+)\s*=.*$")
-_MODEL_TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +62,8 @@ class LocalConfigurationStore:
     def save_agent_models(self, orchestration_model: str, browser_model: str) -> tuple[str, str]:
         """Validate and persist separate local reasoning and vision model tags."""
 
-        orchestration = _validated_model_tag(orchestration_model, "orchestration model")
-        browser = _validated_model_tag(browser_model, "browser model")
+        orchestration = normalize_model_tag(orchestration_model, "orchestration model")
+        browser = normalize_model_tag(browser_model, "browser model")
         self.update(
             {
                 "CA_OLLAMA_MODEL": orchestration,
@@ -130,11 +130,3 @@ def _validate_update_keys(values: Mapping[str, str], remove_keys: frozenset[str]
         names = ", ".join(sorted(unsupported_removals))
         message = f"configuration keys cannot be removed here: {names}"
         raise ValueError(message)
-
-
-def _validated_model_tag(value: str, label: str) -> str:
-    normalized = value.strip()
-    if _MODEL_TAG.fullmatch(normalized) is None:
-        message = f"{label} must be a valid local Ollama model tag"
-        raise ValueError(message)
-    return normalized

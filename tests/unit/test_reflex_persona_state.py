@@ -65,6 +65,65 @@ def test_rejection_editor_omits_redundant_status_and_browser_copy() -> None:
     assert "ConsoleState.persona_voice" not in source
 
 
+def test_settings_uses_installed_model_dropdowns_and_add_control() -> None:
+    source = (
+        Path(__file__).parents[2] / "src" / "compliance_agent" / "reflex_console" / "app.py"
+    ).read_text(encoding="utf-8")
+
+    assert source.count("ConsoleState.available_models") == 2
+    assert "ConsoleState.add_local_model" in source
+    assert "ConsoleState.refresh_local_models" in source
+    assert "Large models may take several" in source
+
+
+@pytest.mark.asyncio
+async def test_model_settings_refresh_and_add_without_changing_selections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = [("gemma4:12b", "qwen3:14b")]
+
+    async def _list_models(_settings: Settings) -> tuple[str, ...]:
+        return catalog[-1]
+
+    async def _pull_model(_settings: Settings, model_tag: str) -> str:
+        assert model_tag == "new-model:7b"
+        catalog.append(("gemma4:12b", "new-model:7b", "qwen3:14b"))
+        return model_tag
+
+    def _settings() -> Settings:
+        return Settings()
+
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.list_local_models",
+        _list_models,
+    )
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.pull_local_model",
+        _pull_model,
+    )
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.load_settings",
+        _settings,
+    )
+    state = ConsoleState(_reflex_internal_init=True)
+    state.orchestration_model = "gemma4:12b"
+    state.browser_model = "gemma4:12b"
+
+    assert [update async for update in state.refresh_local_models()] == [None]
+    assert state.available_models == ["gemma4:12b", "qwen3:14b"]
+    assert not state.model_catalog_in_progress
+
+    state.new_model_tag = "new-model:7b"
+    assert [update async for update in state.add_local_model()] == [None]
+
+    assert state.available_models == ["gemma4:12b", "new-model:7b", "qwen3:14b"]
+    assert state.orchestration_model == "gemma4:12b"
+    assert state.browser_model == "gemma4:12b"
+    assert state.new_model_tag == ""
+    assert not state.model_pull_in_progress
+    assert "Choose where to use it" in state.configuration_message
+
+
 @pytest.mark.asyncio
 async def test_generation_passes_recent_history_and_records_provenance(
     monkeypatch: pytest.MonkeyPatch,

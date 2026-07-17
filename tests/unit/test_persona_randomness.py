@@ -70,25 +70,19 @@ def _install_entropy(
     monkeypatch: pytest.MonkeyPatch,
     *,
     seeds: Sequence[int],
-    nonces: Sequence[str],
 ) -> None:
     seed_values = iter(seeds)
-    nonce_values = iter(nonces)
     monkeypatch.setattr(
         "compliance_agent.llm.persona.secrets.randbits",
         lambda _bits: next(seed_values),
     )
-    monkeypatch.setattr(
-        "compliance_agent.llm.persona.secrets.token_hex",
-        lambda _bytes: next(nonce_values),
-    )
 
 
 @pytest.mark.asyncio
-async def test_persona_binds_protected_fields_application_side_with_fresh_prompt(
+async def test_persona_binds_protected_fields_application_side_with_fresh_sampling(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_entropy(monkeypatch, seeds=(101,), nonces=("nonce-one",))
+    _install_entropy(monkeypatch, seeds=(101,))
     client = RecordingCompletion((_draft().model_dump_json(),))
     generator = PersonaNoticeGenerator(client, model="gemma4:12b", temperature=1.25)
 
@@ -104,7 +98,6 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_prompt
     assert not notice.used_fallback
     assert client.calls[0]["schema"] == CreativePersonaDraft.model_json_schema()
     prompt = client.calls[0]["messages"][0]["content"]
-    assert "nonce-one" in prompt
     assert "MAIL-204" not in prompt
     assert "confidential-information" not in prompt
     assert "two to seven words" in prompt
@@ -122,7 +115,7 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prior_client = RecordingCompletion((_draft().model_dump_json(),))
-    _install_entropy(monkeypatch, seeds=(10,), nonces=("prior",))
+    _install_entropy(monkeypatch, seeds=(10,))
     prior = await PersonaNoticeGenerator(
         prior_client,
         model="gemma4:12b",
@@ -153,7 +146,6 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     _install_entropy(
         monkeypatch,
         seeds=(201, 202, 203),
-        nonces=("nonce-a", "nonce-b", "nonce-c"),
     )
     generator = PersonaNoticeGenerator(client, model="gemma4:12b", temperature=1.25)
 
@@ -167,11 +159,7 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     assert notice.persona.fictional_role == fresh.fictional_role
     assert [call["sampling"].seed for call in client.calls] == [201, 202, 203]
     prompts = [call["messages"][0]["content"] for call in client.calls]
-    assert len(set(prompts)) == 3
-    assert all(
-        nonce in prompt
-        for nonce, prompt in zip(("nonce-a", "nonce-b", "nonce-c"), prompts, strict=True)
-    )
+    assert len(set(prompts)) == 1
 
 
 @pytest.mark.asyncio
@@ -226,7 +214,6 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
     _install_entropy(
         monkeypatch,
         seeds=(501, 502, 503, 504),
-        nonces=("n-1", "n-2", "n-3", "n-4"),
     )
     generator = PersonaNoticeGenerator(
         client,
@@ -257,7 +244,7 @@ async def test_transient_connection_failures_retry_with_fresh_entropy(
             return output
 
     client = _FlakyCompletion(("CONNECTION_DROP", _draft().model_dump_json()))
-    _install_entropy(monkeypatch, seeds=(701, 702), nonces=("n-7", "n-8"))
+    _install_entropy(monkeypatch, seeds=(701, 702))
     generator = PersonaNoticeGenerator(client, model="gemma4:12b", temperature=1.25)
 
     notice = await generator.generate(
@@ -279,7 +266,7 @@ async def test_windows_line_endings_and_padding_are_normalized(
             "organization through a channel it already publishes.  "
         ),
     )
-    _install_entropy(monkeypatch, seeds=(601,), nonces=("n-6",))
+    _install_entropy(monkeypatch, seeds=(601,))
     client = RecordingCompletion((messy.model_dump_json(),))
     generator = PersonaNoticeGenerator(client, model="gemma4:12b", temperature=1.25)
 
@@ -297,7 +284,7 @@ async def test_windows_line_endings_and_padding_are_normalized(
 async def test_retry_exhaustion_raises_without_a_canned_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_entropy(monkeypatch, seeds=(301, 302), nonces=("nonce-x", "nonce-y"))
+    _install_entropy(monkeypatch, seeds=(301, 302))
     client = RecordingCompletion(("invalid", "still invalid"))
     generator = PersonaNoticeGenerator(
         client,
@@ -326,7 +313,7 @@ async def test_sentence_like_persona_roles_retry_as_compact_titles(
         fictional_role="Archivist of Relic Gate",
     )
     client = RecordingCompletion((sentence_role.model_dump_json(), compact_role.model_dump_json()))
-    _install_entropy(monkeypatch, seeds=(801, 802), nonces=("n-9", "n-10"))
+    _install_entropy(monkeypatch, seeds=(801, 802))
     generator = PersonaNoticeGenerator(
         client,
         model="gemma4:12b",
@@ -386,6 +373,7 @@ async def test_ollama_client_uses_schema_title_and_persona_sampling_controls() -
     assert request["frequency_penalty"] == 0.6
     assert request["presence_penalty"] == 0.7
     assert request["max_tokens"] == 512
+    assert request["reasoning_effort"] == "none"
 
 
 def test_persona_implementation_contains_no_reported_canned_phrases() -> None:

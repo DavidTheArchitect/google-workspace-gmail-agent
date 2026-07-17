@@ -1395,25 +1395,77 @@ def _settings_view() -> rx.Component:
                 class_name="field-help",
             ),
             _field_label("Group-chat and persona model", "orchestration-model"),
-            rx.input(
+            rx.select(
+                ConsoleState.available_models,
                 id="orchestration-model",
                 value=ConsoleState.orchestration_model,
                 on_change=ConsoleState.set_orchestration_model,
-                placeholder="gemma4:12b",
                 width="100%",
+                custom_attrs={"aria-label": "Group-chat and persona model"},
+                disabled=ConsoleState.model_controls_locked,
             ),
             _field_label("Browser vision model", "browser-model"),
-            rx.input(
+            rx.select(
+                ConsoleState.available_models,
                 id="browser-model",
                 value=ConsoleState.browser_model,
                 on_change=ConsoleState.set_browser_model,
-                placeholder="gemma4:12b",
                 width="100%",
+                custom_attrs={"aria-label": "Browser vision model"},
+                disabled=ConsoleState.model_controls_locked,
             ),
-            rx.button(
-                "Save local models",
-                on_click=ConsoleState.save_agent_models,
-                class_name="secondary-action",
+            rx.text(
+                "Only choose a vision-capable model for attended Google Admin navigation.",
+                class_name="field-help",
+            ),
+            _field_label("Add an Ollama model", "new-local-model"),
+            rx.hstack(
+                rx.input(
+                    id="new-local-model",
+                    value=ConsoleState.new_model_tag,
+                    on_change=ConsoleState.set_new_model_tag,
+                    placeholder="model:tag",
+                    width="100%",
+                    disabled=ConsoleState.model_controls_locked,
+                ),
+                rx.button(
+                    rx.cond(
+                        ConsoleState.model_pull_in_progress,
+                        "Adding model…",
+                        "Add model",
+                    ),
+                    on_click=ConsoleState.add_local_model,
+                    class_name="secondary-action",
+                    disabled=(
+                        ConsoleState.model_controls_locked | (ConsoleState.new_model_tag == "")
+                    ),
+                ),
+                width="100%",
+                class_name="model-add-row",
+            ),
+            rx.text(
+                "Ollama downloads the exact model tag locally. Large models may take several "
+                "minutes and are not selected automatically.",
+                class_name="field-help",
+            ),
+            rx.hstack(
+                rx.button(
+                    "Save local models",
+                    on_click=ConsoleState.save_agent_models,
+                    class_name="secondary-action",
+                    disabled=ConsoleState.model_controls_locked,
+                ),
+                rx.button(
+                    rx.cond(
+                        ConsoleState.model_catalog_in_progress,
+                        "Refreshing…",
+                        "Refresh installed models",
+                    ),
+                    on_click=ConsoleState.refresh_local_models,
+                    class_name="text-button",
+                    disabled=ConsoleState.model_controls_locked,
+                ),
+                class_name="model-actions",
             ),
             rx.cond(
                 ConsoleState.configuration_message != "",
@@ -1430,7 +1482,11 @@ def _settings_view() -> rx.Component:
                     class_name=rx.cond(
                         ConsoleState.configuration_tone == "error",
                         "configuration-message error",
-                        "configuration-message success",
+                        rx.cond(
+                            ConsoleState.configuration_tone == "success",
+                            "configuration-message success",
+                            "configuration-message info",
+                        ),
                     ),
                 ),
             ),

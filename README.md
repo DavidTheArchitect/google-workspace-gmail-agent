@@ -114,8 +114,10 @@ Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy
 `CA_PLAN_ONLY`/`CA_DRY_RUN` values are translated only when `CA_RUN_MODE` is absent; mixing the old
 and new settings fails configuration validation. The console Settings page can select and persist
 the run mode, expected administrator email, Workspace domain, group-chat model, and browser vision
-model. Plan-only reviews never open Google. Dry runs open the attended browser and read the current
-Google configuration without writing. Live runs perform that same read, show exact before/change
+model. Model selectors are populated from the installed Ollama catalog, and an exact model tag can
+be downloaded locally from the same page before it is assigned to either role. Plan-only reviews
+never open Google. Dry runs open the attended browser and read the current Google configuration
+without writing. Live runs perform that same read, show exact before/change
 hashes, require a one-time phrase and acknowledgement, re-read for drift, then apply and verify.
 Changing any policy field invalidates the pending approval immediately. `.env.example` documents
 the safe starting values.

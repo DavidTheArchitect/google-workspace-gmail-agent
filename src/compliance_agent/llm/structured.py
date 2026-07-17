@@ -1,7 +1,7 @@
 """Schema-constrained Ollama calls with bounded corrective validation retries."""
 
 import json
-from typing import Protocol
+from typing import Literal, Protocol
 
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
@@ -44,6 +44,7 @@ class CompletionSampling(FrozenModel):
     frequency_penalty: float = Field(ge=-2, le=2)
     presence_penalty: float = Field(ge=-2, le=2)
     max_tokens: int | None = Field(default=None, ge=128, le=4_096)
+    reasoning_effort: Literal["none", "low", "medium", "high"] = "none"
 
 
 class PlannerAttempt(FrozenModel):
@@ -108,6 +109,7 @@ class OllamaOpenAIClient:
                 frequency_penalty=sampling.frequency_penalty,
                 presence_penalty=sampling.presence_penalty,
                 max_tokens=sampling.max_tokens,
+                reasoning_effort=sampling.reasoning_effort,
             )
         content = response.choices[0].message.content
         if content is None:
