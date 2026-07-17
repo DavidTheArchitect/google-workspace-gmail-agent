@@ -36,6 +36,17 @@ def _generated_notice() -> GeneratedRejectionNotice:
             voice="syncopated marginal notes",
             motif="folded maps and green ink",
             seed=77,
+            age=46,
+            occupation="railway timetable editor",
+            location="a rail terminus on the prairie",
+            goals=(
+                "keep a fragile public service dependable",
+                "leave an accurate record for an uncertain future",
+            ),
+            personality="a calm contrarian who tests every assumption",
+            time_period="1890s",
+            current_mood="determined",
+            alignment="lawful neutral",
         ),
     )
 
@@ -63,6 +74,10 @@ def test_rejection_editor_omits_redundant_status_and_browser_copy() -> None:
     assert "Internal identifiers hidden from senders" not in source
     assert "ConsoleState.persona_status_label" not in source
     assert "ConsoleState.persona_voice" not in source
+    assert "ConsoleState.persona_mood" in source
+    assert "ConsoleState.persona_alignment" in source
+    assert "persona-fact" in source
+    assert "persona-detail-grid" in source
 
 
 def test_settings_uses_installed_model_dropdowns_and_add_control() -> None:
@@ -152,7 +167,15 @@ async def test_generation_passes_recent_history_and_records_provenance(
     assert not state.persona_edited
     assert not state.persona_error
     assert len(state.persona_history) == 2
-    assert state.persona_status_label == "Fresh model-generated profile"
+    assert state.persona_status_label == "Sampled brief · model-rendered notice"
+    assert state.persona_age == 46
+    assert state.persona_occupation == "railway timetable editor"
+    assert state.persona_location == "a rail terminus on the prairie"
+    assert "Age 46" in state.persona_context_line
+    assert "Mood: determined" in state.persona_character_line
+    assert "Alignment: lawful neutral" in state.persona_character_line
+    assert "Traits: elliptical, restless" in state.persona_character_line
+    assert "Goals: keep a fragile public service dependable" in state.persona_character_line
 
 
 @pytest.mark.asyncio

@@ -10,10 +10,12 @@ from openai import APIConnectionError
 
 from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.llm.persona import (
+    ApplicationPersonaBrief,
     CreativePersonaDraft,
     PersonaNoticeGenerator,
     PersonaProfileSignature,
     profile_signature,
+    sample_persona_brief,
 )
 from compliance_agent.llm.structured import CompletionSampling, OllamaOpenAIClient
 
@@ -25,14 +27,12 @@ def _draft(
         "organization by another route."
     ),
     fictional_role: str = "midnight archive cartographer",
-    traits: tuple[str, ...] = ("restless", "elliptical"),
     voice: str = "syncopated marginal notes",
     motif: str = "folded maps and green ink",
 ) -> CreativePersonaDraft:
     return CreativePersonaDraft(
         text=text,
         fictional_role=fictional_role,
-        traits=traits,
         voice=voice,
         motif=motif,
     )
@@ -95,12 +95,48 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
     assert notice.policy_category == "confidential-information"
     assert notice.policy_id == "MAIL-204"
     assert notice.persona.seed == 101
+    expected_brief = sample_persona_brief(101)
+    assert (
+        notice.persona.age,
+        notice.persona.occupation,
+        notice.persona.location,
+        notice.persona.traits,
+        notice.persona.goals,
+        notice.persona.personality,
+        notice.persona.time_period,
+        notice.persona.current_mood,
+        notice.persona.alignment,
+    ) == (
+        expected_brief.age,
+        expected_brief.occupation,
+        expected_brief.location,
+        expected_brief.traits,
+        expected_brief.goals,
+        expected_brief.personality,
+        expected_brief.time_period,
+        expected_brief.current_mood,
+        expected_brief.alignment,
+    )
     assert not notice.used_fallback
     assert client.calls[0]["schema"] == CreativePersonaDraft.model_json_schema()
     prompt = client.calls[0]["messages"][0]["content"]
     assert "MAIL-204" not in prompt
     assert "confidential-information" not in prompt
-    assert "two to seven words" in prompt
+    required_prompt_content = (
+        f"Age: {expected_brief.age}",
+        f"Occupation: {expected_brief.occupation}",
+        f"Location: {expected_brief.location}",
+        f"Time period: {expected_brief.time_period}",
+        f"Current mood: {expected_brief.current_mood}",
+        f"D&D alignment: {expected_brief.alignment}",
+        "Mood drafting effect:",
+        "Alignment drafting effect:",
+        "must shape cadence and energy",
+        "must shape rhetorical stance",
+        "generic recipient email-policy refusal",
+        "two to seven words",
+    )
+    assert all(value in prompt for value in required_prompt_content)
     sampling = client.calls[0]["sampling"]
     assert isinstance(sampling, CompletionSampling)
     assert sampling.seed == 101
@@ -108,6 +144,89 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
     assert sampling.max_tokens == 640
     signature = PersonaProfileSignature.model_validate_json(profile_signature(notice))
     assert signature.fictional_role == "midnight archive cartographer"
+    assert (
+        signature.age,
+        signature.occupation,
+        signature.current_mood,
+        signature.alignment,
+    ) == (
+        expected_brief.age,
+        expected_brief.occupation.casefold(),
+        expected_brief.current_mood,
+        expected_brief.alignment,
+    )
+
+
+def test_application_persona_briefs_are_seeded_coherent_and_diverse() -> None:
+    first = sample_persona_brief(904)
+    repeated = sample_persona_brief(904)
+    briefs = [sample_persona_brief(seed) for seed in range(40)]
+    alignments = {sample_persona_brief(seed).alignment for seed in range(500)}
+    expected_alignments = {
+        "lawful good",
+        "neutral good",
+        "chaotic good",
+        "lawful neutral",
+        "true neutral",
+        "chaotic neutral",
+        "lawful evil",
+        "neutral evil",
+        "chaotic evil",
+    }
+
+    assert isinstance(first, ApplicationPersonaBrief)
+    assert first == repeated
+    assert len(first.traits) == 3
+    assert len(set(first.traits)) == 3
+    assert len(first.goals) == 2
+    assert len(set(first.goals)) == 2
+    assert 21 <= first.age <= 79
+    assert first.alignment in expected_alignments
+    assert alignments == expected_alignments
+    assert first.current_mood
+    assert len({brief.model_dump_json() for brief in briefs}) == len(briefs)
+
+
+def test_application_persona_brief_avoids_an_immediate_alignment_repeat() -> None:
+    first = sample_persona_brief(4)
+    next_brief = sample_persona_brief(4, excluded_alignments=(first.alignment,))
+
+    assert first.alignment == "chaotic evil"
+    assert next_brief.alignment != first.alignment
+
+
+@pytest.mark.asyncio
+async def test_generator_excludes_the_previous_profile_alignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_entropy(monkeypatch, seeds=(4,))
+    previous = PersonaProfileSignature(
+        text="A previous policy notice.",
+        fictional_role="previous gate clerk",
+        traits=("reserved",),
+        voice="quiet",
+        motif="grey paper",
+        alignment="chaotic evil",
+    ).model_dump_json()
+    client = RecordingCompletion((_draft().model_dump_json(),))
+
+    notice = await PersonaNoticeGenerator(
+        client,
+        model="gemma4:12b",
+        temperature=1.25,
+    ).generate(
+        policy_category="confidential-information",
+        policy_id="MAIL-204",
+        recent_profile_signatures=(previous,),
+    )
+
+    assert notice.persona.alignment != "chaotic evil"
+    assert f"D&D alignment: {notice.persona.alignment}" in client.calls[0]["messages"][0]["content"]
+
+
+def test_application_persona_brief_rejects_negative_seed() -> None:
+    with pytest.raises(ValueError, match="must not be negative"):
+        sample_persona_brief(-1)
 
 
 @pytest.mark.asyncio
@@ -126,7 +245,6 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
             "A basalt turnstile rejected the category transmission. Find the organization by "
             "another communication route."
         ),
-        traits=("angular", "subterranean"),
         voice="slow geometric declarations",
         motif="basalt rings beneath a red lake",
     )
@@ -136,7 +254,6 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
             "recipient organization through a different channel."
         ),
         fictional_role="subterranean violin registrar",
-        traits=("improvisational", "granular"),
         voice="percussive and asymmetrical",
         motif="copper strings under wet stone",
     )
@@ -159,7 +276,8 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     assert notice.persona.fictional_role == fresh.fictional_role
     assert [call["sampling"].seed for call in client.calls] == [201, 202, 203]
     prompts = [call["messages"][0]["content"] for call in client.calls]
-    assert len(set(prompts)) == 1
+    assert len(set(prompts)) == 3
+    assert all("application has already sampled this persona" in prompt for prompt in prompts)
 
 
 @pytest.mark.asyncio
@@ -169,7 +287,6 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
     garbled = _draft(
         text=("Dear User, refused under category protocol_\\r\\n hought```jsond98436ce7b1f5cc0a"),
         fictional_role="senior compliance sentinel",
-        traits=("clinical", "formal"),
         voice="clinical and formal",
         motif="sealed envelopes",
     )
@@ -179,7 +296,6 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
             "gate_research@vaultstudy13.org instead."
         ),
         fictional_role="curator of the sealed vault",
-        traits=("hermetic", "patient"),
         voice="slow archival whispers",
         motif="wax seals and cellar doors",
     )
@@ -189,9 +305,19 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
             "Reach the recipient organization through another channel."
         ),
         fictional_role="threshold gatekeeper",
-        traits=("terse", "vigilant"),
         voice="clipped watchtower reports",
         motif="iron lanterns",
+    )
+    embedded_profile = _draft(
+        text=(
+            "fictional_role: Archive Registrar\n\n"
+            "Description: A meticulous clerk who records every crossing.\n\n"
+            "Notice: Delivery was refused by the recipient organization's "
+            "email policy_limits_applied."
+        ),
+        fictional_role="archive registrar",
+        voice="measured ledger entries",
+        motif="numbered drawers",
     )
     clean = _draft(
         text=(
@@ -199,7 +325,6 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
             "organization through a channel it already publishes."
         ),
         fictional_role="registrar of refused letters",
-        traits=("meticulous", "courteous"),
         voice="measured ledger entries",
         motif="red wax and string",
     )
@@ -208,18 +333,19 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
             garbled.model_dump_json(),
             fabricated.model_dump_json(),
             leaked_category.model_dump_json(),
+            embedded_profile.model_dump_json(),
             clean.model_dump_json(),
         )
     )
     _install_entropy(
         monkeypatch,
-        seeds=(501, 502, 503, 504),
+        seeds=(501, 502, 503, 504, 505),
     )
     generator = PersonaNoticeGenerator(
         client,
         model="gemma4:12b",
         temperature=1.25,
-        max_attempts=4,
+        max_attempts=5,
     )
 
     notice = await generator.generate(
@@ -227,9 +353,9 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
         policy_id="MAIL-204",
     )
 
-    assert notice.persona.seed == 504
+    assert notice.persona.seed == 505
     assert notice.text == clean.text
-    assert len(client.calls) == 4
+    assert len(client.calls) == 5
 
 
 @pytest.mark.asyncio

@@ -153,6 +153,14 @@ _STARTER_PERSONA_ROLE = "No generated persona"
 _STARTER_PERSONA_VOICE = "Neutral starter draft"
 _STARTER_PERSONA_MOTIF = "None"
 _STARTER_PERSONA_TRAITS = ("neutral",)
+_STARTER_PERSONA_AGE = 0
+_STARTER_PERSONA_OCCUPATION = ""
+_STARTER_PERSONA_LOCATION = ""
+_STARTER_PERSONA_GOALS: tuple[str, ...] = ()
+_STARTER_PERSONA_PERSONALITY = ""
+_STARTER_PERSONA_TIME_PERIOD = ""
+_STARTER_PERSONA_MOOD = ""
+_STARTER_PERSONA_ALIGNMENT = ""
 
 
 def _idle_agent_activity() -> list[dict[str, str]]:
@@ -299,6 +307,14 @@ class ConsoleState(rx.State):
     persona_motif: str = _STARTER_PERSONA_MOTIF
     persona_seed: int = 0
     persona_traits: list[str] = list(_STARTER_PERSONA_TRAITS)  # noqa: RUF012
+    persona_age: int = _STARTER_PERSONA_AGE
+    persona_occupation: str = _STARTER_PERSONA_OCCUPATION
+    persona_location: str = _STARTER_PERSONA_LOCATION
+    persona_goals: list[str] = list(_STARTER_PERSONA_GOALS)  # noqa: RUF012
+    persona_personality: str = _STARTER_PERSONA_PERSONALITY
+    persona_time_period: str = _STARTER_PERSONA_TIME_PERIOD
+    persona_mood: str = _STARTER_PERSONA_MOOD
+    persona_alignment: str = _STARTER_PERSONA_ALIGNMENT
     persona_generated: bool = False
     persona_edited: bool = False
     persona_error: str = ""
@@ -527,14 +543,7 @@ class ConsoleState(rx.State):
         self.blocked_values = ""
         self.bypass_values = ""
         self.rejection_notice = _starter_notice()
-        self.persona_role = _STARTER_PERSONA_ROLE
-        self.persona_voice = _STARTER_PERSONA_VOICE
-        self.persona_motif = _STARTER_PERSONA_MOTIF
-        self.persona_seed = 0
-        self.persona_traits = list(_STARTER_PERSONA_TRAITS)
-        self.persona_generated = False
-        self.persona_edited = False
-        self.persona_error = ""
+        self._reset_persona_fields()
         if section == "compliance":
             self.inbound = True
             self.outbound = False
@@ -556,6 +565,42 @@ class ConsoleState(rx.State):
             self.sender_filter_value = ""
             self.recipient_filter_enabled = False
             self.recipient_filter_value = ""
+
+    def _reset_persona_fields(self) -> None:
+        self.persona_role = _STARTER_PERSONA_ROLE
+        self.persona_voice = _STARTER_PERSONA_VOICE
+        self.persona_motif = _STARTER_PERSONA_MOTIF
+        self.persona_seed = 0
+        self.persona_traits = list(_STARTER_PERSONA_TRAITS)
+        self.persona_age = _STARTER_PERSONA_AGE
+        self.persona_occupation = _STARTER_PERSONA_OCCUPATION
+        self.persona_location = _STARTER_PERSONA_LOCATION
+        self.persona_goals = list(_STARTER_PERSONA_GOALS)
+        self.persona_personality = _STARTER_PERSONA_PERSONALITY
+        self.persona_time_period = _STARTER_PERSONA_TIME_PERIOD
+        self.persona_mood = _STARTER_PERSONA_MOOD
+        self.persona_alignment = _STARTER_PERSONA_ALIGNMENT
+        self.persona_generated = False
+        self.persona_edited = False
+        self.persona_error = ""
+
+    def _load_persona_fields(self, persona: PersonaProfile) -> None:
+        self.persona_role = persona.fictional_role
+        self.persona_voice = persona.voice
+        self.persona_motif = persona.motif
+        self.persona_seed = persona.seed
+        self.persona_traits = list(persona.traits)
+        self.persona_age = persona.age or _STARTER_PERSONA_AGE
+        self.persona_occupation = persona.occupation
+        self.persona_location = persona.location
+        self.persona_goals = list(persona.goals)
+        self.persona_personality = persona.personality
+        self.persona_time_period = persona.time_period
+        self.persona_mood = persona.current_mood
+        self.persona_alignment = persona.alignment
+        self.persona_generated = True
+        self.persona_edited = False
+        self.persona_error = ""
 
     def edit_policy(self, surface: str, ownership_id: str) -> None:
         """Load one locally owned, last-verified policy into the typed editor."""
@@ -830,8 +875,42 @@ class ConsoleState(rx.State):
         if self.persona_edited:
             return "Edited after generation" if self.persona_generated else "Manually edited draft"
         if self.persona_generated:
-            return "Fresh model-generated profile"
+            return "Sampled brief · model-rendered notice"
         return "Starter draft · generate a persona"
+
+    @rx.var
+    def persona_context_line(self) -> str:
+        if not self.persona_generated:
+            return ""
+        return (
+            f"Age {self.persona_age} · {self.persona_occupation} · "
+            f"{self.persona_location} · {self.persona_time_period}"
+        )
+
+    @rx.var
+    def persona_setting_line(self) -> str:
+        if not self.persona_generated:
+            return ""
+        return f"{self.persona_occupation} · {self.persona_location}"
+
+    @rx.var
+    def persona_traits_line(self) -> str:
+        return " · ".join(self.persona_traits) if self.persona_generated else ""
+
+    @rx.var
+    def persona_goals_line(self) -> str:
+        return " · ".join(self.persona_goals) if self.persona_generated else ""
+
+    @rx.var
+    def persona_character_line(self) -> str:
+        if not self.persona_generated:
+            return ""
+        traits = ", ".join(self.persona_traits)
+        goals = "; ".join(self.persona_goals)
+        return (
+            f"Mood: {self.persona_mood} · Alignment: {self.persona_alignment} · "
+            f"Traits: {traits} · Personality: {self.persona_personality} · Goals: {goals}"
+        )
 
     @rx.var
     def blocked_entry_count(self) -> int:
@@ -1757,14 +1836,8 @@ class ConsoleState(rx.State):
         self.blocked_values = "\n".join(entry.value for entry in primary.entries)
         self.bypass_values = "\n".join(entry.value for entry in bypass_entries)
         self.rejection_notice = rule.rejection_notice or self.rejection_notice
-        self.persona_role = _STARTER_PERSONA_ROLE
-        self.persona_voice = _STARTER_PERSONA_VOICE
-        self.persona_motif = _STARTER_PERSONA_MOTIF
-        self.persona_seed = 0
-        self.persona_traits = list(_STARTER_PERSONA_TRAITS)
-        self.persona_generated = False
+        self._reset_persona_fields()
         self.persona_edited = bool(rule.rejection_notice)
-        self.persona_error = ""
         self.rule_enabled = rule.enabled
 
     def _load_compliance_record(self, rule: object) -> None:
@@ -1785,14 +1858,7 @@ class ConsoleState(rx.State):
         self.rejection_notice = notice.text
         self.policy_category = notice.policy_category
         self.policy_id = notice.policy_id
-        self.persona_role = notice.persona.fictional_role
-        self.persona_voice = notice.persona.voice
-        self.persona_motif = notice.persona.motif
-        self.persona_seed = notice.persona.seed
-        self.persona_traits = list(notice.persona.traits)
-        self.persona_generated = True
-        self.persona_edited = False
-        self.persona_error = ""
+        self._load_persona_fields(notice.persona)
         signature = profile_signature(notice)
         self.persona_history = [*self.persona_history, signature][-_PERSONA_HISTORY_LIMIT:]
         self.rule_enabled = rule.enabled
@@ -1836,14 +1902,7 @@ class ConsoleState(rx.State):
     def _apply_generated_notice(self, generated: GeneratedRejectionNotice) -> None:
         self._mark_draft_changed()
         self.rejection_notice = generated.text
-        self.persona_role = generated.persona.fictional_role
-        self.persona_voice = generated.persona.voice
-        self.persona_motif = generated.persona.motif
-        self.persona_seed = generated.persona.seed
-        self.persona_traits = list(generated.persona.traits)
-        self.persona_generated = True
-        self.persona_edited = False
-        self.persona_error = ""
+        self._load_persona_fields(generated.persona)
         signature = profile_signature(generated)
         self.persona_history = [*self.persona_history, signature][-_PERSONA_HISTORY_LIMIT:]
 
@@ -1942,6 +2001,14 @@ class ConsoleState(rx.State):
             voice=self.persona_voice,
             motif=self.persona_motif,
             seed=self.persona_seed,
+            age=self.persona_age or None,
+            occupation=self.persona_occupation,
+            location=self.persona_location,
+            goals=tuple(self.persona_goals),
+            personality=self.persona_personality,
+            time_period=self.persona_time_period,
+            current_mood=self.persona_mood,
+            alignment=self.persona_alignment,
         )
         notice = GeneratedRejectionNotice(
             text=self.rejection_notice,
