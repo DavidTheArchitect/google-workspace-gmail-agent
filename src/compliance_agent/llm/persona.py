@@ -330,25 +330,6 @@ _MODEL_FIELD_LABEL_PATTERN = re.compile(
     r"(?im)^\s*(?:description|fictional_role|motif|notice|text|voice)\s*:"
 )
 _SNAKE_CASE_TOKEN_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b", re.IGNORECASE)
-_REJECTION_OUTCOME_PATTERN = re.compile(
-    r"\b(?:"
-    r"block(?:ed|ing|s)?|clos(?:e|ed|es|ing)|declin(?:e|ed|es|ing)|"
-    r"den(?:y|ied|ies|ying)|forbid(?:den|ding|s)?|prohibit(?:ed|ing|s)?|"
-    r"refus(?:e|ed|es|ing)|reject(?:ed|ing|s)?|turn(?:ed|ing)?\s+away|"
-    r"cannot|can't|may\s+not|must\s+not|shall\s+not|will\s+not|won't|"
-    r"no\s+(?:farther|further)|"
-    r"not\s+(?:accept(?:ed)?|admit(?:ted)?|deliver(?:ed)?|permitted)"
-    r")\b",
-    re.IGNORECASE,
-)
-_DELIVERY_CONTEXT_PATTERN = re.compile(
-    r"\b(?:"
-    r"channel|communication|contact|deliver(?:y|ed|ing)?|dispatch|email|entry|gate|"
-    r"inquiry|mail|message|missive|organization|passage|recipient|route|threshold|"
-    r"transmission"
-    r")\b",
-    re.IGNORECASE,
-)
 _STOCK_BLOCKED_SENDER_PATTERN = re.compile(
     r"\b(?:this|the)\s+sender\s+(?:is|has\s+been)\s+blocked\b",
     re.IGNORECASE,
@@ -542,6 +523,11 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
     return (
         "The application has already sampled this persona. Treat every field as authoritative; "
         "do not replace, contradict, or omit any of them when you verbalize the character.\n"
+        "NON-NEGOTIABLE NOTICE PREMISE: The recipient organization refuses mail from this source. "
+        "This is source-specific non-delivery, not a judgment about the message or the person. "
+        "Do not diagnose, criticize, or evaluate the message, and do not advise rewriting or "
+        "improving it. Give no reason beyond this email route being closed to this source. Express "
+        "that outcome creatively in the sampled persona's voice.\n"
         f"Age: {brief.age}\n"
         f"Occupation: {brief.occupation}\n"
         f"Location: {brief.location}\n"
@@ -579,9 +565,12 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "The text value must contain only the sender-facing rejection notice. Let it embody the "
         "persona's voice without mechanically listing or narrating the profile fields. Do not put "
         "the role, a character description, headings, field names, labels, or key-value notation "
-        "inside text. Make it unmistakable that this delivery attempt cannot reach or be accepted "
-        "by the recipient organization through this email route, but invent that "
-        "language in the persona's own voice. There are no required rejection keywords. Do not "
+        "inside text. The sole premise is that the recipient organization is refusing mail from "
+        "this source through this email route. Make that source-specific non-delivery "
+        "unmistakable, but invent the language in the persona's own voice. Do not claim or imply "
+        "that the "
+        "message's content, clarity, formatting, intent, legitimacy, tone, or safety was evaluated "
+        "or was at fault. There are no required rejection keywords. Do not "
         'use the stock construction "this sender is blocked" or "the sender is blocked"; a '
         "persona-appropriate metaphor, verdict, warning, lament, joke, or blunt refusal is welcome "
         "when it remains clear to a real sender. The notice may suggest contacting the recipient "
@@ -656,14 +645,6 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
         (
             bool(_SNAKE_CASE_TOKEN_PATTERN.search(draft.text)),
             "persona output leaked a snake-case token",
-        ),
-        (
-            not _REJECTION_OUTCOME_PATTERN.search(draft.text),
-            "persona output did not clearly communicate a rejection outcome",
-        ),
-        (
-            not _DELIVERY_CONTEXT_PATTERN.search(draft.text),
-            "persona output did not establish a message-delivery context",
         ),
         (
             bool(_STOCK_BLOCKED_SENDER_PATTERN.search(draft.text)),

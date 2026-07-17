@@ -43,7 +43,12 @@ from compliance_agent.domain.ownership import (
     require_owned_compliance_rule,
 )
 from compliance_agent.domain.regex_validation import validate_google_regex
-from compliance_agent.exceptions import AmbiguousTarget, OwnershipNotEstablished, StaleConfirmation
+from compliance_agent.exceptions import (
+    AmbiguousTarget,
+    OwnershipNotEstablished,
+    PlannerFailure,
+    StaleConfirmation,
+)
 from compliance_agent.llm.group_chat import (
     PARTICIPANT_SPECS,
     GroupChatMessage,
@@ -974,6 +979,12 @@ def test_reflex_review_failure_is_concise_and_group_requires_four_rounds() -> No
     assert "bounded time limit" in _review_failure_message(TimeoutError())
     assert "bounded time limit" in _persona_failure_message(TimeoutError())
     assert "every attempt" in _persona_failure_message(TimeoutError())
+    validation_error = PlannerFailure("bounded persona retries exhausted")
+    validation_error.__cause__ = ValueError("draft missed a format rule")
+    persona_message = _persona_failure_message(validation_error)
+    assert "local model answered" in persona_message
+    assert "safety and format checks" in persona_message
+    assert "draft missed a format rule" not in persona_message
 
     with pytest.raises(ValidationError, match="greater than or equal to 4"):
         Settings(group_chat_max_rounds=3)
