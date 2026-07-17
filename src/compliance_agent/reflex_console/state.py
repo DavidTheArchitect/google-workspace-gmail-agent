@@ -208,6 +208,18 @@ def _persona_failure_message(error: Exception) -> str:
     )
 
 
+def _draft_error_message(error: Exception) -> str:
+    """Translate typed draft validation into concise operator guidance."""
+
+    detail = str(error)
+    if "rejection notice must not include the internal policy ID" in detail:
+        return (
+            "Remove the internal policy ID from the rejection notice. Senders should see only "
+            "the broad bounce-message category."
+        )
+    return detail
+
+
 class ConsoleState(rx.State):
     """All browser-visible state remains subordinate to typed server-side validation."""
 
@@ -245,15 +257,16 @@ class ConsoleState(rx.State):
     policy_category: str = "confidential-information"
     policy_id: str = "GW-1042"
     rejection_notice: str = (
-        "Nice try! Your message didn't make it past our content bouncers.\n\n"
-        "We protect sensitive info like a dragon guards its treasure.\n\n"
-        "Check your message and try again. If you think this is a mistake, contact your IT "
-        "admin with Policy ID GW-1042.\n\n"
-        "Thanks for helping us keep things safe!\n— The Gmail Guardians"
+        "Tiny thunder. Dramatic cape. The confidential-information policy declined this "
+        "delivery before the mail queue could wander into forbidden territory. If that seems "
+        "unexpected, contact the recipient organization through another trusted channel. "
+        "The imaginary lighthouse has blinked twice and returned to work."
     )
-    persona_role: str = "Gmail Guardian"
-    persona_voice: str = "playful, protective, and professional"
-    persona_motif: str = "dragons and content bouncers"
+    persona_role: str = "wild-eyed lighthouse oracle from a parallel Tuesday"
+    persona_voice: str = (
+        "delightfully unhinged in presentation; warm, precise, and operationally clear"
+    )
+    persona_motif: str = "tiny thunderclouds colliding with lighthouse beams"
     persona_seed: int = 1042
     persona_traits: list[str] = ["protective", "clear", "playful"]  # noqa: RUF012
     expression_valid: bool = False
@@ -1004,10 +1017,7 @@ class ConsoleState(rx.State):
         self._mark_draft_changed()
 
     def set_policy_id(self, value: str) -> None:
-        previous = self.policy_id
         self.policy_id = value
-        if previous and previous in self.rejection_notice:
-            self.rejection_notice = self.rejection_notice.replace(previous, value)
         self._mark_draft_changed()
 
     def set_rejection_notice(self, value: str) -> None:
@@ -1099,7 +1109,7 @@ class ConsoleState(rx.State):
             self.preview_ready = False
             self.status = "Needs attention"
             self.status_tone = "error"
-            self.error_message = str(error)
+            self.error_message = _draft_error_message(error)
             return
         self._bind_draft(plan)
         review_revision = self.draft_revision

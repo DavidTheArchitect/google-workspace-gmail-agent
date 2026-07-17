@@ -762,20 +762,15 @@ def _rejection_editor() -> rx.Component:
                 _icon("info", 15),
             ),
             rx.spacer(),
-            rx.text("Policy ID " + ConsoleState.policy_id, class_name="policy-id"),
+            rx.hstack(
+                _icon("lock-keyhole", 13),
+                rx.text("Internal identifiers hidden from senders"),
+                class_name="internal-id-badge",
+            ),
             width="100%",
+            class_name="rejection-heading",
         ),
         rx.grid(
-            rx.vstack(
-                _field_label("Policy ID included in the notice"),
-                rx.input(
-                    value=ConsoleState.policy_id,
-                    on_change=ConsoleState.set_policy_id,
-                    placeholder="GW-1042",
-                ),
-                align="stretch",
-                spacing="1",
-            ),
             rx.vstack(
                 _field_label("Bounce-message category"),
                 rx.input(
@@ -786,9 +781,23 @@ def _rejection_editor() -> rx.Component:
                 align="stretch",
                 spacing="1",
             ),
+            rx.hstack(
+                rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
+                rx.vstack(
+                    rx.text("Full-spectrum persona randomizer", class_name="randomness-title"),
+                    rx.text(
+                        "Role, temperament, voice, cadence, worldview, and motif reshuffle "
+                        "independently on every generation.",
+                        class_name="randomness-copy",
+                    ),
+                    spacing="0",
+                    align="start",
+                ),
+                class_name="randomness-card",
+            ),
             columns="2",
             gap="16px",
-            margin_top="12px",
+            class_name="notice-meta-grid",
         ),
         rx.box(
             rx.hstack(
@@ -803,7 +812,7 @@ def _rejection_editor() -> rx.Component:
                     rx.cond(
                         ConsoleState.persona_in_progress,
                         "Generating persona…",
-                        "Regenerate persona",
+                        "Randomize persona",
                     ),
                     on_click=ConsoleState.generate_persona,
                     disabled=ConsoleState.persona_in_progress,
@@ -822,11 +831,23 @@ def _rejection_editor() -> rx.Component:
             rx.hstack(
                 rx.hstack(
                     rx.box("✦", class_name="persona-mark"),
-                    rx.text(ConsoleState.persona_role, class_name="persona-role"),
-                    rx.text("· " + ConsoleState.persona_voice, class_name="persona-voice"),
+                    rx.vstack(
+                        rx.text(ConsoleState.persona_role, class_name="persona-role"),
+                        rx.text(ConsoleState.persona_voice, class_name="persona-voice"),
+                        spacing="0",
+                        align="start",
+                        class_name="persona-copy",
+                    ),
+                    class_name="persona-identity",
                 ),
                 rx.spacer(),
-                rx.text(ConsoleState.notice_character_count, " characters"),
+                rx.vstack(
+                    rx.text(ConsoleState.notice_character_count, " characters"),
+                    rx.text("Fresh randomized profile"),
+                    spacing="0",
+                    align="end",
+                    class_name="notice-metadata",
+                ),
                 class_name="editor-footer",
             ),
             class_name="notice-editor",
@@ -905,7 +926,7 @@ def _impact_summary() -> rx.Component:
             _impact_row(
                 "Rejection notice",
                 "Default rejection",
-                "Custom notice (" + ConsoleState.policy_id + ")",
+                "Persona-authored notice",
                 "Changed",
                 "good",
             ),

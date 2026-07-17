@@ -54,11 +54,13 @@ union closed to Reject.
 
 ## Dynamic rejection personas
 
-The local Gemma model creates a fresh fictional role, traits, voice, motif, and bounce message at
-request time. The structured output is checked against immutable policy category and policy ID
-fields. The notice may disclose only that broad category and ID; it never reveals the triggering
-header, regular expression, address, domain, metadata value, or security signal. If the model is
-unavailable or changes a protected field, a randomized safe local fallback is used.
+The local model creates a fresh fictional role, traits, temperament, voice, cadence, motif, and
+bounce message at request time. Each run starts from an independently randomized creative vector,
+including eccentric, surreal, chaotic, and deliberately unhinged styles. The structured output is
+checked against immutable policy category and internal policy ID fields, but the sender-facing text
+may disclose only the broad category. It never reveals the policy ID, triggering header, regular
+expression, address, domain, metadata value, or security signal. If the model is unavailable or
+changes a protected field, a high-variance safe local fallback is used.
 
 ## Multi-agent and browser execution
 

@@ -517,7 +517,7 @@ async def test_expired_live_approval_finalizes_rejected_audit(
 
 def test_content_compliance_plan_keeps_reject_action_and_regex_shape() -> None:
     notice = GeneratedRejectionNotice(
-        text="The clockwork postmaster declined this message. Policy GW-200.",
+        text="The clockwork postmaster declined this message under the header policy.",
         policy_category="header-policy",
         policy_id="GW-200",
         persona=PersonaProfile(

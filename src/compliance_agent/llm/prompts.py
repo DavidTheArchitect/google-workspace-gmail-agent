@@ -10,10 +10,10 @@ advanced, metadata, or predefined; advanced regex uses Google RE2, is limited to
 characters, and a rule has at most 10 expressions. Directions are inbound, outbound,
 internal_sending, and internal_receiving. Content locations include
 headers_and_body, full_headers, body, subject, sender_header, recipient_header, envelope_sender,
-envelope_recipient, and raw_message. A compliance rejection notice must reveal only a broad category
-and policy ID, never the matched header, regex, address, metadata, or security signal. Give it
-a fresh
-fictional persona. Unsupported actions include quarantine, modification, routing, private APIs, and
-editing inherited or manually managed rules. A company name without a domain, an unspecified OU, or
-an ambiguous existing target requires clarification. normalized_value and managed resource identity
-are application-controlled and may be omitted. Never approximate an unsupported request."""
+envelope_recipient, and raw_message. A compliance rejection notice may reveal only a broad category,
+never its internal policy ID, matched header, regex, address, metadata, or security signal. Give it
+a fresh fictional persona. Unsupported actions include quarantine, modification, routing, private
+APIs, and editing inherited or manually managed rules. A company name without a domain, an
+unspecified OU, or an ambiguous existing target requires clarification. normalized_value and
+managed resource identity are application-controlled and may be omitted. Never approximate an
+unsupported request."""

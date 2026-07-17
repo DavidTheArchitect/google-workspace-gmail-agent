@@ -37,7 +37,7 @@ RULE_ID = "11111111-1111-4111-8111-111111111111"
 
 def _rule(*, enabled: bool = True) -> ManagedContentComplianceRule:
     notice = GeneratedRejectionNotice(
-        text="Message rejected. Policy MAIL-1.",
+        text="Message rejected under the test policy.",
         policy_category="test",
         policy_id="MAIL-1",
         persona=PersonaProfile(

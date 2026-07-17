@@ -33,8 +33,9 @@ approved write. A server-side revision check also discards late results if the d
 3. For blocked senders, enter domains/emails and optional approved-sender bypasses.
 4. For Content compliance, select directions, any/all combination, typed expressions, optional
    address-list behavior, and optional envelope sender/recipient filters.
-5. Review or regenerate the plain-text rejection notice. The local persona model receives only the
-   broad policy category and policy ID, not the sensitive matching value.
+5. Review or randomize the plain-text rejection notice. The local persona model binds the broad
+   category and internal policy ID as structured identity, but the message reveals neither the ID
+   nor any sensitive matching value.
 6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
 7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
 8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.
