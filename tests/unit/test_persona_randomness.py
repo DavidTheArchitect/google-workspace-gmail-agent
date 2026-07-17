@@ -23,8 +23,8 @@ from compliance_agent.llm.structured import CompletionSampling, OllamaOpenAIClie
 def _draft(
     *,
     text: str = (
-        "This sender is blocked from delivering mail to the recipient organization. Try another "
-        "route if contact is still needed."
+        "An iron gate closes against this message; it will not reach the recipient organization "
+        "by this route. Try another passage if contact is still needed."
     ),
     fictional_role: str = "midnight archive cartographer",
     voice: str = "syncopated marginal notes",
@@ -142,7 +142,8 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         "must shape rhetorical stance",
         "every one of the three traits",
         "both goals",
-        "word sender and a form of the word blocked",
+        "There are no required rejection keywords",
+        'stock construction "this sender is blocked"',
         "professionalism and courtesy are optional",
         "two to seven words",
     )
@@ -255,27 +256,38 @@ def test_application_persona_brief_rejects_negative_seed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_generator_retries_until_notice_explicitly_blocks_the_sender(
+async def test_generator_requires_a_clear_rejection_without_fixed_blocked_sender_wording(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    vague = _draft(
-        text="Delivery could not be completed under the recipient organization's email policy."
+    vague = _draft(text="The recipient organization has a collection of unusual doors.")
+    creative = _draft(
+        text=(
+            "The brass gate has closed against this dispatch. Seek the recipient by another "
+            "published road."
+        )
     )
-    explicit = _draft()
-    _install_entropy(monkeypatch, seeds=(901, 902))
-    client = RecordingCompletion((vague.model_dump_json(), explicit.model_dump_json()))
+    stock = _draft(
+        text=(
+            "This sender is blocked from delivering mail to the recipient organization. Try "
+            "another route."
+        )
+    )
+    _install_entropy(monkeypatch, seeds=(901, 902, 903))
+    client = RecordingCompletion(
+        (vague.model_dump_json(), stock.model_dump_json(), creative.model_dump_json())
+    )
 
     notice = await PersonaNoticeGenerator(
         client,
         model="gemma4:12b",
         temperature=1.25,
-        max_attempts=2,
+        max_attempts=3,
     ).generate(policy_category="confidential-information", policy_id="MAIL-204")
 
-    assert notice.persona.seed == 902
-    assert "sender" in notice.text.casefold()
-    assert "blocked" in notice.text.casefold()
-    assert len(client.calls) == 2
+    assert notice.persona.seed == 903
+    assert notice.text == creative.text
+    assert "sender is blocked" not in notice.text.casefold()
+    assert len(client.calls) == 3
 
 
 @pytest.mark.asyncio
@@ -291,7 +303,7 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     ).generate(policy_category="confidential-information", policy_id="MAIL-204")
     repeated_role = _draft(
         text=(
-            "A basalt turnstile marks this sender as blocked at the category gate. Find the "
+            "A basalt turnstile closes against this dispatch at the category gate. Find the "
             "organization by another communication route."
         ),
         voice="slow geometric declarations",
@@ -299,8 +311,8 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     )
     fresh = _draft(
         text=(
-            "A copper violin announces the verdict: this sender is blocked at the category gate. "
-            "Reach the recipient organization through a different channel."
+            "A copper violin announces the verdict: this missive goes no farther at the category "
+            "gate. Reach the recipient organization through a different channel."
         ),
         fictional_role="subterranean violin registrar",
         voice="percussive and asymmetrical",
@@ -370,8 +382,8 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
     )
     clean = _draft(
         text=(
-            "This sender is blocked under the category policy. Reach the recipient organization "
-            "through a channel it already publishes."
+            "The red ledger refuses this message passage. Reach the recipient organization through "
+            "a channel it already publishes."
         ),
         fictional_role="registrar of refused letters",
         voice="measured ledger entries",
@@ -437,8 +449,8 @@ async def test_windows_line_endings_and_padding_are_normalized(
 ) -> None:
     messy = _draft(
         text=(
-            "This sender is blocked under the   category policy.\r\nReach the recipient "
-            "organization through a channel it already publishes.  "
+            "The red ledger refuses this   message passage.\r\nReach the recipient organization "
+            "through a channel it already publishes.  "
         ),
     )
     _install_entropy(monkeypatch, seeds=(601,))

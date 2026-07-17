@@ -48,8 +48,8 @@ approved write. A server-side revision check also discards late results if the d
    The policy category and internal policy ID remain structured application identity and are never
    included in that prompt. Generated drafts must pass a deterministic quality gate (no markup,
    escape artifacts, fabricated contact details, exposed category label, or sentence-like persona
-   title, or failure to explicitly identify the blocked sender) before they replace the visible
-   draft.
+   title; clear rejection outcome and delivery context; no stock blocked-sender formula) before they
+   replace the visible draft.
 6. Select **Review plan** in plan-only mode or **Review and preview** in browser-backed modes.
 7. Inspect the attributed group-chat messages and exact impact evidence. Dry-run ends here.
 8. In live mode, acknowledge the evidence, type the exact phrase, and select **Approve & apply**.

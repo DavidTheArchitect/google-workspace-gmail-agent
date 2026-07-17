@@ -330,8 +330,29 @@ _MODEL_FIELD_LABEL_PATTERN = re.compile(
     r"(?im)^\s*(?:description|fictional_role|motif|notice|text|voice)\s*:"
 )
 _SNAKE_CASE_TOKEN_PATTERN = re.compile(r"\b[a-z]+(?:_[a-z]+)+\b", re.IGNORECASE)
-_BLOCKED_WORD_PATTERN = re.compile(r"\bblock(?:ed|ing|s)?\b", re.IGNORECASE)
-_SENDER_WORD_PATTERN = re.compile(r"\bsender\b", re.IGNORECASE)
+_REJECTION_OUTCOME_PATTERN = re.compile(
+    r"\b(?:"
+    r"block(?:ed|ing|s)?|clos(?:e|ed|es|ing)|declin(?:e|ed|es|ing)|"
+    r"den(?:y|ied|ies|ying)|forbid(?:den|ding|s)?|prohibit(?:ed|ing|s)?|"
+    r"refus(?:e|ed|es|ing)|reject(?:ed|ing|s)?|turn(?:ed|ing)?\s+away|"
+    r"cannot|can't|may\s+not|must\s+not|shall\s+not|will\s+not|won't|"
+    r"no\s+(?:farther|further)|"
+    r"not\s+(?:accept(?:ed)?|admit(?:ted)?|deliver(?:ed)?|permitted)"
+    r")\b",
+    re.IGNORECASE,
+)
+_DELIVERY_CONTEXT_PATTERN = re.compile(
+    r"\b(?:"
+    r"channel|communication|contact|deliver(?:y|ed|ing)?|dispatch|email|entry|gate|"
+    r"inquiry|mail|message|missive|organization|passage|recipient|route|threshold|"
+    r"transmission"
+    r")\b",
+    re.IGNORECASE,
+)
+_STOCK_BLOCKED_SENDER_PATTERN = re.compile(
+    r"\b(?:this|the)\s+sender\s+(?:is|has\s+been)\s+blocked\b",
+    re.IGNORECASE,
+)
 
 
 class CreativePersonaDraft(FrozenModel):
@@ -558,10 +579,13 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "The text value must contain only the sender-facing rejection notice. Let it embody the "
         "persona's voice without mechanically listing or narrating the profile fields. Do not put "
         "the role, a character description, headings, field names, labels, or key-value notation "
-        "inside text. State clearly that the sender is blocked from delivering mail to the "
-        "recipient organization. The text must use the word sender and a form of the word blocked; "
-        "do not soften this into a generic delivery problem. The notice may suggest contacting the "
-        "recipient another way, "
+        "inside text. Make it unmistakable that this delivery attempt cannot reach or be accepted "
+        "by the recipient organization through this email route, but invent that "
+        "language in the persona's own voice. There are no required rejection keywords. Do not "
+        'use the stock construction "this sender is blocked" or "the sender is blocked"; a '
+        "persona-appropriate metaphor, verdict, warning, lament, joke, or blunt refusal is welcome "
+        "when it remains clear to a real sender. The notice may suggest contacting the recipient "
+        "another way, "
         "but should vary its structure and should not name or invent a policy category, policy ID, "
         "match rule, header, regular expression, address, domain, metadata, security signal, "
         "credential, or internal identifier. Never fabricate contact details: no email address, "
@@ -634,12 +658,16 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
             "persona output leaked a snake-case token",
         ),
         (
-            not _SENDER_WORD_PATTERN.search(draft.text),
-            "persona output did not identify the blocked sender",
+            not _REJECTION_OUTCOME_PATTERN.search(draft.text),
+            "persona output did not clearly communicate a rejection outcome",
         ),
         (
-            not _BLOCKED_WORD_PATTERN.search(draft.text),
-            "persona output did not state that the sender is blocked",
+            not _DELIVERY_CONTEXT_PATTERN.search(draft.text),
+            "persona output did not establish a message-delivery context",
+        ),
+        (
+            bool(_STOCK_BLOCKED_SENDER_PATTERN.search(draft.text)),
+            "persona output fell back to the stock blocked-sender formula",
         ),
         (
             bool(

@@ -21,8 +21,8 @@ Review date: 2026-07-17
   both the sampled brief and rendered prose. Explicit bounded failure, protected policy category/ID fields, and
   category-only disclosure remain in force. A deterministic sender-safety quality gate resamples
   drafts that leak markup, escape artifacts, non-printable characters, or fabricated contact
-  details, expose the internal category label, return a sentence-like persona role, or fail to
-  explicitly say that the sender is blocked. The
+  details, expose the internal category label, return a sentence-like persona role, omit a clear
+  rejection outcome or delivery context, or fall back to fixed blocked-sender wording. The
   category is application-owned, is not sent to the creative model, and is not editable from the
   rejection-notice editor. The overall generation budget covers every bounded attempt (not one
   model request), each creative completion has a persona-specific output-token ceiling, and dropped
