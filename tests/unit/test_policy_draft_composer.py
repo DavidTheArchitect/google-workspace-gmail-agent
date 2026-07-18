@@ -367,6 +367,76 @@ async def test_implicit_content_location_is_inferred_by_the_model() -> None:
 
 
 @pytest.mark.asyncio
+async def test_composer_decomposes_one_request_into_multiple_expressions() -> None:
+    recommendation = PolicyDraftRecommendation(
+        status="draft",
+        selection=ContentComplianceDraft(
+            target_ou=OrganizationalUnitRef(path="/Security"),
+            directions=(MessageDirection.INBOUND,),
+            combiner=ExpressionCombiner.ANY,
+            expressions=(
+                AdvancedContentMatch(
+                    location=AdvancedContentLocation.SUBJECT,
+                    match_type=AdvancedMatchType.MATCHES_REGEX,
+                    value=r"(?i)\bSEC-[0-9]{4}\b",
+                    regex_description="SEC case ID in the subject",
+                    minimum_match_count=1,
+                ),
+                AdvancedContentMatch(
+                    location=AdvancedContentLocation.SENDER_HEADER,
+                    match_type=AdvancedMatchType.MATCHES_REGEX,
+                    value=r"(?i)^alerts-[0-9]+@example\.com$",
+                    regex_description="Numbered alerts sender at example.com",
+                    minimum_match_count=2,
+                ),
+                AdvancedContentMatch(
+                    location=AdvancedContentLocation.BODY,
+                    match_type=AdvancedMatchType.MATCHES_REGEX,
+                    value=r"(?i)\bPRJ-[A-Z]{3}-[0-9]{2}\b",
+                    regex_description="Structured project code in the body",
+                    minimum_match_count=1,
+                ),
+            ),
+            used_default_ou=True,
+            used_default_directions=False,
+        ),
+        routing_explanation=(
+            "The alternative structured subject, sender, and body patterns require three RE2 "
+            "expressions."
+        ),
+        assumptions=("Using the current organizational unit: /Security.",),
+    )
+    client = FakeCompletionClient([recommendation.model_dump_json()])
+    composer = StructuredPolicyDraftComposer(client, model="gemma4:12b")
+
+    result = await composer.compose(
+        (
+            "Block inbound messages when either the subject contains a case ID like SEC-1234 "
+            "or the sender is alerts- followed by digits at example.com or the body contains "
+            "a project code like PRJ-ABC-12"
+        ),
+        default_ou="/Security",
+        default_directions=(MessageDirection.INBOUND,),
+    )
+
+    selection = result.recommendation.selection
+    assert isinstance(selection, ContentComplianceDraft)
+    assert selection.combiner == ExpressionCombiner.ANY
+    assert len(selection.expressions) == 3
+    assert "one typed expression per criterion" in str(client.calls[0][0])
+
+    state = ConsoleState(_reflex_internal_init=True)
+    state._apply_policy_recommendation(result.recommendation)
+    assert state.regex_description == "SEC case ID in the subject"
+    assert state.additional_expressions[0]["description"] == (
+        "Numbered alerts sender at example.com"
+    )
+    assert state.additional_expressions[0]["minimum_match_count"] == "2"
+    assert state.additional_expressions[1]["description"] == ("Structured project code in the body")
+    assert len(state._build_plan().actions[0].rule.expressions) == 3
+
+
+@pytest.mark.asyncio
 async def test_location_only_clarification_is_retried_as_an_inferred_draft() -> None:
     clarification = PolicyDraftRecommendation(
         status="clarification_needed",

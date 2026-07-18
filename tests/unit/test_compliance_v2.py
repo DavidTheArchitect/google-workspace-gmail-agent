@@ -871,6 +871,42 @@ async def test_reflex_state_builds_both_plan_types_and_requires_live_read(
     assert not state.expression_valid
 
 
+def test_reflex_state_keeps_regex_details_with_each_expression() -> None:
+    state = ConsoleState(_reflex_internal_init=True)
+    state.location = "sender_header"
+    state.match_type = "matches_regex"
+    state.expression_value = r"^alerts-[0-9]+@example\.com$"
+    state.regex_description = "Automated alert sender"
+    state.minimum_match_count = 2
+
+    state.add_expression()
+
+    additional = state.additional_expressions[0]
+    assert additional["location"] == "sender_header"
+    assert additional["match_type"] == "matches_regex"
+    assert additional["description"] == ""
+    assert additional["minimum_match_count"] == "1"
+
+    state.update_expression("0", "value", r"^reports-[a-z]+@example\.com$")
+    state.update_expression("0", "description", "Named report sender")
+    state.update_expression("0", "minimum_match_count", "3")
+
+    plan = state._build_plan()
+    action = plan.actions[0]
+    assert isinstance(action, CreateContentComplianceRule)
+    first, second = action.rule.expressions
+    assert isinstance(first, AdvancedContentMatch)
+    assert isinstance(second, AdvancedContentMatch)
+    assert first.regex_description == "Automated alert sender"
+    assert first.minimum_match_count == 2
+    assert second.regex_description == "Named report sender"
+    assert second.minimum_match_count == 3
+
+    state.update_expression("0", "match_type_label", "Contains")
+    assert state.additional_expressions[0]["description"] == ""
+    assert state.additional_expressions[0]["minimum_match_count"] == "1"
+
+
 def test_reflex_async_event_annotations_resolve_at_runtime() -> None:
     assert get_type_hints(ConsoleState.generate_persona.fn)["return"] == AsyncIterator[None]
     assert get_type_hints(ConsoleState.preview.fn)["return"] == AsyncIterator[None]

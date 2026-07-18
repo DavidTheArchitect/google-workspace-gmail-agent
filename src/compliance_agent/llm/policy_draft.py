@@ -25,7 +25,7 @@ from compliance_agent.schemas.policy_draft import (
     PolicyDraftRecommendation,
 )
 
-POLICY_DRAFT_PROMPT_VERSION = "1.1"
+POLICY_DRAFT_PROMPT_VERSION = "1.2"
 _MAX_COMPOSER_RETRIES = 3
 _MAX_DESCRIPTION_CHARACTERS = 2_000
 _COMPOSER_SAMPLING = CompletionSampling(
@@ -66,6 +66,11 @@ identity patterns where appropriate, and escape literal punctuation. Sender head
 the From email address, not its display name. Use full_headers or raw_message only when the
 requested data is not exposed by a narrower location. Never use lookbehind, backreferences, or
 other PCRE-only constructs.
+4. When one request contains separate match criteria, emit one typed expression per criterion,
+up to ten. Do not collapse unrelated criteria into one regex. Use combiner=all for AND, BOTH, or
+MUST semantics and combiner=any for OR, EITHER, or alternative semantics. Preserve the operator's
+criteria order. Every regex expression must have its own specific regex_description and
+minimum_match_count.
 
 Use the application-owned default OU and directions only when the operator omits them, set the
 corresponding used_default flags, and state each default in assumptions. Explicit operator scope
@@ -138,6 +143,53 @@ _FEW_SHOT_EXAMPLES: tuple[tuple[dict[str, object], dict[str, object]], ...] = (
                 "The variable sender local-part pattern requires a scoped RE2 expression."
             ),
             "assumptions": ["Using the current organizational unit: /."],
+        },
+    ),
+    (
+        {
+            "description": (
+                "Block inbound messages when either the subject contains a case ID like SEC-1234 "
+                "or the sender is alerts- followed by digits at example.com"
+            ),
+            "default_ou": "/Security",
+            "default_directions": ["inbound"],
+        },
+        {
+            "schema_version": "1.0",
+            "status": "draft",
+            "selection": {
+                "surface": "content_compliance",
+                "target_ou": {"path": "/Security"},
+                "directions": ["inbound"],
+                "combiner": "any",
+                "expressions": [
+                    {
+                        "type": "advanced",
+                        "location": "subject",
+                        "match_type": "matches_regex",
+                        "value": "(?i)\\bSEC-[0-9]{4}\\b",
+                        "regex_description": "SEC case ID in the subject",
+                        "minimum_match_count": 1,
+                    },
+                    {
+                        "type": "advanced",
+                        "location": "sender_header",
+                        "match_type": "matches_regex",
+                        "value": "(?i)^alerts-[0-9]+@example\\.com$",
+                        "regex_description": "Numbered alerts sender at example.com",
+                        "minimum_match_count": 1,
+                    },
+                ],
+                "address_list_condition": None,
+                "envelope_filters": [],
+                "used_default_ou": True,
+                "used_default_directions": False,
+            },
+            "routing_explanation": (
+                "The alternative structured subject and sender patterns require two RE2 "
+                "expressions combined with ANY."
+            ),
+            "assumptions": ["Using the current organizational unit: /Security."],
         },
     ),
     (

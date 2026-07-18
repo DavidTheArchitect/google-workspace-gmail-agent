@@ -242,25 +242,55 @@ def _primary_expression_row() -> rx.Component:
     )
 
 
+def _primary_expression_block() -> rx.Component:
+    return rx.vstack(
+        _primary_expression_row(),
+        _expression_details(),
+        spacing="1",
+        align="stretch",
+        width="100%",
+        class_name="expression-block",
+    )
+
+
 def _additional_expression_details(row: object, index: object) -> rx.Component:
     return rx.cond(
         (row["type"] == "advanced")
         & ((row["match_type"] == "matches_regex") | (row["match_type"] == "not_matches_regex")),
-        rx.grid(
-            rx.input(
-                value=row["description"],
-                on_change=ConsoleState.update_expression(index, "description"),
-                placeholder="Regex description",
-                aria_label="Regex description",
+        rx.vstack(
+            rx.text(
+                "Regex details · Expression ",
+                index + 2,
+                class_name="expression-details-title",
             ),
-            rx.input(
-                type="number",
-                min="1",
-                value=row["minimum_match_count"],
-                on_change=ConsoleState.update_expression(index, "minimum_match_count"),
-                aria_label="Minimum matches",
+            rx.grid(
+                rx.vstack(
+                    _field_label("Regex description"),
+                    rx.input(
+                        value=row["description"],
+                        on_change=ConsoleState.update_expression(index, "description"),
+                        placeholder="Describe this regex match",
+                        aria_label=("Expression " + (index + 2).to_string() + " regex description"),
+                    ),
+                    align="stretch",
+                    spacing="1",
+                ),
+                rx.vstack(
+                    _field_label("Minimum matches"),
+                    rx.input(
+                        type="number",
+                        min="1",
+                        value=row["minimum_match_count"],
+                        on_change=ConsoleState.update_expression(index, "minimum_match_count"),
+                        aria_label=("Expression " + (index + 2).to_string() + " minimum matches"),
+                    ),
+                    align="stretch",
+                    spacing="1",
+                ),
+                columns="2",
+                gap="16px",
+                width="100%",
             ),
-            columns="2",
             class_name="expression-details",
         ),
         rx.cond(
@@ -417,6 +447,7 @@ def _additional_expression_row(row: object, index: object) -> rx.Component:
         spacing="1",
         align="stretch",
         width="100%",
+        class_name="expression-block",
     )
 
 
@@ -515,31 +546,41 @@ def _expression_details() -> rx.Component:
                     (ConsoleState.match_type == "matches_regex")
                     | (ConsoleState.match_type == "not_matches_regex")
                 ),
-                rx.grid(
-                    rx.vstack(
-                        _field_label("Regex description", "regex-description"),
-                        rx.input(
-                            id="regex-description",
-                            value=ConsoleState.regex_description,
-                            on_change=ConsoleState.set_regex_description,
-                        ),
-                        align="stretch",
-                        spacing="1",
+                rx.vstack(
+                    rx.text(
+                        "Regex details · Expression 1",
+                        class_name="expression-details-title",
                     ),
-                    rx.vstack(
-                        _field_label("Minimum matches", "regex-minimum-matches"),
-                        rx.input(
-                            id="regex-minimum-matches",
-                            type="number",
-                            min="1",
-                            value=ConsoleState.minimum_match_count,
-                            on_change=ConsoleState.set_minimum_match_count,
+                    rx.grid(
+                        rx.vstack(
+                            _field_label("Regex description", "regex-description-1"),
+                            rx.input(
+                                id="regex-description-1",
+                                value=ConsoleState.regex_description,
+                                on_change=ConsoleState.set_regex_description,
+                                placeholder="Describe this regex match",
+                                aria_label="Expression 1 regex description",
+                            ),
+                            align="stretch",
+                            spacing="1",
                         ),
-                        align="stretch",
-                        spacing="1",
+                        rx.vstack(
+                            _field_label("Minimum matches", "regex-minimum-matches-1"),
+                            rx.input(
+                                id="regex-minimum-matches-1",
+                                type="number",
+                                min="1",
+                                value=ConsoleState.minimum_match_count,
+                                on_change=ConsoleState.set_minimum_match_count,
+                                aria_label="Expression 1 minimum matches",
+                            ),
+                            align="stretch",
+                            spacing="1",
+                        ),
+                        columns="2",
+                        gap="16px",
+                        width="100%",
                     ),
-                    columns="2",
-                    gap="16px",
                     class_name="expression-details",
                 ),
             ),
@@ -712,9 +753,8 @@ def _compliance_editor() -> rx.Component:
             gap="10px",
             class_name="expression-labels",
         ),
-        _primary_expression_row(),
+        _primary_expression_block(),
         rx.foreach(ConsoleState.additional_expressions, _additional_expression_row),
-        _expression_details(),
         _compliance_scope_filters(),
         rx.hstack(
             rx.button(
