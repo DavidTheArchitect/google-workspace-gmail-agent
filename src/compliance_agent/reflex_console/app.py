@@ -1165,6 +1165,7 @@ def _draft_evidence() -> rx.Component:
                             "Review evidence ready",
                         )
                     ),
+                    class_name="evidence-title",
                 ),
                 rx.spacer(),
                 rx.text(ConsoleState.status, class_name="evidence-status"),
@@ -1201,6 +1202,133 @@ def _draft_evidence() -> rx.Component:
     )
 
 
+def _composer_assumption(assumption: object) -> rx.Component:
+    return rx.hstack(
+        _icon("check", 13),
+        rx.text(assumption),
+        align="start",
+        class_name="composer-assumption",
+    )
+
+
+def _policy_composer() -> rx.Component:
+    return rx.box(
+        rx.hstack(
+            rx.box(_icon("wand-sparkles", 18), class_name="composer-icon"),
+            rx.vstack(
+                rx.text("Describe what to block", class_name="composer-title"),
+                rx.text(
+                    "Local AI chooses the simplest sufficient Gmail rule and fills the form. "
+                    "It does not start review or access Google.",
+                    class_name="composer-subtitle",
+                ),
+                spacing="0",
+                align="start",
+            ),
+            class_name="composer-heading",
+        ),
+        rx.text_area(
+            id="policy-description",
+            value=ConsoleState.composer_description,
+            on_change=ConsoleState.set_composer_description,
+            rows="4",
+            max_length=2000,
+            placeholder=(
+                "For example: Block inbound senders at example.com whose address starts "
+                "with invoice- and ends in digits."
+            ),
+            disabled=ConsoleState.workflow_locked,
+            aria_label="Describe the messages or senders to block",
+            custom_attrs={"aria-describedby": "composer-help"},
+            class_name="composer-textarea",
+        ),
+        rx.hstack(
+            rx.text(
+                "Exact addresses and domains use Blocked senders; patterns or message criteria "
+                "use Content compliance.",
+                id="composer-help",
+                class_name="field-help",
+            ),
+            rx.spacer(),
+            rx.button(
+                _icon("sparkles", 15),
+                rx.cond(
+                    ConsoleState.composer_in_progress,
+                    "Creating draft…",
+                    "Create draft",
+                ),
+                on_click=ConsoleState.compose_policy,
+                disabled=ConsoleState.workflow_locked | (ConsoleState.composer_description == ""),
+                aria_label="Create policy draft from description",
+                class_name="composer-action",
+            ),
+            width="100%",
+            align="center",
+            class_name="composer-toolbar",
+        ),
+        rx.cond(
+            ConsoleState.composer_outcome == "ready",
+            rx.box(
+                rx.hstack(
+                    rx.hstack(
+                        _icon("route", 15),
+                        rx.text(ConsoleState.composer_surface_label),
+                        class_name="composer-surface",
+                    ),
+                    rx.spacer(),
+                    rx.text("Filled for review", class_name="composer-ready-label"),
+                    width="100%",
+                ),
+                rx.text(ConsoleState.composer_explanation, class_name="composer-explanation"),
+                rx.cond(
+                    ConsoleState.composer_assumptions.length() > 0,
+                    rx.box(
+                        rx.text("Assumptions", class_name="composer-assumptions-title"),
+                        rx.foreach(
+                            ConsoleState.composer_assumptions,
+                            _composer_assumption,
+                        ),
+                        class_name="composer-assumptions",
+                    ),
+                    rx.fragment(),
+                ),
+                rx.text(
+                    ConsoleState.composer_message,
+                    custom_attrs={"role": "status", "aria-live": "polite"},
+                    class_name="composer-message",
+                ),
+                class_name="composer-result ready",
+            ),
+            rx.cond(
+                ConsoleState.composer_outcome != "",
+                rx.hstack(
+                    _icon("circle-help", 15),
+                    rx.text(ConsoleState.composer_message),
+                    custom_attrs={
+                        "role": rx.cond(
+                            ConsoleState.composer_outcome == "error",
+                            "alert",
+                            "status",
+                        ),
+                        "aria-live": rx.cond(
+                            ConsoleState.composer_outcome == "error",
+                            "assertive",
+                            "polite",
+                        ),
+                    },
+                    class_name=rx.cond(
+                        ConsoleState.composer_outcome == "error",
+                        "composer-result error",
+                        "composer-result attention",
+                    ),
+                ),
+                rx.fragment(),
+            ),
+        ),
+        class_name="policy-composer",
+    )
+
+
 def _policy_editor() -> rx.Component:
     focused_operation = (ConsoleState.operation == "remove") | (ConsoleState.operation == "toggle")
     return rx.box(
@@ -1234,7 +1362,11 @@ def _policy_editor() -> rx.Component:
             ),
             rx.spacer(),
             rx.text(
-                rx.cond(ConsoleState.workflow_locked, "Review in progress", "Editable draft"),
+                rx.cond(
+                    ConsoleState.composer_in_progress,
+                    "Draft generation in progress",
+                    rx.cond(ConsoleState.workflow_locked, "Review in progress", "Editable draft"),
+                ),
                 class_name=rx.cond(
                     ConsoleState.workflow_locked,
                     "policy-page-status busy",
@@ -1243,6 +1375,11 @@ def _policy_editor() -> rx.Component:
             ),
             width="100%",
             class_name="policy-page-header",
+        ),
+        rx.cond(
+            ConsoleState.operation == "create",
+            _policy_composer(),
+            rx.fragment(),
         ),
         rx.el.fieldset(
             rx.cond(
@@ -1438,6 +1575,7 @@ def _agent_rail() -> rx.Component:
                 rx.hstack(
                     rx.avatar(fallback="AD", size="2"),
                     rx.text("Workspace Admin (you)"),
+                    class_name="approval-identity",
                 ),
                 rx.spacer(),
                 rx.button(

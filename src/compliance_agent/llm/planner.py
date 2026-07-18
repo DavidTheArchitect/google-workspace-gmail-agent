@@ -6,6 +6,7 @@ from compliance_agent.llm.group_chat import (
     build_policy_group_chat,
 )
 from compliance_agent.llm.persona import PersonaNoticeGenerator
+from compliance_agent.llm.policy_draft import StructuredPolicyDraftComposer
 from compliance_agent.llm.structured import OllamaOpenAIClient, StructuredPlanner
 from compliance_agent.settings import Settings
 
@@ -54,4 +55,19 @@ def build_persona_generator(settings: Settings) -> PersonaNoticeGenerator:
         ),
         model=settings.ollama_model,
         temperature=settings.persona_temperature,
+    )
+
+
+def build_policy_draft_composer(settings: Settings) -> StructuredPolicyDraftComposer:
+    """Build the create-only natural-language policy composer."""
+
+    client = OllamaOpenAIClient(
+        str(settings.ollama_base_url),
+        timeout_seconds=settings.llm_request_timeout_seconds,
+    )
+    return StructuredPolicyDraftComposer(
+        client,
+        model=settings.ollama_model,
+        temperature=0,
+        max_retries=settings.llm_max_retries,
     )

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     )
     from compliance_agent.llm.group_chat import GroupChatTranscript
     from compliance_agent.schemas.plan import TaskPlan
+    from compliance_agent.schemas.policy_draft import PolicyDraftAuditEvidence
     from compliance_agent.schemas.status import RunStatus
     from compliance_agent.settings import Settings
 
@@ -49,6 +50,7 @@ class AttendedRunAudit:
         transcript: GroupChatTranscript,
         *,
         model_tag: str,
+        composer_evidence: PolicyDraftAuditEvidence | None = None,
     ) -> None:
         """Persist the sanitized specialist verdicts bound to the exact typed plan."""
 
@@ -62,6 +64,8 @@ class AttendedRunAudit:
         }
         self._writer.write_text("plan.json", _json(plan))
         self._writer.write_text("agent-review.json", _json_value(payload))
+        if composer_evidence is not None:
+            self._writer.write_text("draft-composer.json", _json(composer_evidence))
         self._append(
             "agent_review_completed",
             "microsoft_agent_framework_group_chat",

@@ -359,6 +359,7 @@ dependencies = [
     { name = "agent-framework-orchestrations" },
     { name = "fastapi" },
     { name = "google-re2" },
+    { name = "httpx2" },
     { name = "idna" },
     { name = "jinja2" },
     { name = "openai" },
@@ -373,7 +374,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "mypy" },
     { name = "pip-audit" },
     { name = "pre-commit" },
@@ -390,7 +390,7 @@ requires-dist = [
     { name = "agent-framework-orchestrations", specifier = "==1.0.0" },
     { name = "fastapi", specifier = "==0.139.0" },
     { name = "google-re2", specifier = "==1.1.20251105" },
-    { name = "httpx2", marker = "extra == 'dev'", specifier = "==2.5.0" },
+    { name = "httpx2", specifier = "==2.5.0" },
     { name = "idna", specifier = "==3.18" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "mypy", marker = "extra == 'dev'", specifier = "==2.2.0" },

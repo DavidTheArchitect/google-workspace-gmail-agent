@@ -101,6 +101,20 @@ application cannot disable.
 
 ## Multi-agent and browser execution
 
+The create-policy page includes a natural-language draft composer. Its schema is intentionally
+smaller than an executable `TaskPlan`: it may select exact blocked-sender entries or the existing
+typed Content compliance criteria, but it cannot create rejection-notice personas, target an
+existing managed rule, request review, or authorize browser work. Literal complete addresses and
+domains are routed to Blocked senders. Content compliance uses the narrowest available location and
+operator, with RE2 reserved for variable pattern semantics. Invalid structured output, ambiguous
+identifiers, unsupported actions, and invalid RE2 leave the current form unchanged.
+
+The composer uses the OU and directions already visible in the form when the description omits
+scope, reports those assumptions beside its recommendation, and stops after filling the form. The
+normal four-specialist review still runs only when the operator explicitly reviews the resulting
+typed plan. Accepted composer provenance is attached to that later audit package, including whether
+the operator edited the generated fields before review.
+
 Four local participants run in the Microsoft Agent Framework group-chat pattern:
 
 1. policy architect;
