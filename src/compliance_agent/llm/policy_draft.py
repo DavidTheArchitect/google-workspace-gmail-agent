@@ -14,6 +14,7 @@ from compliance_agent.domain.regex_validation import (
 from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.llm.structured import (
     CompletionClient,
+    CompletionSampling,
     PlannerAttempt,
     extract_json_block,
 )
@@ -24,12 +25,20 @@ from compliance_agent.schemas.policy_draft import (
     PolicyDraftRecommendation,
 )
 
-POLICY_DRAFT_PROMPT_VERSION = "1.0"
+POLICY_DRAFT_PROMPT_VERSION = "1.1"
 _MAX_COMPOSER_RETRIES = 3
 _MAX_DESCRIPTION_CHARACTERS = 2_000
+_COMPOSER_SAMPLING = CompletionSampling(
+    seed=0,
+    top_p=1,
+    frequency_penalty=0,
+    presence_penalty=0,
+    max_tokens=2_048,
+    reasoning_effort="none",
+)
 _CONTENT_LOCATION_TERMS = re.compile(
     r"\b(?:subject|body|header|sender|recipient|envelope|attachment|raw message|"
-    r"anywhere|entire message)\b",
+    r"anywhere|entire message|whole message)\b",
     re.IGNORECASE,
 )
 _CONTENT_MATCH_TERMS = re.compile(
@@ -61,8 +70,12 @@ other PCRE-only constructs.
 Use the application-owned default OU and directions only when the operator omits them, set the
 corresponding used_default flags, and state each default in assumptions. Explicit operator scope
 overrides defaults. Never invent an email address, domain, OU, address-list name, group, detector,
-edition capability, header, or missing pattern detail. Ask one focused clarification question when
-the intended target or semantics are ambiguous. Unsupported actions include quarantine, message
+edition capability, header, or missing pattern detail. Infer ordinary intent when the wording is
+sufficient. In particular, an unqualified request to block emails or messages containing a word,
+phrase, or literal text means headers_and_body; use a non-regex literal operator and state that
+location inference in assumptions. Do not ask a follow-up question solely because the operator did
+not distinguish subject from body. Ask one focused clarification only when an identifier or
+matching semantic cannot reasonably be inferred. Unsupported actions include quarantine, message
 modification, routing, private APIs, and editing existing rules. This composer creates criteria
 only; it does not review, access Google, apply changes, or write rejection-notice/persona fields."""
 
@@ -166,6 +179,44 @@ _FEW_SHOT_EXAMPLES: tuple[tuple[dict[str, object], dict[str, object]], ...] = (
     ),
     (
         {
+            "description": "Block emails with the word 'roborock' in them",
+            "default_ou": "/",
+            "default_directions": ["inbound"],
+        },
+        {
+            "schema_version": "1.0",
+            "status": "draft",
+            "selection": {
+                "surface": "content_compliance",
+                "target_ou": {"path": "/"},
+                "directions": ["inbound"],
+                "combiner": "all",
+                "expressions": [
+                    {
+                        "type": "advanced",
+                        "location": "headers_and_body",
+                        "match_type": "contains",
+                        "value": "roborock",
+                        "minimum_match_count": 1,
+                    }
+                ],
+                "address_list_condition": None,
+                "envelope_filters": [],
+                "used_default_ou": True,
+                "used_default_directions": True,
+            },
+            "routing_explanation": (
+                "A literal word anywhere in an email uses Content compliance contains matching."
+            ),
+            "assumptions": [
+                "Interpreting the unqualified email content as headers and body.",
+                "Using the current organizational unit: /.",
+                "Using the current message direction: inbound.",
+            ],
+        },
+    ),
+    (
+        {
             "description": "Block Roborock",
             "default_ou": "/",
             "default_directions": ["inbound"],
@@ -232,17 +283,6 @@ class StructuredPolicyDraftComposer:
         if len(description) > _MAX_DESCRIPTION_CHARACTERS:
             message = "policy description exceeds 2000 characters"
             raise PlannerFailure(message)
-        clarification = clarification_for_ambiguous_content_location(description)
-        if clarification is not None:
-            return PolicyDraftComposerResult(
-                recommendation=PolicyDraftRecommendation(
-                    status="clarification_needed",
-                    clarification_question=clarification,
-                ),
-                model_tag=self._model,
-                temperature=self._temperature,
-                attempts=(),
-            )
         normalized_ou = OrganizationalUnitRef(path=default_ou).path
         if not default_directions or len(default_directions) != len(set(default_directions)):
             message = "composer defaults require unique message directions"
@@ -262,6 +302,7 @@ class StructuredPolicyDraftComposer:
                     schema,
                     self._model,
                     self._temperature,
+                    sampling=_COMPOSER_SAMPLING,
                 )
             except APITimeoutError as error:
                 message = "The local model request timed out before returning a policy draft."
@@ -269,7 +310,10 @@ class StructuredPolicyDraftComposer:
             except (APIConnectionError, APIStatusError) as error:
                 message = "Ollama is unavailable; the existing policy draft was preserved."
                 raise PlannerFailure(message) from error
-            recommendation, attempt = _validate_raw_output(raw_output)
+            recommendation, attempt = _validate_raw_output(
+                raw_output,
+                description=description,
+            )
             attempts.append(attempt)
             if recommendation is not None:
                 return PolicyDraftComposerResult(
@@ -287,25 +331,25 @@ class StructuredPolicyDraftComposer:
         raise PlannerFailure(message)
 
 
-def clarification_for_ambiguous_content_location(description: str) -> str | None:
-    """Ask where vague word or phrase matching should inspect the message."""
+def _requires_implicit_content_location(description: str) -> bool:
+    """Identify broad content wording whose location the model must infer."""
 
     if _CONTENT_LOCATION_TERMS.search(description):
-        return None
-    if not (_CONTENT_MATCH_TERMS.search(description) and _MESSAGE_TARGET_TERMS.search(description)):
-        return None
-    return (
-        "Should the requested word or phrase be matched in the subject, "
-        "the message body, or either location?"
+        return False
+    return bool(
+        _CONTENT_MATCH_TERMS.search(description) and _MESSAGE_TARGET_TERMS.search(description)
     )
 
 
 def _validate_raw_output(
     raw_output: str,
+    *,
+    description: str,
 ) -> tuple[PolicyDraftRecommendation | None, PlannerAttempt]:
     try:
         recommendation = PolicyDraftRecommendation.model_validate_json(raw_output)
         _validate_recommendation_regex(recommendation)
+        _reject_location_only_clarification(recommendation, description)
         return recommendation, PlannerAttempt(
             raw_output=raw_output,
             used_compatibility_extraction=False,
@@ -315,6 +359,7 @@ def _validate_raw_output(
             extracted = extract_json_block(raw_output)
             recommendation = PolicyDraftRecommendation.model_validate_json(extracted)
             _validate_recommendation_regex(recommendation)
+            _reject_location_only_clarification(recommendation, description)
         except (ValidationError, ValueError, json.JSONDecodeError) as compatibility_error:
             return None, PlannerAttempt(
                 raw_output=raw_output,
@@ -325,6 +370,20 @@ def _validate_raw_output(
             raw_output=raw_output,
             used_compatibility_extraction=True,
         )
+
+
+def _reject_location_only_clarification(
+    recommendation: PolicyDraftRecommendation,
+    description: str,
+) -> None:
+    if recommendation.status == "clarification_needed" and _requires_implicit_content_location(
+        description
+    ):
+        message = (
+            "unqualified message content must be inferred as headers_and_body, "
+            "not returned as a clarification"
+        )
+        raise ValueError(message)
 
 
 def _validate_recommendation_regex(recommendation: PolicyDraftRecommendation) -> None:

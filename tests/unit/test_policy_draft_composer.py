@@ -20,8 +20,8 @@ from compliance_agent.llm.policy_draft import (
     POLICY_DRAFT_PROMPT_VERSION,
     PolicyDraftComposerResult,
     StructuredPolicyDraftComposer,
-    clarification_for_ambiguous_content_location,
 )
+from compliance_agent.llm.structured import CompletionSampling
 from compliance_agent.reflex_console.state import ConsoleState
 from compliance_agent.schemas.compliance import (
     AdvancedContentLocation,
@@ -59,8 +59,10 @@ class FakeCompletionClient:
         schema: dict,
         model: str,
         temperature: float,
+        *,
+        sampling: CompletionSampling | None = None,
     ) -> str:
-        self.calls.append((messages, schema, model, temperature))
+        self.calls.append((messages, schema, model, temperature, sampling))
         output = self.outputs.pop(0)
         if isinstance(output, Exception):
             raise output
@@ -115,6 +117,30 @@ def _compliance_recommendation() -> PolicyDraftRecommendation:
         ),
         routing_explanation="Variable sender names require RE2 and authentication must also fail.",
         assumptions=(),
+    )
+
+
+def _broad_content_recommendation() -> PolicyDraftRecommendation:
+    return PolicyDraftRecommendation(
+        status="draft",
+        selection=ContentComplianceDraft(
+            target_ou=OrganizationalUnitRef(path="/"),
+            directions=(MessageDirection.INBOUND,),
+            combiner=ExpressionCombiner.ALL,
+            expressions=(
+                AdvancedContentMatch(
+                    location=AdvancedContentLocation.HEADERS_AND_BODY,
+                    match_type=AdvancedMatchType.CONTAINS,
+                    value="roborock",
+                ),
+            ),
+            used_default_ou=True,
+            used_default_directions=True,
+        ),
+        routing_explanation=(
+            "A literal word anywhere in an email uses Content compliance contains matching."
+        ),
+        assumptions=("Interpreting the unqualified email content as headers and body.",),
     )
 
 
@@ -318,8 +344,8 @@ async def test_composer_maps_connection_failure_without_changing_any_draft() -> 
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_content_location_returns_clarification_without_model_call() -> None:
-    client = FakeCompletionClient([])
+async def test_implicit_content_location_is_inferred_by_the_model() -> None:
+    client = FakeCompletionClient([_broad_content_recommendation().model_dump_json()])
     composer = StructuredPolicyDraftComposer(client, model="gemma4:12b")
 
     result = await composer.compose(
@@ -328,31 +354,76 @@ async def test_ambiguous_content_location_returns_clarification_without_model_ca
         default_directions=(MessageDirection.INBOUND,),
     )
 
-    assert result.recommendation.status == "clarification_needed"
-    assert result.recommendation.clarification_question == (
-        "Should the requested word or phrase be matched in the subject, "
-        "the message body, or either location?"
-    )
-    assert result.attempts == ()
-    assert client.calls == []
-    assert (
-        clarification_for_ambiguous_content_location(
-            "Block messages whose subject contains roborock"
-        )
-        is None
-    )
+    selection = result.recommendation.selection
+    assert isinstance(selection, ContentComplianceDraft)
+    expression = selection.expressions[0]
+    assert isinstance(expression, AdvancedContentMatch)
+    assert expression.location == AdvancedContentLocation.HEADERS_AND_BODY
+    assert expression.match_type == AdvancedMatchType.CONTAINS
+    assert expression.value == "roborock"
+    assert len(result.attempts) == 1
+    assert len(client.calls) == 1
+    assert client.calls[0][4].reasoning_effort == "none"
 
 
 @pytest.mark.asyncio
-async def test_reflex_ambiguous_content_request_preserves_form_and_asks_location() -> None:
+async def test_location_only_clarification_is_retried_as_an_inferred_draft() -> None:
+    clarification = PolicyDraftRecommendation(
+        status="clarification_needed",
+        clarification_question="Should this match the subject or body?",
+    )
+    client = FakeCompletionClient(
+        [
+            clarification.model_dump_json(),
+            _broad_content_recommendation().model_dump_json(),
+        ]
+    )
+    composer = StructuredPolicyDraftComposer(client, model="gemma4:12b", max_retries=1)
+
+    result = await composer.compose(
+        "block emails with the word 'roborock' in them.",
+        default_ou="/",
+        default_directions=(MessageDirection.INBOUND,),
+    )
+
+    assert result.recommendation.status == "draft"
+    assert len(result.attempts) == 2
+    assert "must be inferred as headers_and_body" in "\n".join(result.attempts[0].validation_errors)
+
+
+@pytest.mark.asyncio
+async def test_reflex_implicit_content_request_populates_a_reviewable_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recommendation = _broad_content_recommendation()
+
+    class _Composer:
+        async def compose(self, *_args: object, **_kwargs: object) -> PolicyDraftComposerResult:
+            return PolicyDraftComposerResult(
+                recommendation=recommendation,
+                model_tag="gemma4:12b",
+                temperature=0,
+                attempts=(),
+            )
+
+    async def _ready(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "compliance_agent.reflex_console.state.build_policy_draft_composer",
+        lambda _settings: _Composer(),
+    )
+    monkeypatch.setattr("compliance_agent.reflex_console.state.require_local_model", _ready)
     state = ConsoleState(_reflex_internal_init=True)
     state.blocked_values = "existing.example"
     state.composer_description = "block emails with the word 'roborock' in them."
 
-    assert [update async for update in state.compose_policy()] == []
-    assert state.composer_outcome == "clarification"
-    assert "subject" in state.composer_message
-    assert "message body" in state.composer_message
+    assert [update async for update in state.compose_policy()] == [None]
+    assert state.composer_outcome == "ready"
+    assert state.section == "compliance"
+    assert state.location == "headers_and_body"
+    assert state.match_type == "contains"
+    assert state.expression_value == "roborock"
     assert state.blocked_values == "existing.example"
     assert not state.review_in_progress
     assert not state.browser_in_progress

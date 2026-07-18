@@ -4,7 +4,9 @@ import json
 from typing import Literal, Protocol
 
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
+from openai.types.chat.completion_create_params import ResponseFormat
+from openai.types.shared_params import ResponseFormatJSONObject
 from openai.types.shared_params.response_format_json_schema import (
     JSONSchema,
     ResponseFormatJSONSchema,
@@ -19,6 +21,7 @@ from compliance_agent.schemas.plan import TaskPlan
 
 _MAX_PLANNER_RETRIES = 3
 _MAX_REQUEST_CHARACTERS = 10_000
+_HTTP_BAD_REQUEST = 400
 
 
 class CompletionClient(Protocol):
@@ -91,19 +94,20 @@ class OllamaOpenAIClient:
             type="json_schema",
             json_schema=JSONSchema(name=_schema_name(schema), schema=schema, strict=True),
         )
-        if sampling is None:
-            response = await self._client.chat.completions.create(
+
+        async def request_with_format(selected_format: ResponseFormat) -> ChatCompletion:
+            if sampling is None:
+                return await self._client.chat.completions.create(
+                    model=model,
+                    messages=list(messages),
+                    temperature=temperature,
+                    response_format=selected_format,
+                )
+            return await self._client.chat.completions.create(
                 model=model,
                 messages=list(messages),
                 temperature=temperature,
-                response_format=response_format,
-            )
-        else:
-            response = await self._client.chat.completions.create(
-                model=model,
-                messages=list(messages),
-                temperature=temperature,
-                response_format=response_format,
+                response_format=selected_format,
                 seed=sampling.seed,
                 top_p=sampling.top_p,
                 frequency_penalty=sampling.frequency_penalty,
@@ -111,6 +115,13 @@ class OllamaOpenAIClient:
                 max_tokens=sampling.max_tokens,
                 reasoning_effort=sampling.reasoning_effort,
             )
+
+        try:
+            response = await request_with_format(response_format)
+        except APIStatusError as error:
+            if not _is_ollama_grammar_rejection(error):
+                raise
+            response = await request_with_format(ResponseFormatJSONObject(type="json_object"))
         content = response.choices[0].message.content
         if content is None:
             message = "Ollama returned no completion content"
@@ -128,6 +139,15 @@ def _schema_name(schema: dict[str, object]) -> str:
         for character in candidate
     )
     return visible.strip("_")[:64] or "structured_output"
+
+
+def _is_ollama_grammar_rejection(error: APIStatusError) -> bool:
+    """Recognize only Ollama's strict-schema grammar initialization failure."""
+
+    return (
+        error.status_code == _HTTP_BAD_REQUEST
+        and "failed to parse grammar" in str(error).casefold()
+    )
 
 
 class StructuredPlanner:
