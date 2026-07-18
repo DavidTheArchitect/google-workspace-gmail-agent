@@ -33,11 +33,10 @@ _ROLE_SENTENCE_PUNCTUATION = frozenset(",.;:!?")
 
 
 class _EraFrame(NamedTuple):
-    """Parallel time-appropriate location and occupation pairs."""
+    """Time-appropriate settings for one era."""
 
     time_period: str
     locations: tuple[str, ...]
-    occupations: tuple[str, ...]
 
 
 _ERA_FRAMES = (
@@ -51,14 +50,6 @@ _ERA_FRAMES = (
             "a desert caravan junction",
             "a lakeside court city",
         ),
-        (
-            "dockside tide reader",
-            "herbal infirmary steward",
-            "guild mediator",
-            "navigational chart keeper",
-            "caravan route surveyor",
-            "court interpreter",
-        ),
     ),
     _EraFrame(
         "1790s",
@@ -69,14 +60,6 @@ _ERA_FRAMES = (
             "a multilingual border town",
             "a storm-prone island harbor",
             "a provincial university quarter",
-        ),
-        (
-            "map engraver",
-            "postal route inspector",
-            "astronomical instrument keeper",
-            "market weights inspector",
-            "harbor pilot",
-            "anatomical illustrator",
         ),
     ),
     _EraFrame(
@@ -89,14 +72,6 @@ _ERA_FRAMES = (
             "a botanical research station",
             "a rapidly growing capital district",
         ),
-        (
-            "railway timetable editor",
-            "telegraph office supervisor",
-            "lighthouse engineer",
-            "municipal surveyor",
-            "field botanist",
-            "public health statistician",
-        ),
     ),
     _EraFrame(
         "1930s",
@@ -107,14 +82,6 @@ _ERA_FRAMES = (
             "a polar weather station",
             "a crowded international rail hub",
             "a cliffside archaeological camp",
-        ),
-        (
-            "radio schedule coordinator",
-            "customs documentation officer",
-            "mobile literacy coordinator",
-            "weather station observer",
-            "international timetable analyst",
-            "documentary film cutter",
         ),
     ),
     _EraFrame(
@@ -127,14 +94,6 @@ _ERA_FRAMES = (
             "a community radio workshop",
             "a coastal emergency operations room",
         ),
-        (
-            "mainframe operations scheduler",
-            "hydroelectric maintenance scheduler",
-            "ferry traffic coordinator",
-            "field ecology technician",
-            "broadcast systems engineer",
-            "emergency logistics planner",
-        ),
     ),
     _EraFrame(
         "present day",
@@ -145,14 +104,6 @@ _ERA_FRAMES = (
             "a night-shift transit control room",
             "an island cultural center",
             "a desert astronomy complex",
-        ),
-        (
-            "urban mobility analyst",
-            "alpine systems engineer",
-            "marine habitat coordinator",
-            "transit operations dispatcher",
-            "island arts producer",
-            "night-sky instrumentation engineer",
         ),
     ),
     _EraFrame(
@@ -165,14 +116,6 @@ _ERA_FRAMES = (
             "a subterranean heat refuge",
             "a solar-powered desert observatory",
         ),
-        (
-            "climate migration liaison",
-            "lunar relay navigator",
-            "ecosystem treaty interpreter",
-            "cryogenic germination engineer",
-            "water-allocation mediator",
-            "deep-sky signal analyst",
-        ),
     ),
     _EraFrame(
         "far-future interstellar age",
@@ -184,13 +127,189 @@ _ERA_FRAMES = (
             "a nomadic biosphere vessel",
             "a terraforming camp beneath two moons",
         ),
+    ),
+)
+
+
+class _OccupationDomain(NamedTuple):
+    """One field of work with era-appropriate occupations parallel to _ERA_FRAMES."""
+
+    name: str
+    occupations_by_era: tuple[tuple[str, ...], ...]
+
+
+# Occupation is sampled independently of location so professions no longer track
+# the setting, and waterfront work is one domain among thirteen instead of a
+# recurring theme. The domain of the previous persona is excluded from the next
+# sample, so no field of work can repeat back-to-back.
+_OCCUPATION_DOMAINS = (
+    _OccupationDomain(
+        "healing",
         (
-            "interstellar navigation watchstander",
-            "terminator-zone climate engineer",
-            "rotational gravity mechanic",
-            "first-contact protocol interpreter",
-            "xenobiome caretaker",
-            "terraforming ethics mediator",
+            ("traveling bonesetter", "monastery herb physician"),
+            ("inoculation surgeon", "apothecary shop physician"),
+            ("district nurse", "railway infirmary surgeon"),
+            ("rural vaccination nurse", "field hospital anesthetist"),
+            ("burn ward nurse", "mobile clinic physician"),
+            ("trauma physiotherapist", "community mental health nurse"),
+            ("heat-illness triage medic", "gene therapy nurse"),
+            ("zero-gravity surgeon", "hibernation revival medic"),
+        ),
+    ),
+    _OccupationDomain(
+        "cuisine",
+        (
+            ("spice market cook", "guildhall banquet baker"),
+            ("coaching inn cook", "sugar confectioner"),
+            ("hotel pastry chef", "cannery seasoning blender"),
+            ("diner short-order cook", "soup kitchen head cook"),
+            ("airline catering chef", "commune bakery cook"),
+            ("street food vendor", "fermentation chef"),
+            ("vertical farm chef", "cultured protein chef"),
+            ("hydroponic galley cook", "fermentation vault chef"),
+        ),
+    ),
+    _OccupationDomain(
+        "craftwork",
+        (
+            ("stained glass artisan", "tapestry weaver"),
+            ("porcelain painter", "clock movement finisher"),
+            ("iron foundry patternmaker", "millinery designer"),
+            ("neon sign fabricator", "furniture upholsterer"),
+            ("ceramic kiln operator", "guitar luthier"),
+            ("bicycle frame builder", "textile dye artist"),
+            ("recycled polymer sculptor", "mycelium furniture grower"),
+            ("habitat glassblower", "meteoric iron jeweler"),
+        ),
+    ),
+    _OccupationDomain(
+        "performance",
+        (
+            ("court lute player", "festival puppeteer"),
+            ("opera rehearsal violinist", "traveling theater actor"),
+            ("music hall pianist", "circus rigging acrobat"),
+            ("radio drama actor", "swing band trombonist"),
+            ("community theater director", "session bass guitarist"),
+            ("street dance choreographer", "immersive theater director"),
+            ("holographic stage director", "low-gravity dance choreographer"),
+            ("generation ship playwright", "resonance chamber musician"),
+        ),
+    ),
+    _OccupationDomain(
+        "mediation",
+        (
+            ("guild dispute arbiter", "market court advocate"),
+            ("circuit court advocate", "land dispute notary"),
+            ("labor union negotiator", "patent claims examiner"),
+            ("tenant rights advocate", "border claims commissioner"),
+            ("arbitration panel counsel", "neighborhood dispute mediator"),
+            ("restorative justice facilitator", "employment tribunal advocate"),
+            ("climate compensation negotiator", "automation severance mediator"),
+            ("interspecies treaty envoy", "habitat charter arbiter"),
+        ),
+    ),
+    _OccupationDomain(
+        "skywatching",
+        (
+            ("eclipse table astronomer", "almanac star calculator"),
+            ("comet survey astronomer", "barometric observer"),
+            ("observatory photographic assistant", "storm warning forecaster"),
+            ("aurora observer", "aviation weather briefer"),
+            ("radio telescope operator", "hurricane reconnaissance meteorologist"),
+            ("exoplanet survey astronomer", "avalanche forecaster"),
+            ("solar storm forecaster", "orbital debris tracker"),
+            ("pulsar timing analyst", "binary star forecaster"),
+        ),
+    ),
+    _OccupationDomain(
+        "cultivation",
+        (
+            ("orchard grafting gardener", "vineyard terrace tender"),
+            ("botanical garden propagator", "hop yard grower"),
+            ("wheat station agronomist", "municipal park gardener"),
+            ("windbreak forester", "terraced rice farmer"),
+            ("orchard cooperative agronomist", "greenhouse rose grower"),
+            ("urban rooftop farmer", "heritage seed grower"),
+            ("drought orchard breeder", "rewilded prairie ranger"),
+            ("orbital greenhouse agronomist", "terraformed soil ecologist"),
+        ),
+    ),
+    _OccupationDomain(
+        "construction",
+        (
+            ("cathedral stonemason", "waterwheel millwright"),
+            ("iron bridge engineer", "windmill millwright"),
+            ("skyscraper riveter", "subway tunnel engineer"),
+            ("dam construction engineer", "airfield grader operator"),
+            ("prefab housing engineer", "geothermal plant technician"),
+            ("mass timber structural engineer", "wind turbine technician"),
+            ("printed housing engineer", "district cooling engineer"),
+            ("habitat hull welder", "rotational spoke engineer"),
+        ),
+    ),
+    _OccupationDomain(
+        "trade",
+        (
+            ("spice consignment merchant", "wool staple merchant"),
+            ("auction house appraiser", "general store proprietor"),
+            ("department store buyer", "grain exchange floor clerk"),
+            ("mail order merchandiser", "wholesale produce buyer"),
+            ("flea market silver dealer", "electronics import buyer"),
+            ("vintage clothing reseller", "fair trade coffee buyer"),
+            ("salvage materials broker", "repair cooperative manager"),
+            ("stationside spice merchant", "salvage auction broker"),
+        ),
+    ),
+    _OccupationDomain(
+        "teaching",
+        (
+            ("grammar school lecturer", "itinerant letter writer"),
+            ("village schoolmaster", "traveling elocution tutor"),
+            ("normal school instructor", "night school teacher"),
+            ("one-room schoolhouse teacher", "adult literacy tutor"),
+            ("open university tutor", "language lab instructor"),
+            ("multilingual school interpreter", "adult numeracy teacher"),
+            ("climate adaptation educator", "intergenerational skills teacher"),
+            ("shipboard school teacher", "xenolinguistics instructor"),
+        ),
+    ),
+    _OccupationDomain(
+        "signalcraft",
+        (
+            ("beacon tower signaler", "carrier pigeon dispatcher"),
+            ("semaphore relay operator", "cipher room decoder"),
+            ("telegraph office supervisor", "telephone exchange operator"),
+            ("radio schedule coordinator", "shortwave monitoring operator"),
+            ("mainframe operations scheduler", "broadcast systems engineer"),
+            ("satellite uplink engineer", "emergency dispatch radio operator"),
+            ("lunar relay navigator", "mesh network engineer"),
+            ("deep-sky signal analyst", "first-contact protocol interpreter"),
+        ),
+    ),
+    _OccupationDomain(
+        "waterways",
+        (
+            ("river barge master", "harbor beacon keeper"),
+            ("canal lock keeper", "harbor pilot"),
+            ("lighthouse engineer", "steam ferry engineer"),
+            ("drawbridge operator", "port customs launch pilot"),
+            ("ferry traffic coordinator", "hovercraft pilot"),
+            ("marine habitat coordinator", "tidal energy technician"),
+            ("floating city moorage engineer", "storm surge barrier operator"),
+            ("ice moon submarine pilot", "biosphere lagoon warden"),
+        ),
+    ),
+    _OccupationDomain(
+        "wayfaring",
+        (
+            ("caravan route surveyor", "mountain pass guide"),
+            ("postal route inspector", "stagecoach relay master"),
+            ("railway timetable editor", "expedition pack master"),
+            ("transcontinental bus dispatcher", "glacier expedition guide"),
+            ("metro line dispatcher", "overland truck route planner"),
+            ("transit operations dispatcher", "long-distance trail warden"),
+            ("elevated transit dispatcher", "migration corridor guide"),
+            ("wormhole transit dispatcher", "interstellar navigation watchstander"),
         ),
     ),
 )
@@ -400,9 +519,59 @@ _DELIVERY_STYLE_DRAFTING_EFFECTS = {
         "Use dramatic timing and declarative flourishes without threats, insults, or melodrama."
     ),
 }
+# Delivery styles per alignment are ordered most-characteristic first, and the
+# sampler weights positions 3:2:1:1 so the signature style of an alignment is
+# the most likely without ever removing the rarer ones.
+_DELIVERY_STYLE_POSITION_WEIGHTS = (3, 2, 1, 1)
+# The drafting model weighs each sampled attribute in proportion to these
+# weights (10 dominates, 1 barely seasons). Alignment sits alone at the top so
+# an evil, neutral, or good persona is unmistakable in the notice; mood and
+# delivery style shape the surface next; biography details season the prose
+# without ever outvoting the moral posture.
+_ATTRIBUTE_INFLUENCE_WEIGHTS: tuple[tuple[str, int, str], ...] = (
+    (
+        "D&D alignment",
+        10,
+        "must dominate the moral posture, relationship to authority, treatment of the sender, "
+        "willingness to help, and degree of finality; when any lower-weighted attribute pulls "
+        "another way, alignment wins outright",
+    ),
+    ("current mood", 8, "must shape cadence and energy in every sentence"),
+    (
+        "delivery style",
+        7,
+        "must govern formality, rhythm, and presentation without overriding alignment",
+    ),
+    ("personality", 6, "must govern the persona's overall manner"),
+    ("occupation", 5, "must shape vocabulary or metaphor"),
+    (
+        "traits",
+        4,
+        "every one of the three traits must affect temperament or sentence construction",
+    ),
+    ("location and time period", 3, "must shape imagery and idiom"),
+    ("goals", 2, "both goals must affect what the persona emphasizes"),
+    ("age", 2, "must shape maturity and pacing"),
+)
+_ALIGNMENT_CUE_PATTERNS = {
+    alignment: re.compile(
+        r"\b(?:" + "|".join(re.escape(cue) for cue in cues) + r")\b",
+        re.IGNORECASE,
+    )
+    for alignment, cues in _ALIGNMENT_NOTICE_CUES.items()
+}
 _UNSAMPLED_ARCHIVAL_PATTERN = re.compile(
     r"\b(?:archiv\w*|catalog\w*|ledger\w*|registrar\w*|"
     r"(?:record|data)\s+(?:keeper|custodian|steward)|curator\w*)\b",
+    re.IGNORECASE,
+)
+# Local models drift toward waterfront identities for blocked-mail personas, so
+# a harbor-flavored role is only allowed when the sampled occupation earned it.
+_MARITIME_IDENTITY_PATTERN = re.compile(
+    r"\b(?:harbou?rs?|harbou?rside|docks?|dockside|docking|wharf|wharves|quays?|piers?|"
+    r"ports?|portside|seaports?|lighthouses?|ferry|ferries|tides?|tidal|marinas?|"
+    r"mariners?|marine|maritime|sailors?|seafarers?|shipyards?|moorings?|moorage|"
+    r"barges?|lagoons?|canals?)\b",
     re.IGNORECASE,
 )
 
@@ -498,12 +667,16 @@ class PersonaNoticeGenerator:
 
         recent_signatures = _normalized_recent_signatures(recent_profile_signatures)
         previous_alignment = recent_signatures[-1].alignment if recent_signatures else ""
+        previous_domain = (
+            occupation_domain_name(recent_signatures[-1].occupation) if recent_signatures else ""
+        )
         last_error: Exception | None = None
         for _attempt_index in range(self._max_attempts):
             seed = secrets.randbits(63)
             brief = sample_persona_brief(
                 seed,
                 excluded_alignments=(previous_alignment,) if previous_alignment else (),
+                excluded_occupation_domains=(previous_domain,) if previous_domain else (),
             )
             sampling = CompletionSampling(
                 seed=seed,
@@ -579,15 +752,25 @@ def sample_persona_brief(
     seed: int,
     *,
     excluded_alignments: Collection[str] = (),
+    excluded_occupation_domains: Collection[str] = (),
 ) -> ApplicationPersonaBrief:
-    """Sample a coherent brief, optionally avoiding recently displayed alignments."""
+    """Sample a coherent brief, avoiding recently displayed alignments and work domains."""
 
     if seed < 0:
         message = "persona seed must not be negative"
         raise ValueError(message)
     generator = random.Random(seed)  # noqa: S311 - creative diversity, not security.
-    era = generator.choice(_ERA_FRAMES)
-    setting_index = generator.randrange(len(era.locations))
+    era_index = generator.randrange(len(_ERA_FRAMES))
+    era = _ERA_FRAMES[era_index]
+    location = generator.choice(era.locations)
+    excluded_domains = frozenset(excluded_occupation_domains)
+    domain_pool = tuple(
+        domain for domain in _OCCUPATION_DOMAINS if domain.name not in excluded_domains
+    )
+    if not domain_pool:
+        domain_pool = _OCCUPATION_DOMAINS
+    domain = generator.choice(domain_pool)
+    occupation = generator.choice(domain.occupations_by_era[era_index])
     excluded = frozenset(excluded_alignments)
     alignment_pool = tuple(
         alignment for alignment in _ALIGNMENT_DRAFTING_EFFECTS if alignment not in excluded
@@ -600,17 +783,23 @@ def sample_persona_brief(
     personality = generator.choice(_PERSONALITIES)
     current_mood = generator.choice(tuple(_MOOD_DRAFTING_EFFECTS))
     alignment = generator.choice(alignment_pool)
+    delivery_styles = _ALIGNMENT_DELIVERY_STYLES[alignment]
+    delivery_style = generator.choices(
+        delivery_styles,
+        weights=_DELIVERY_STYLE_POSITION_WEIGHTS[: len(delivery_styles)],
+        k=1,
+    )[0]
     return ApplicationPersonaBrief(
         age=age,
-        occupation=era.occupations[setting_index],
-        location=era.locations[setting_index],
+        occupation=occupation,
+        location=location,
         traits=traits,
         goals=goals,
         personality=personality,
         time_period=era.time_period,
         current_mood=current_mood,
         alignment=alignment,
-        delivery_style=generator.choice(_ALIGNMENT_DELIVERY_STYLES[alignment]),
+        delivery_style=delivery_style,
     )
 
 
@@ -644,21 +833,19 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         f"{_DELIVERY_STYLE_DRAFTING_EFFECTS[brief.delivery_style]}\n\n"
         "Render that exact brief as one fictional persona and one plain-text SMTP rejection "
         "notice. Use fictional_role for a concise, title-like noun phrase of two to seven words "
-        "and no more than 64 characters, grounded in the supplied occupation and setting. It must "
-        "identify only the role, not describe the character in a sentence or relative clause. "
-        "Preserve the supplied occupation's core kind of work in the role; never replace a "
-        "non-archival occupation with an archivist, cataloger, records keeper, registrar, or "
-        "similar stock identity. "
-        "Apply this field-influence contract to both voice and motif and, most importantly, to the "
-        "sender-facing notice: age must shape maturity and pacing; occupation must shape "
-        "vocabulary or metaphor; location and time period must shape imagery and idiom; every one "
-        "of the three "
-        "traits must affect temperament or sentence construction; both goals must affect what the "
-        "persona emphasizes; personality must govern the overall manner; current mood must shape "
-        "cadence and energy; alignment must dominate the moral posture, authority stance, level of "
-        "helpfulness, and finality; and delivery style must govern formality, rhythm, and "
-        "presentation without overriding alignment. Do not omit any field or flatten these "
-        "influences into "
+        "and no more than 64 characters, grounded in the supplied occupation and time period. It "
+        "must identify only the role, not describe the character in a sentence or relative "
+        "clause. Preserve the supplied occupation's core kind of work in the role; never replace "
+        "a non-archival occupation with an archivist, cataloger, records keeper, registrar, or "
+        "similar stock identity, and never give the role a harbor, dock, port, ferry, "
+        "lighthouse, or other waterfront identity unless the supplied occupation already has "
+        "one. "
+        "ATTRIBUTE INFLUENCE WEIGHTS: apply every sampled attribute to voice, motif, and, most "
+        "importantly, the sender-facing notice, with influence proportional to its weight on a "
+        "one-to-ten scale; whenever two attributes conflict, the higher-weighted attribute wins "
+        "outright.\n"
+        f"{_influence_weight_block()}"
+        "Do not omit any field or flatten these influences into "
         "generic corporate prose. Follow the sampled delivery style even when it is casual, blunt, "
         "eccentric, playful, lyrical, or theatrical. These influences must be perceptible in the "
         "notice, but never name the age, occupation, location, time period, traits, goals, "
@@ -689,10 +876,18 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "placeholder tokens in any field. "
         "FINAL ALIGNMENT CHECK: before returning, rewrite any sentence that sounds like generic "
         "corporate copy. The sender-facing notice must perform this alignment-specific move: "
-        f"{_ALIGNMENT_NOTICE_MOVES[brief.alignment]} Reinforce it naturally with at least one of "
-        "these ordinary cue words or phrases (do not list them): "
-        f"{', '.join(_ALIGNMENT_NOTICE_CUES[brief.alignment])}. "
+        f"{_ALIGNMENT_NOTICE_MOVES[brief.alignment]} The notice must also weave in, naturally and "
+        "without listing them, at least one of these ordinary cue words or phrases: "
+        f"{', '.join(_ALIGNMENT_NOTICE_CUES[brief.alignment])}. A notice that contains none of "
+        "them is invalid. "
         "Return only one object matching the supplied JSON schema."
+    )
+
+
+def _influence_weight_block() -> str:
+    return "".join(
+        f"- {attribute} (weight {weight} of 10): {directive}.\n"
+        for attribute, weight, directive in _ATTRIBUTE_INFLUENCE_WEIGHTS
     )
 
 
@@ -700,7 +895,9 @@ def _alignment_system_prompt(brief: ApplicationPersonaBrief) -> str:
     return (
         "You write one fictional plain-text SMTP rejection and its compact persona metadata. "
         f"The character's D&D alignment is {brief.alignment}. Alignment is the dominant behavioral "
-        "law, not a descriptive tag. It must visibly control the refusal's moral posture, "
+        "law, not a descriptive tag. It carries the maximum influence weight, ten of ten, and "
+        "every other sampled attribute is weighted below it. It must visibly control the "
+        "refusal's moral posture, "
         "relationship to authority, treatment of the sender, willingness to help, and degree of "
         "finality in every sentence. Its mandatory effect is: "
         f"{_ALIGNMENT_DRAFTING_EFFECTS[brief.alignment]} "
@@ -802,6 +999,15 @@ def _draft_quality_error(
         (
             introduced_archival_identity,
             "persona output introduced an archival identity absent from the sampled brief",
+        ),
+        (
+            _MARITIME_IDENTITY_PATTERN.search(draft.fictional_role) is not None
+            and _MARITIME_IDENTITY_PATTERN.search(brief.occupation) is None,
+            "persona role drifted to a maritime identity absent from the sampled occupation",
+        ),
+        (
+            _ALIGNMENT_CUE_PATTERNS[brief.alignment].search(draft.text) is None,
+            "persona notice omitted every cue word for the sampled alignment",
         ),
         (
             bool(
@@ -912,6 +1118,20 @@ def _normalized_recent_signatures(
 def _normalize_signature(value: str) -> str:
     visible = "".join(character if character.isalnum() else " " for character in value.casefold())
     return " ".join(visible.split())
+
+
+_OCCUPATION_TO_DOMAIN = {
+    _normalize_signature(occupation): domain.name
+    for domain in _OCCUPATION_DOMAINS
+    for era_occupations in domain.occupations_by_era
+    for occupation in era_occupations
+}
+
+
+def occupation_domain_name(occupation: str) -> str:
+    """Return the sampling domain of an occupation, or empty for unknown occupations."""
+
+    return _OCCUPATION_TO_DOMAIN.get(_normalize_signature(occupation), "")
 
 
 def _is_near_duplicate(

@@ -59,16 +59,28 @@ one coherent era frame and randomly combines an adult age, occupation, location,
 traits, two distinct goals, personality, current mood, one of the nine D&D alignments, and an
 alignment-compatible delivery style that can be blunt, casual, ceremonial, deadpan, eccentric,
 folksy, lyrical, playful, professional, or theatrical.
-Time-appropriate occupation/location pairs prevent incoherent combinations while the remaining
-cross-product still provides broad variation. Occupation and goal pools avoid recurring archive,
+Occupation is sampled independently of location from thirteen era-spanning work domains (healing,
+cuisine, craftwork, performance, mediation, skywatching, cultivation, construction, trade,
+teaching, signalcraft, waterways, and wayfaring), each with era-appropriate occupations, so
+professions no longer track the setting and waterfront work is one domain among thirteen rather
+than a recurring theme. The immediately previous persona's work domain is excluded from the next
+draw, so no field of work repeats back-to-back. Occupation and goal pools avoid recurring archive,
 catalog, records, and ledger defaults. A deterministic quality gate rejects any unsupported
-archivist, cataloger, ledger, registrar, curator, or record-steward identity the model introduces.
+archivist, cataloger, ledger, registrar, curator, or record-steward identity the model introduces,
+and rejects harbor, dock, port, or other maritime role identities whenever the sampled occupation
+is not maritime.
+Every sampled attribute carries an explicit influence weight on a one-to-ten scale that the prompt
+spells out: alignment 10, current mood 8, delivery style 7, personality 6, occupation 5, traits 4,
+location and time period 3, goals 2, and age 2, with higher weights winning every conflict.
 Each mood has an application-owned cadence/energy directive, but alignment is the dominant
 behavioral control over moral posture, authority, helpfulness, and finality. Each alignment also has
-a mandatory rhetorical move and varied cue vocabulary reinforced at the end of the prompt. All nine
+a mandatory rhetorical move and varied cue vocabulary reinforced at the end of the prompt, and the
+quality gate rejects any notice that contains none of the sampled alignment's cue words, so an evil
+alignment reads cold or defiant while a good alignment reads protective or helpful. Delivery styles
+are drawn with position weights favoring each alignment's most characteristic style. All nine
 alignments remain reachable, while the immediately previous alignment is excluded from the next
-random draw to prevent back-to-back repeats. The model receives that authoritative brief and a
-field-by-field influence contract, then verbalizes it into a compact fictional role, voice, motif,
+random draw to prevent back-to-back repeats. The model receives that authoritative brief and the
+weighted influence contract, then verbalizes it into a compact fictional role, voice, motif,
 and bounce message. It may not replace, contradict, omit, or disclose the sampled fields, and an
 accepted notice must make the rejection outcome and delivery context clear without relying on a
 fixed blocked-sender sentence.
