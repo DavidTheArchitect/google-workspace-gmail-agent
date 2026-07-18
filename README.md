@@ -18,11 +18,14 @@ surface. Each persona begins as randomly selected application-owned facts — ag
 location, traits, goals, personality, time period, current mood, D&D alignment, and delivery style —
 which the local model then verbalizes into a role, voice, motif, and sender-facing notice. A
 field-influence contract requires every sampled fact to affect the writing without being disclosed.
-The independently sampled delivery style ranges from blunt, casual, and eccentric to lyrical,
-theatrical, and professional, so professional prose is only one possible result. All nine alignments
-are reachable, and a random draw excludes only the immediately previous alignment to avoid
-back-to-back repeats. Every accepted notice clearly communicates non-delivery, while fixed
-blocked-sender wording is rejected so the sampled persona can express that outcome creatively. Exact
+Alignment is the dominant behavioral control, and the delivery style is sampled from a compatible
+pool ranging from blunt, casual, and eccentric to lyrical, theatrical, and professional. All nine
+alignments are reachable, and a random draw excludes only the immediately previous alignment to
+avoid back-to-back repeats. Occupation and goal pools are balanced away from recurring archive,
+catalog, records, and ledger themes; a sender-safety gate also rejects any archival stock identity
+the model introduces without support from the sampled brief. Every accepted notice clearly
+communicates non-delivery, while fixed blocked-sender wording is rejected so the sampled persona can
+express that outcome creatively. Exact
 approval controls appear only after the headed browser supplies a fresh Google before-state read
 and change-set hash; a local draft hash is never presented as permission to write. The Ownership
 page can also read the current Google state on demand: the attended Playwright browser agent

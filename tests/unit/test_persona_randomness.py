@@ -10,6 +10,8 @@ from openai import APIConnectionError
 
 from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.llm.persona import (
+    _ALIGNMENT_DELIVERY_STYLES,
+    _ALIGNMENT_DRAFTING_EFFECTS,
     ApplicationPersonaBrief,
     CreativePersonaDraft,
     PersonaNoticeGenerator,
@@ -26,7 +28,7 @@ def _draft(
         "An iron gate closes against this message; it will not reach the recipient organization "
         "by this route. Try another passage if contact is still needed."
     ),
-    fictional_role: str = "midnight archive cartographer",
+    fictional_role: str = "midnight storm cartographer",
     voice: str = "syncopated marginal notes",
     motif: str = "folded maps and green ink",
 ) -> CreativePersonaDraft:
@@ -121,7 +123,15 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
     )
     assert not notice.used_fallback
     assert client.calls[0]["schema"] == CreativePersonaDraft.model_json_schema()
-    prompt = client.calls[0]["messages"][0]["content"]
+    messages = client.calls[0]["messages"]
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+    system_prompt = messages[0]["content"]
+    prompt = messages[1]["content"]
+    assert f"D&D alignment is {expected_brief.alignment}" in system_prompt
+    assert "dominant behavioral law" in system_prompt
+    assert "Generic corporate wording that could fit any alignment is invalid" in system_prompt
     assert "MAIL-204" not in prompt
     assert "confidential-information" not in prompt
     required_prompt_content = (
@@ -139,10 +149,14 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
         "Alignment drafting effect:",
         "Delivery-style drafting effect:",
         "must shape cadence and energy",
-        "must shape rhetorical stance",
+        "must dominate the moral posture",
         "every one of the three traits",
         "both goals",
         "NON-NEGOTIABLE NOTICE PREMISE",
+        "ALIGNMENT DOMINANCE",
+        "strongest behavioral control",
+        "outranks mood, personality, traits, goals, and delivery style",
+        "never replace a non-archival occupation",
         "not a judgment about the message or the person",
         "do not advise rewriting",
         "sole premise",
@@ -159,7 +173,7 @@ async def test_persona_binds_protected_fields_application_side_with_fresh_sampli
     assert sampling.top_p == 0.98
     assert sampling.max_tokens == 640
     signature = PersonaProfileSignature.model_validate_json(profile_signature(notice))
-    assert signature.fictional_role == "midnight archive cartographer"
+    assert signature.fictional_role == "midnight storm cartographer"
     assert (
         signature.age,
         signature.occupation,
@@ -202,6 +216,9 @@ def test_application_persona_briefs_are_seeded_coherent_and_diverse() -> None:
     assert 21 <= first.age <= 79
     assert first.alignment in expected_alignments
     assert alignments == expected_alignments
+    assert set(_ALIGNMENT_DRAFTING_EFFECTS) == expected_alignments
+    assert len(set(_ALIGNMENT_DRAFTING_EFFECTS.values())) == len(expected_alignments)
+    assert all(len(effect) >= 140 for effect in _ALIGNMENT_DRAFTING_EFFECTS.values())
     assert delivery_styles == {
         "blunt",
         "casual",
@@ -216,6 +233,18 @@ def test_application_persona_briefs_are_seeded_coherent_and_diverse() -> None:
     }
     assert first.current_mood
     assert len({brief.model_dump_json() for brief in briefs}) == len(briefs)
+    sampled = [sample_persona_brief(seed) for seed in range(2_000)]
+    archival_terms = ("archiv", "catalog", "records keeper", "ledger", "registrar")
+    assert all(
+        not any(
+            term in " ".join((brief.occupation, brief.location, *brief.goals)).casefold()
+            for term in archival_terms
+        )
+        for brief in sampled
+    )
+    assert all(
+        brief.delivery_style in _ALIGNMENT_DELIVERY_STYLES[brief.alignment] for brief in sampled
+    )
 
 
 def test_application_persona_brief_avoids_an_immediate_alignment_repeat() -> None:
@@ -252,7 +281,7 @@ async def test_generator_excludes_the_previous_profile_alignment(
     )
 
     assert notice.persona.alignment != "chaotic evil"
-    assert f"D&D alignment: {notice.persona.alignment}" in client.calls[0]["messages"][0]["content"]
+    assert f"D&D alignment: {notice.persona.alignment}" in client.calls[0]["messages"][1]["content"]
 
 
 def test_application_persona_brief_rejects_negative_seed() -> None:
@@ -316,7 +345,7 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
             "A copper violin announces the verdict: this missive goes no farther at the category "
             "gate. Reach the recipient organization through a different channel."
         ),
-        fictional_role="subterranean violin registrar",
+        fictional_role="subterranean violin conductor",
         voice="percussive and asymmetrical",
         motif="copper strings under wet stone",
     )
@@ -338,7 +367,7 @@ async def test_invalid_and_near_duplicate_outputs_retry_with_new_entropy(
     assert notice.persona.seed == 203
     assert notice.persona.fictional_role == fresh.fictional_role
     assert [call["sampling"].seed for call in client.calls] == [201, 202, 203]
-    prompts = [call["messages"][0]["content"] for call in client.calls]
+    prompts = [call["messages"][1]["content"] for call in client.calls]
     assert len(set(prompts)) == 3
     assert all("application has already sampled this persona" in prompt for prompt in prompts)
 
@@ -384,11 +413,11 @@ async def test_leaked_artifacts_and_fabricated_contacts_fail_the_attempt(
     )
     clean = _draft(
         text=(
-            "The red ledger refuses this message passage. Reach the recipient organization through "
-            "a channel it already publishes."
+            "The red signal lamp refuses this message passage. Reach the recipient organization "
+            "through a channel it already publishes."
         ),
-        fictional_role="registrar of refused letters",
-        voice="measured ledger entries",
+        fictional_role="threshold signal keeper",
+        voice="measured bell sequences",
         motif="red wax and string",
     )
     client = RecordingCompletion(
@@ -451,8 +480,8 @@ async def test_windows_line_endings_and_padding_are_normalized(
 ) -> None:
     messy = _draft(
         text=(
-            "The red ledger refuses this   message passage.\r\nReach the recipient organization "
-            "through a channel it already publishes.  "
+            "The red signal lamp refuses this   message passage.\r\n"
+            "Reach the recipient organization through a channel it already publishes.  "
         ),
     )
     _install_entropy(monkeypatch, seeds=(601,))
@@ -467,6 +496,31 @@ async def test_windows_line_endings_and_padding_are_normalized(
     assert "\r" not in notice.text
     assert "  " not in notice.text
     assert notice.text.endswith("publishes.")
+
+
+@pytest.mark.asyncio
+async def test_stray_underscore_artifact_retries_with_clean_prose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    malformed = _draft(text="A standing decree closes this route under our jurisdiction_.")
+    clean = _draft(text="A standing decree closes this route under our jurisdiction.")
+    client = RecordingCompletion((malformed.model_dump_json(), clean.model_dump_json()))
+    _install_entropy(monkeypatch, seeds=(611, 612))
+
+    notice = await PersonaNoticeGenerator(
+        client,
+        model="gemma4:12b",
+        temperature=1.25,
+        max_attempts=2,
+    ).generate(
+        policy_category="confidential-information",
+        policy_id="MAIL-204",
+    )
+
+    assert notice.persona.seed == 612
+    assert notice.text.endswith("jurisdiction.")
+    assert "_" not in notice.text
+    assert len(client.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -496,10 +550,10 @@ async def test_sentence_like_persona_roles_retry_as_compact_titles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     sentence_role = _draft(
-        fictional_role="Archivist who guards the Relic Gate",
+        fictional_role="Harbor pilot who guards the Relic Gate",
     )
     compact_role = _draft(
-        fictional_role="Archivist of Relic Gate",
+        fictional_role="Pilot of Relic Gate",
     )
     client = RecordingCompletion((sentence_role.model_dump_json(), compact_role.model_dump_json()))
     _install_entropy(monkeypatch, seeds=(801, 802))
@@ -516,7 +570,39 @@ async def test_sentence_like_persona_roles_retry_as_compact_titles(
     )
 
     assert notice.persona.seed == 802
-    assert notice.persona.fictional_role == "Archivist of Relic Gate"
+    assert notice.persona.fictional_role == "Pilot of Relic Gate"
+    assert len(client.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_unsampled_archival_identity_retries_with_a_non_archival_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archival = _draft(
+        fictional_role="Archivist of Relic Gate",
+        voice="measured archival whispers",
+        motif="catalog drawers and numbered ledgers",
+    )
+    non_archival = _draft(
+        fictional_role="Tide Reader of Relic Gate",
+        voice="measured harbor signals",
+        motif="storm bells and salt wind",
+    )
+    client = RecordingCompletion((archival.model_dump_json(), non_archival.model_dump_json()))
+    _install_entropy(monkeypatch, seeds=(811, 812))
+
+    notice = await PersonaNoticeGenerator(
+        client,
+        model="gemma4:12b",
+        temperature=1.25,
+        max_attempts=2,
+    ).generate(
+        policy_category="confidential-information",
+        policy_id="MAIL-204",
+    )
+
+    assert notice.persona.seed == 812
+    assert notice.persona.fictional_role == "Tide Reader of Relic Gate"
     assert len(client.calls) == 2
 
 

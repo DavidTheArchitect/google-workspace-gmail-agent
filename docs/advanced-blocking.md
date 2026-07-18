@@ -56,12 +56,16 @@ union closed to Reject.
 
 Application code creates the identity before the local model writes anything. A fresh seed selects
 one coherent era frame and randomly combines an adult age, occupation, location, three distinct
-traits, two distinct goals, personality, current mood, one of the nine D&D alignments, and a
-delivery style that can be blunt, casual, ceremonial, deadpan, eccentric, folksy, lyrical, playful,
-professional, or theatrical.
+traits, two distinct goals, personality, current mood, one of the nine D&D alignments, and an
+alignment-compatible delivery style that can be blunt, casual, ceremonial, deadpan, eccentric,
+folksy, lyrical, playful, professional, or theatrical.
 Time-appropriate occupation/location pairs prevent incoherent combinations while the remaining
-cross-product still provides broad variation. Each mood has an application-owned cadence/energy
-directive and each alignment has an application-owned rhetorical-stance directive. All nine
+cross-product still provides broad variation. Occupation and goal pools avoid recurring archive,
+catalog, records, and ledger defaults. A deterministic quality gate rejects any unsupported
+archivist, cataloger, ledger, registrar, curator, or record-steward identity the model introduces.
+Each mood has an application-owned cadence/energy directive, but alignment is the dominant
+behavioral control over moral posture, authority, helpfulness, and finality. Each alignment also has
+a mandatory rhetorical move and varied cue vocabulary reinforced at the end of the prompt. All nine
 alignments remain reachable, while the immediately previous alignment is excluded from the next
 random draw to prevent back-to-back repeats. The model receives that authoritative brief and a
 field-by-field influence contract, then verbalizes it into a compact fictional role, voice, motif,
