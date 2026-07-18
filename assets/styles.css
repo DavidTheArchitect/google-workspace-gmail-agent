@@ -213,6 +213,27 @@ button:focus-visible, a:focus-visible, [role="tab"]:focus-visible {
 .policy-page-subtitle { margin-top: 2px; color: var(--muted); font-size: 10.5px; line-height: 1.4; }
 .policy-page-status { width: auto; padding: 4px 9px; border: 1px solid var(--blue-wash-border); border-radius: 999px; background: var(--blue-wash); color: var(--accent); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .policy-page-status.busy { border-color: color-mix(in srgb, var(--amber) 38%, var(--line)); background: color-mix(in srgb, var(--amber) 10%, transparent); color: var(--amber); }
+.policy-composer { width: 100%; margin: 0 0 14px; padding: 14px; border: 1px solid var(--blue-wash-border); border-radius: 10px; background: linear-gradient(135deg, var(--blue-wash), var(--panel)); box-shadow: 0 1px 3px var(--shadow); }
+.composer-heading { margin-bottom: 11px; gap: 9px; align-items: center !important; }
+.composer-icon { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px var(--shadow); }
+.composer-title { color: var(--ink); font-size: 12.5px; font-weight: 730; }
+.composer-subtitle { max-width: 720px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.composer-textarea { width: 100%; min-height: 88px; background: var(--panel) !important; }
+.composer-toolbar { margin-top: 8px; gap: 12px; }
+.composer-action { width: auto !important; min-width: 132px; height: 34px !important; padding: 0 13px !important; border: 1px solid var(--accent) !important; border-radius: 7px !important; background: var(--accent) !important; color: white !important; box-shadow: none !important; font-size: 11px !important; font-weight: 700 !important; gap: 7px !important; }
+.composer-action:disabled { border-color: var(--field-border) !important; background: var(--disabled-bg) !important; color: var(--disabled-ink) !important; cursor: not-allowed; }
+.composer-result { width: 100%; margin-top: 11px; padding: 10px 11px; border: 1px solid var(--line-soft); border-radius: 8px; color: var(--text); background: var(--panel); font-size: 11px; line-height: 1.5; gap: 8px; align-items: flex-start; }
+.composer-result.ready { border-color: color-mix(in srgb, var(--green) 34%, var(--line)); background: color-mix(in srgb, var(--green) 5%, var(--panel)); }
+.composer-result.attention { border-color: color-mix(in srgb, var(--amber) 34%, var(--line)); }
+.composer-result.error { border-color: color-mix(in srgb, var(--red) 38%, var(--line)); color: var(--red); }
+.composer-surface { width: max-content; color: var(--accent); font-size: 11px; font-weight: 730; gap: 6px; align-items: center !important; }
+.composer-ready-label { color: var(--green); font-size: 10px; font-weight: 700; }
+.composer-explanation { margin-top: 7px; color: var(--text); }
+.composer-assumptions { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line-soft); }
+.composer-assumptions-title { margin-bottom: 4px; color: var(--faint); font-size: 9px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+.composer-assumption { color: var(--muted); font-size: 10px; gap: 6px; }
+.composer-assumption svg { flex: 0 0 auto; margin-top: 2px; color: var(--green); }
+.composer-message { margin-top: 7px; color: var(--faint); font-size: 9.5px; }
 
 .policy-tabs { width: calc(100% + 32px); height: 48px; margin: 0 -16px 12px; padding: 7px 12px; border-bottom: 1px solid var(--line-soft); border-radius: 10px 10px 0 0; background: var(--panel-soft); gap: 7px; }
 .policy-tab {
@@ -255,10 +276,14 @@ input:disabled, textarea:disabled, button[role="combobox"]:disabled { background
 input::placeholder, textarea::placeholder { color: var(--subtle); opacity: 1; }
 textarea { resize: vertical; }
 .field-help { color: var(--muted); font-size: 11px; line-height: 1.5; }
+/* Radix renders checkbox labels as <label class="rt-Text"><div class="rt-Flex">…</div></label>;
+   the inner flex must center the fixed-size checkbox against the text line box. */
+label.rt-Text > .rt-Flex { align-items: center; }
 .direction-control { min-height: 40px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--panel); display: flex; align-items: center; transition: border-color .14s ease, background .14s ease; }
 .direction-control:hover { border-color: var(--field-border); background: var(--panel-soft); }
 .direction-control:has([data-state="checked"]) { border-color: var(--blue-wash-border); background: var(--blue-wash); }
-.direction-control label { width: 100%; color: var(--text); font-size: 12px; gap: 9px; }
+.direction-control label { width: 100%; display: flex; align-items: center; color: var(--text); font-size: 12px; }
+.direction-control label > .rt-Flex { width: 100%; gap: 9px; }
 .direction-control button { width: 16px !important; height: 16px !important; border-radius: 3px !important; }
 
 .expression-labels { padding: 2px 0 0; color: var(--text); font-size: 11px; font-weight: 650; }
@@ -305,7 +330,7 @@ textarea { resize: vertical; }
   font-size: 12px !important;
   font-weight: 650 !important;
 }
-.validation-status { color: var(--muted); font-size: 11px; gap: 7px; }
+.validation-status { color: var(--muted); font-size: 11px; gap: 7px; align-items: center !important; }
 .validation-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
 .validation-dot.bad { background: var(--red); }
 
@@ -441,6 +466,7 @@ textarea { resize: vertical; }
   .impact-result-cell { grid-column: 1 / -1; border-top: 1px solid var(--line-soft); }
 }
 .draft-evidence { margin-top: 12px; padding: 11px 13px; border: 1px solid var(--tint-border); border-radius: 9px; background: linear-gradient(135deg, var(--tint), var(--panel)); color: var(--tint-ink); font-size: 11px; }
+.evidence-title { gap: 8px !important; align-items: center !important; }
 .evidence-hash { max-width: 270px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; color: var(--tint-muted); }
 .evidence-copy { margin-top: 4px; color: var(--tint-muted); }
 .evidence-grid { margin-top: 10px; padding: 8px 0; border-top: 1px solid var(--tint-border); border-bottom: 1px solid var(--tint-border); gap: 4px 10px; color: var(--tint-muted); }
@@ -499,12 +525,13 @@ textarea { resize: vertical; }
 .agent-message { color: var(--text); font-size: 12px; line-height: 1.55; }
 .agent-findings { margin-top: 4px; color: var(--faint); font-size: 11px; line-height: 1.5; white-space: pre-line; }
 .approval-footer { margin-top: 8px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--panel); }
+.approval-identity { gap: 9px !important; align-items: center !important; }
 .approval-state { margin-bottom: 12px; color: var(--amber); font-size: 12px; font-weight: 650; }
 .approval-footer > div { font-size: 12px; }
 .approval-phrase-help { color: var(--faint); font-size: 11px; }
 .approval-error { margin-top: 8px; color: var(--red); font-size: 11px; line-height: 1.45; }
 
-.evidence-strip { min-height: 42px; padding: 0 28px; border-top: 1px solid var(--line); background: var(--canvas); gap: 12px; }
+.evidence-strip { min-height: 42px; padding: 0 28px; border-top: 1px solid var(--line); background: var(--canvas); gap: 12px; align-items: center !important; }
 .evidence-strip-icon { width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid var(--field-border); border-radius: 50%; color: var(--muted); }
 .strip-divider { width: 1px; height: 22px; background: var(--line); }
 .strip-link { width: auto !important; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--ink) !important; font-size: 11px !important; font-weight: 650 !important; }
@@ -516,7 +543,7 @@ textarea { resize: vertical; }
 .secondary-view > .form-section { max-width: 700px; }
 .secondary-subtitle { color: var(--muted); margin-bottom: 26px; }
 .secondary-table { border-top: 1px solid var(--line); overflow-x: auto; }
-.secondary-row { min-width: 660px; padding: 16px 4px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.secondary-row { min-width: 660px; padding: 16px 4px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; align-items: center; }
 .secondary-row-title { color: var(--ink); font-weight: 680; }
 .secondary-status { color: var(--green); font-weight: 650; }
 .audit-run-id { font-family: Consolas, monospace; letter-spacing: .03em; }
@@ -536,7 +563,7 @@ textarea { resize: vertical; }
 .empty-state { padding: 26px; border: 1px dashed var(--field-border); border-radius: 7px; background: var(--panel-soft); }
 .empty-title { margin-bottom: 4px; color: var(--ink); font-weight: 680; }
 .home-hero { margin-bottom: 18px; padding: 22px; border: 1px solid var(--tint-border); border-radius: 8px; background: linear-gradient(135deg, var(--tint), var(--canvas)); }
-.home-actions { gap: 10px; }
+.home-actions { gap: 10px; align-items: center !important; }
 .home-metric { min-height: 146px; padding: 18px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
 .home-metric-icon { width: 34px; height: 34px; margin-bottom: 14px; display: grid; place-items: center; border-radius: 50%; color: var(--accent); background: var(--blue-soft); }
 .home-metric-value { margin: 4px 0; color: var(--title); font-size: 21px; font-weight: 740; letter-spacing: -.025em; }

@@ -47,6 +47,7 @@ from compliance_agent.schemas.status import RunStatus
 
 if TYPE_CHECKING:
     from compliance_agent.llm.group_chat import GroupChatTranscript
+    from compliance_agent.schemas.policy_draft import PolicyDraftAuditEvidence
     from compliance_agent.settings import Settings
 
 Surface = Literal["blocked_senders", "content_compliance"]
@@ -182,13 +183,20 @@ class AttendedPolicyService:
         settings: Settings,
         plan: TaskPlan,
         transcript: GroupChatTranscript,
+        *,
+        composer_evidence: PolicyDraftAuditEvidence | None = None,
     ) -> str:
         """Finalize a plan-only audit package containing the exact group review."""
 
         run_id = uuid4().hex
         started_at = datetime.now(UTC)
         audit = AttendedRunAudit(settings, run_id=run_id, started_at=started_at)
-        audit.record_review(plan, transcript, model_tag=settings.ollama_model)
+        audit.record_review(
+            plan,
+            transcript,
+            model_tag=settings.ollama_model,
+            composer_evidence=composer_evidence,
+        )
         audit.finalize(RunStatus.NO_CHANGE_REQUIRED)
         return run_id
 
@@ -197,6 +205,8 @@ class AttendedPolicyService:
         settings: Settings,
         plan: TaskPlan,
         review: GroupChatTranscript | None = None,
+        *,
+        composer_evidence: PolicyDraftAuditEvidence | None = None,
     ) -> AttendedPolicyPreview:
         """Open a headed browser, read current state, and calculate an exact change."""
 
@@ -214,7 +224,12 @@ class AttendedPolicyService:
             started_at=started_at,
         )
         if review is not None:
-            audit.record_review(plan, review, model_tag=settings.ollama_model)
+            audit.record_review(
+                plan,
+                review,
+                model_tag=settings.ollama_model,
+                composer_evidence=composer_evidence,
+            )
         try:
             async with PlaywrightAdminAgentSession(
                 settings,

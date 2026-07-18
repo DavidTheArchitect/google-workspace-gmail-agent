@@ -18,6 +18,12 @@ surface. Each persona begins as randomly selected application-owned facts — ag
 location, traits, goals, personality, time period, current mood, D&D alignment, and delivery style —
 which the local model then verbalizes into a role, voice, motif, and sender-facing notice. A
 field-influence contract requires every sampled fact to affect the writing without being disclosed.
+For new policies, the console also accepts a plain-language description of what to block. A
+separate zero-temperature local composer selects the least expressive sufficient Gmail surface,
+fills either exact Blocked senders identities or typed Content compliance criteria, validates every
+generated RE2 expression, and stops for operator editing and specialist review. It never opens
+Google or starts review on its own, and omitted scope uses the organizational unit and directions
+already visible in the form while displaying those assumptions.
 Alignment is the dominant behavioral control, and the delivery style is sampled from a compatible
 pool ranging from blunt, casual, and eccentric to lyrical, theatrical, and professional. All nine
 alignments are reachable, and a random draw excludes only the immediately previous alignment to

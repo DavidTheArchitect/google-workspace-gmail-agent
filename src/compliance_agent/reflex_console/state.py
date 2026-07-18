@@ -25,7 +25,12 @@ from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.infrastructure.filesystem import OwnershipStore
 from compliance_agent.llm.group_chat import PARTICIPANT_SPECS, GroupChatTranscript
 from compliance_agent.llm.persona import DEFAULT_PERSONA_ATTEMPTS, profile_signature
-from compliance_agent.llm.planner import build_group_chat_reviewer, build_persona_generator
+from compliance_agent.llm.planner import (
+    build_group_chat_reviewer,
+    build_persona_generator,
+    build_policy_draft_composer,
+)
+from compliance_agent.llm.policy_draft import clarification_for_ambiguous_content_location
 from compliance_agent.llm.readiness import (
     list_local_models,
     pull_local_model,
@@ -62,6 +67,12 @@ from compliance_agent.schemas.plan import (
     TaskPlan,
     UpdateBlockedSenderRule,
     UpdateContentComplianceRule,
+)
+from compliance_agent.schemas.policy_draft import (
+    BlockedSendersDraft,
+    ContentComplianceDraft,
+    PolicyDraftAuditEvidence,
+    PolicyDraftRecommendation,
 )
 from compliance_agent.schemas.resources import AddressEntry
 from compliance_agent.settings import Settings, load_settings
@@ -149,7 +160,10 @@ _METADATA_OPERATOR_LABELS = {
 _LOGGER = logging.getLogger(__name__)
 _MAX_NOTICE_CHARACTERS = 1_000
 _PERSONA_TIMEOUT_MARGIN_SECONDS = 5.0
+_COMPOSER_TIMEOUT_MARGIN_SECONDS = 5.0
 _PERSONA_HISTORY_LIMIT = 6
+_MAX_COMPOSER_DESCRIPTION_CHARACTERS = 2_000
+_MAX_COMPOSER_ASSUMPTIONS = 8
 _STARTER_PERSONA_ROLE = "No generated persona"
 _STARTER_PERSONA_VOICE = "Neutral starter draft"
 _STARTER_PERSONA_MOTIF = "None"
@@ -261,6 +275,57 @@ def _persona_failure_message(error: Exception) -> str:
     )
 
 
+def _composer_failure_message(error: Exception) -> str:
+    """Return a safe composer failure while promising no draft mutation."""
+
+    settings = load_settings()
+    if isinstance(error, TimeoutError) or "timed out" in str(error).casefold():
+        return (
+            "The local draft composer reached its bounded time limit. The existing policy "
+            "draft was preserved; verify Ollama capacity and try again."
+        )
+    if "not found" in str(error).casefold():
+        return (
+            f"Local model {settings.ollama_model!r} is not available in Ollama. Install that "
+            "model or select another orchestration model; the existing draft was preserved."
+        )
+    return (
+        "The local model could not produce a valid Gmail policy recommendation. The existing "
+        "draft was preserved; refine the description or verify that Ollama is running."
+    )
+
+
+def _complete_default_assumptions(
+    recommendation: PolicyDraftRecommendation,
+) -> PolicyDraftRecommendation:
+    """Add application-owned scope assumptions when the model marks defaults as used."""
+
+    selection = recommendation.selection
+    if recommendation.status != "draft" or selection is None:
+        return recommendation
+    default_assumptions: list[str] = []
+    if selection.used_default_ou:
+        path = (
+            selection.target_ou
+            if isinstance(selection, BlockedSendersDraft)
+            else selection.target_ou.path
+        )
+        default_assumptions.append(f"Using the current organizational unit: {path}.")
+    if isinstance(selection, ContentComplianceDraft) and selection.used_default_directions:
+        names = ", ".join(item.value.replace("_", " ") for item in selection.directions)
+        default_assumptions.append(f"Using the current message direction: {names}.")
+    assumptions = [
+        *default_assumptions,
+        *(item for item in recommendation.assumptions if item not in default_assumptions),
+    ][:_MAX_COMPOSER_ASSUMPTIONS]
+    return PolicyDraftRecommendation.model_validate(
+        {
+            **recommendation.model_dump(mode="json"),
+            "assumptions": assumptions,
+        }
+    )
+
+
 def _draft_error_message(error: Exception) -> str:
     """Translate typed draft validation into concise operator guidance."""
 
@@ -344,6 +409,18 @@ class ConsoleState(rx.State):
     error_message: str = ""
     review_in_progress: bool = False
     persona_in_progress: bool = False
+    composer_description: str = ""
+    composer_in_progress: bool = False
+    composer_outcome: str = ""
+    composer_surface_label: str = ""
+    composer_explanation: str = ""
+    composer_assumptions: list[str] = []  # noqa: RUF012
+    composer_message: str = ""
+    composer_request_text: str = ""
+    composer_recommendation_json: str = ""
+    composer_model_tag: str = ""
+    composer_prompt_version: str = ""
+    composer_applied_revision: int = -1
     agent_activity: list[dict[str, str]] = _idle_agent_activity()
     run_mode: str = "plan_only"
     expected_admin_email: str = ""
@@ -414,7 +491,12 @@ class ConsoleState(rx.State):
 
     @rx.var
     def workflow_locked(self) -> bool:
-        return self.review_in_progress or self.browser_in_progress or self.execution_in_progress
+        return (
+            self.composer_in_progress
+            or self.review_in_progress
+            or self.browser_in_progress
+            or self.execution_in_progress
+        )
 
     @rx.var
     def model_controls_locked(self) -> bool:
@@ -526,6 +608,14 @@ class ConsoleState(rx.State):
         self.rule_enabled = value
         self._mark_draft_changed()
 
+    def set_composer_description(self, value: str) -> None:
+        """Update only composer prose; never treat it as executable policy state."""
+
+        self.composer_description = value
+        if self.composer_outcome in {"clarification", "unsupported", "error", "discarded"}:
+            self.composer_outcome = ""
+            self.composer_message = ""
+
     def start_create(self, section: str) -> None:
         """Reset managed identity and open a fresh create editor."""
 
@@ -533,6 +623,7 @@ class ConsoleState(rx.State):
             self.error_message = "Wait for the current review or browser step to finish."
             return
         self._reset_create_editor(section)
+        self._clear_composer()
         self.section = section
         self.operation = "create"
         self.target_rule_id = ""
@@ -594,6 +685,22 @@ class ConsoleState(rx.State):
         self.persona_edited = False
         self.persona_error = ""
 
+    def _clear_composer(self) -> None:
+        """Forget abandoned composer input and evidence for a truly new policy."""
+
+        self.composer_description = ""
+        self.composer_in_progress = False
+        self.composer_outcome = ""
+        self.composer_surface_label = ""
+        self.composer_explanation = ""
+        self.composer_assumptions = []
+        self.composer_message = ""
+        self.composer_request_text = ""
+        self.composer_recommendation_json = ""
+        self.composer_model_tag = ""
+        self.composer_prompt_version = ""
+        self.composer_applied_revision = -1
+
     def _load_persona_fields(self, persona: PersonaProfile) -> None:
         self.persona_role = persona.fictional_role
         self.persona_voice = persona.voice
@@ -619,6 +726,7 @@ class ConsoleState(rx.State):
         if self.workflow_locked:
             self.error_message = "Wait for the current review or browser step to finish."
             return
+        self._clear_composer()
         registry = OwnershipStore(load_settings().state_dir).load()
         identifier = UUID(ownership_id)
         if surface == "standard":
@@ -1330,6 +1438,168 @@ class ConsoleState(rx.State):
                 "predefined": "Predefined detector is configured",
             }[self.expression_type]
 
+    async def compose_policy(self) -> AsyncIterator[None]:  # noqa: PLR0911, PLR0915
+        """Turn prose into validated create-form fields without starting review."""
+
+        if self.composer_in_progress:
+            return
+        if self.operation != "create":
+            self.composer_outcome = "error"
+            self.composer_message = "Natural-language drafting is available only for new policies."
+            return
+        description = self.composer_description.strip()
+        if not description:
+            self.composer_outcome = "error"
+            self.composer_message = "Describe the messages or senders you want to block."
+            return
+        if len(description) > _MAX_COMPOSER_DESCRIPTION_CHARACTERS:
+            self.composer_outcome = "error"
+            self.composer_message = "Shorten the description to 2,000 characters or fewer."
+            return
+        clarification = clarification_for_ambiguous_content_location(description)
+        if clarification is not None:
+            self.composer_outcome = "clarification"
+            self.composer_message = clarification
+            self.composer_surface_label = ""
+            self.composer_explanation = ""
+            self.composer_assumptions = []
+            return
+        directions = tuple(
+            direction
+            for selected, direction in (
+                (self.inbound, MessageDirection.INBOUND),
+                (self.outbound, MessageDirection.OUTBOUND),
+                (self.internal_sending, MessageDirection.INTERNAL_SENDING),
+                (self.internal_receiving, MessageDirection.INTERNAL_RECEIVING),
+            )
+            if selected
+        ) or (MessageDirection.INBOUND,)
+        starting_revision = self.draft_revision
+        self.composer_in_progress = True
+        self.composer_outcome = ""
+        self.composer_message = ""
+        yield
+        try:
+            settings = load_settings()
+            await require_local_model(settings, settings.ollama_model, require_vision=False)
+            timeout_seconds = (
+                settings.llm_request_timeout_seconds * (settings.llm_max_retries + 1)
+                + _COMPOSER_TIMEOUT_MARGIN_SECONDS
+            )
+            async with asyncio.timeout(timeout_seconds):
+                result = await build_policy_draft_composer(settings).compose(
+                    description,
+                    default_ou=self.ou_path,
+                    default_directions=directions,
+                )
+        except Exception as error:
+            _LOGGER.exception("Natural-language policy composition failed")
+            self.composer_outcome = "error"
+            self.composer_message = _composer_failure_message(error)
+            self.composer_in_progress = False
+            return
+        if (
+            self.draft_revision != starting_revision
+            or self.composer_description.strip() != description
+        ):
+            self.composer_outcome = "discarded"
+            self.composer_message = (
+                "The policy form or description changed while the local model was working. "
+                "Your newer edits were preserved; create the draft again when ready."
+            )
+            self.composer_in_progress = False
+            return
+        recommendation = _complete_default_assumptions(result.recommendation)
+        if recommendation.status == "clarification_needed":
+            self.composer_outcome = "clarification"
+            self.composer_message = recommendation.clarification_question or ""
+            self.composer_surface_label = ""
+            self.composer_explanation = ""
+            self.composer_assumptions = []
+            self.composer_in_progress = False
+            return
+        if recommendation.status == "unsupported":
+            self.composer_outcome = "unsupported"
+            self.composer_message = recommendation.unsupported_reason or ""
+            self.composer_surface_label = ""
+            self.composer_explanation = ""
+            self.composer_assumptions = []
+            self.composer_in_progress = False
+            return
+        self._apply_policy_recommendation(recommendation)
+        self.composer_request_text = description
+        self.composer_recommendation_json = recommendation.model_dump_json()
+        self.composer_model_tag = result.model_tag
+        self.composer_prompt_version = result.prompt_template_version
+        self.composer_applied_revision = self.draft_revision
+        self.composer_in_progress = False
+
+    def _apply_policy_recommendation(
+        self,
+        recommendation: PolicyDraftRecommendation,
+    ) -> None:
+        """Hydrate one validated recommendation into the editable create form."""
+
+        selection = recommendation.selection
+        if selection is None:
+            message = "draft recommendation is missing its typed selection"
+            raise ValueError(message)
+        self._reset_preview_evidence(status="AI draft ready")
+        self.operation = "create"
+        self.target_rule_id = ""
+        if isinstance(selection, BlockedSendersDraft):
+            self.section = "standard"
+            self.ou_path = selection.target_ou
+            self.blocked_values = "\n".join(entry.value for entry in selection.entries)
+            self.bypass_values = "\n".join(entry.value for entry in selection.bypass_entries)
+            self.composer_surface_label = "Blocked senders"
+        else:
+            self._apply_compliance_recommendation(selection)
+            self.composer_surface_label = "Content compliance"
+        self.composer_explanation = recommendation.routing_explanation or ""
+        self.composer_assumptions = list(recommendation.assumptions)
+        self.composer_outcome = "ready"
+        self.composer_message = (
+            f"{self.composer_surface_label} fields were filled for review. "
+            "No agent review or Google access was started."
+        )
+
+    def _apply_compliance_recommendation(self, selection: ContentComplianceDraft) -> None:
+        """Hydrate every supported Content compliance criterion."""
+
+        self.section = "compliance"
+        self.ou_path = selection.target_ou.path
+        directions = set(selection.directions)
+        self.inbound = MessageDirection.INBOUND in directions
+        self.outbound = MessageDirection.OUTBOUND in directions
+        self.internal_sending = MessageDirection.INTERNAL_SENDING in directions
+        self.internal_receiving = MessageDirection.INTERNAL_RECEIVING in directions
+        self.combiner = selection.combiner.value
+        self._load_primary_expression(selection.expressions[0])
+        self.additional_expressions = [
+            _expression_row(expression) for expression in selection.expressions[1:]
+        ]
+        condition = selection.address_list_condition
+        self.compliance_address_list_mode = condition.mode if condition is not None else "none"
+        self.compliance_address_lists = (
+            "\n".join(condition.address_list_names) if condition is not None else ""
+        )
+        sender = next(
+            (item for item in selection.envelope_filters if item.party == "sender"),
+            None,
+        )
+        recipient = next(
+            (item for item in selection.envelope_filters if item.party == "recipient"),
+            None,
+        )
+        self.sender_filter_enabled = sender is not None
+        self.sender_filter_selector = sender.selector if sender else "single_address"
+        self.sender_filter_value = sender.value if sender else ""
+        self.recipient_filter_enabled = recipient is not None
+        self.recipient_filter_selector = recipient.selector if recipient else "single_address"
+        self.recipient_filter_value = recipient.value if recipient else ""
+        self.validate_expression()
+
     async def generate_persona(self) -> AsyncIterator[None]:
         """Generate a fresh fictional persona and category-only bounce notice locally."""
 
@@ -1544,11 +1814,21 @@ class ConsoleState(rx.State):
         self.review_in_progress = False
         settings = load_settings(run_mode=RunMode(self.run_mode))
         self.run_mode = settings.run_mode.value
+        composer_evidence = self._composer_audit_evidence()
         if settings.run_mode == RunMode.PLAN_ONLY:
-            self.run_id = ATTENDED_POLICY_SERVICE.record_plan_review(
-                settings,
-                plan,
-                transcript,
+            self.run_id = (
+                ATTENDED_POLICY_SERVICE.record_plan_review(
+                    settings,
+                    plan,
+                    transcript,
+                )
+                if composer_evidence is None
+                else ATTENDED_POLICY_SERVICE.record_plan_review(
+                    settings,
+                    plan,
+                    transcript,
+                    composer_evidence=composer_evidence,
+                )
             )
             self.status = "Plan ready"
             self.status_tone = "ready"
@@ -1567,7 +1847,16 @@ class ConsoleState(rx.State):
                 settings.browser_model,
                 require_vision=True,
             )
-            attended = await ATTENDED_POLICY_SERVICE.preview(settings, plan, transcript)
+            attended = (
+                await ATTENDED_POLICY_SERVICE.preview(settings, plan, transcript)
+                if composer_evidence is None
+                else await ATTENDED_POLICY_SERVICE.preview(
+                    settings,
+                    plan,
+                    transcript,
+                    composer_evidence=composer_evidence,
+                )
+            )
         except Exception as error:
             _LOGGER.exception("Attended Google Admin preview failed")
             self.browser_in_progress = False
@@ -1727,6 +2016,27 @@ class ConsoleState(rx.State):
         self.acknowledged = False
         self.phrase_entry = ""
         self.approval_phrase = ""
+
+    def _composer_audit_evidence(self) -> PolicyDraftAuditEvidence | None:
+        """Bind accepted composer provenance to a later reviewed run."""
+
+        if not (
+            self.composer_request_text
+            and self.composer_recommendation_json
+            and self.composer_model_tag
+            and self.composer_prompt_version
+            and self.composer_applied_revision >= 0
+        ):
+            return None
+        return PolicyDraftAuditEvidence(
+            request_text=self.composer_request_text,
+            recommendation=PolicyDraftRecommendation.model_validate_json(
+                self.composer_recommendation_json
+            ),
+            model_tag=self.composer_model_tag,
+            prompt_template_version=self.composer_prompt_version,
+            edited_after_application=self.draft_revision != self.composer_applied_revision,
+        )
 
     def _mark_draft_changed(self) -> None:
         """Make stale preview evidence unusable after any operator edit."""
