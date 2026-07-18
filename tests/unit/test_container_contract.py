@@ -1,8 +1,16 @@
 """Static safety contracts for the optional container distribution."""
 
+import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).parents[2]
+
+
+def test_readiness_http_client_is_available_in_the_runtime_image() -> None:
+    project = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    assert "httpx2==2.5.0" in project["dependencies"]
+    assert "httpx2==2.5.0" not in project["optional-dependencies"]["dev"]
 
 
 def test_container_runtime_is_non_root_and_plan_only() -> None:
