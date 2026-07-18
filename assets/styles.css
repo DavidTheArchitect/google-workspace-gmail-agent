@@ -287,6 +287,7 @@ label.rt-Text > .rt-Flex { align-items: center; }
 .direction-control button { width: 16px !important; height: 16px !important; border-radius: 3px !important; }
 
 .expression-labels { padding: 2px 0 0; color: var(--text); font-size: 11px; font-weight: 650; }
+.expression-block { width: 100%; padding: 8px; border: 1px solid var(--line-soft); border-radius: 7px; background: var(--panel); }
 .expression-row { width: 100%; }
 .expression-row > div { min-width: 0; }
 .row-number { color: var(--text); text-align: center; }
@@ -319,6 +320,7 @@ label.rt-Text > .rt-Flex { align-items: center; }
 .editor-fieldset { width: 100%; min-width: 0; margin: 0; padding: 0 16px 16px; border: 1px solid var(--field-border); border-radius: 10px; background: var(--panel); box-shadow: 0 1px 3px var(--shadow); overflow: hidden; }
 .editor-fieldset:disabled { opacity: .72; }
 .expression-details { width: calc(100% - 46px); margin-left: 46px; padding: 12px; background: var(--tint); border: 1px solid var(--tint-border); border-radius: 5px; }
+.expression-details-title { color: var(--text); font-size: 11px; font-weight: 700; letter-spacing: .01em; }
 .text-button {
   width: auto !important;
   height: 30px !important;

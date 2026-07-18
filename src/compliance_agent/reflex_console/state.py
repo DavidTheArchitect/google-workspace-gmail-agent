@@ -1113,15 +1113,21 @@ class ConsoleState(rx.State):
         if len(self.additional_expressions) >= _MAX_ADDITIONAL_EXPRESSIONS:
             self.error_message = "Google Content compliance supports at most ten expressions."
             return
+        inherits_regex = self.expression_type == "advanced" and self.match_type in {
+            "matches_regex",
+            "not_matches_regex",
+        }
+        location = self.location if inherits_regex else "subject"
+        match_type = self.match_type if inherits_regex else "contains"
         self.additional_expressions = [
             *self.additional_expressions,
             {
                 "type": "advanced",
                 "type_label": "Advanced",
-                "location": "subject",
-                "location_label": "Subject",
-                "match_type": "contains",
-                "match_type_label": "Contains",
+                "location": location,
+                "location_label": _LOCATION_LABELS[location],
+                "match_type": match_type,
+                "match_type_label": _MATCH_TYPE_LABELS[match_type],
                 "value": "",
                 "description": "",
                 "minimum_match_count": "1",
@@ -1146,7 +1152,7 @@ class ConsoleState(rx.State):
             ]
             self._mark_draft_changed()
 
-    def update_expression(  # noqa: C901, PLR0912 - normalized row update boundary.
+    def update_expression(  # noqa: C901, PLR0912, PLR0915 - normalized row update boundary.
         self,
         index: int | str,
         field: str,
@@ -1217,6 +1223,9 @@ class ConsoleState(rx.State):
             updated_rows[row_index]["match_type_label"] = _MATCH_TYPE_LABELS[normalized_value]
             if normalized_value == "is_empty":
                 updated_rows[row_index]["value"] = ""
+            if normalized_value not in {"matches_regex", "not_matches_regex"}:
+                updated_rows[row_index]["description"] = ""
+                updated_rows[row_index]["minimum_match_count"] = "1"
         elif target_field == "attribute" and normalized_value in _METADATA_OPERATORS:
             updated_rows[row_index]["operator"] = _METADATA_OPERATORS[normalized_value][0]
             if normalized_value not in {"source_ip", "message_size"}:
