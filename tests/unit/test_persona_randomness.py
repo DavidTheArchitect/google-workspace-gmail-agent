@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from openai import APIConnectionError
+from openai import APIConnectionError, BadRequestError
 
 from compliance_agent.exceptions import PlannerFailure
 from compliance_agent.llm.persona import (
@@ -649,6 +649,45 @@ async def test_ollama_client_uses_schema_title_and_persona_sampling_controls() -
     assert request["presence_penalty"] == 0.7
     assert request["max_tokens"] == 512
     assert request["reasoning_effort"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_ollama_client_falls_back_only_for_schema_grammar_rejection() -> None:
+    request = httpx.Request("POST", "http://localhost:11434/v1/chat/completions")
+    grammar_error = BadRequestError(
+        "Failed to initialize samplers: failed to parse grammar",
+        response=httpx.Response(400, request=request),
+        body={"error": "failed to parse grammar"},
+    )
+
+    class GrammarRejectingCompletions:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def create(self, **kwargs: object) -> SimpleNamespace:
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                raise grammar_error
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok":true}'))]
+            )
+
+    completions = GrammarRejectingCompletions()
+    client = OllamaOpenAIClient("http://localhost:11434/v1")
+    client._client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=completions)
+    )
+
+    output = await client.complete(
+        ({"role": "user", "content": "generate"},),
+        CreativePersonaDraft.model_json_schema(),
+        "gemma4:12b",
+        0,
+    )
+
+    assert output == '{"ok":true}'
+    assert completions.calls[0]["response_format"]["type"] == "json_schema"
+    assert completions.calls[1]["response_format"]["type"] == "json_object"
 
 
 def test_persona_implementation_contains_no_reported_canned_phrases() -> None:

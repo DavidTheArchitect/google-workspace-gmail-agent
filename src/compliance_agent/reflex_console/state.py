@@ -30,7 +30,6 @@ from compliance_agent.llm.planner import (
     build_persona_generator,
     build_policy_draft_composer,
 )
-from compliance_agent.llm.policy_draft import clarification_for_ambiguous_content_location
 from compliance_agent.llm.readiness import (
     list_local_models,
     pull_local_model,
@@ -1455,14 +1454,6 @@ class ConsoleState(rx.State):
         if len(description) > _MAX_COMPOSER_DESCRIPTION_CHARACTERS:
             self.composer_outcome = "error"
             self.composer_message = "Shorten the description to 2,000 characters or fewer."
-            return
-        clarification = clarification_for_ambiguous_content_location(description)
-        if clarification is not None:
-            self.composer_outcome = "clarification"
-            self.composer_message = clarification
-            self.composer_surface_label = ""
-            self.composer_explanation = ""
-            self.composer_assumptions = []
             return
         directions = tuple(
             direction
