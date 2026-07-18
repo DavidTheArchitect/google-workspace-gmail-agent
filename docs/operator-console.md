@@ -39,12 +39,13 @@ approved write. A server-side revision check also discards late results if the d
 5. Review or randomize the plain-text rejection notice. The application first samples a complete
    persona brief — age, occupation, location, traits, goals, personality, and time period — from
    coherent application-owned pools, along with a current mood, one of the nine D&D alignments, and
-   a separately randomized delivery style. Every field has a required writing influence, while the
-   delivery style makes casual, blunt, eccentric, lyrical, theatrical, and professional notices
-   independently reachable. All nine alignments are eligible; only the immediately previous
-   alignment is removed from the next random draw. The local model receives those exact fields and
-   required drafting effects, then verbalizes them into the role, voice, motif, and notice instead
-   of inventing the identity from scratch.
+   an alignment-compatible delivery style. Alignment dominates moral posture, authority,
+   helpfulness, and finality, so surface style cannot flatten it. Occupation and goal pools are
+   balanced away from recurring archival defaults, and unsupported archival identities introduced
+   by the model are rejected. All nine alignments are eligible; only the immediately previous
+   alignment is removed from the next random draw. The local model receives those exact fields,
+   alignment-specific rhetorical moves, and required drafting effects, then verbalizes them into the
+   role, voice, motif, and notice instead of inventing the identity from scratch.
    The policy category and internal policy ID remain structured application identity and are never
    included in that prompt. Generated drafts must pass a deterministic quality gate (no markup,
    escape artifacts, fabricated contact details, exposed category label, or sentence-like persona

@@ -7,6 +7,7 @@ from collections.abc import Collection, Sequence
 from typing import NamedTuple
 
 from openai import APIConnectionError, APIStatusError
+from openai.types.chat import ChatCompletionMessageParam
 from pydantic import Field, ValidationError
 
 from compliance_agent.exceptions import PlannerFailure
@@ -51,8 +52,8 @@ _ERA_FRAMES = (
             "a lakeside court city",
         ),
         (
-            "harbor registrar",
-            "manuscript conservator",
+            "dockside tide reader",
+            "herbal infirmary steward",
             "guild mediator",
             "navigational chart keeper",
             "caravan route surveyor",
@@ -73,9 +74,9 @@ _ERA_FRAMES = (
             "map engraver",
             "postal route inspector",
             "astronomical instrument keeper",
-            "civic records clerk",
+            "market weights inspector",
             "harbor pilot",
-            "natural history cataloger",
+            "anatomical illustrator",
         ),
     ),
     _EraFrame(
@@ -93,7 +94,7 @@ _ERA_FRAMES = (
             "telegraph office supervisor",
             "lighthouse engineer",
             "municipal surveyor",
-            "botanical specimen cataloger",
+            "field botanist",
             "public health statistician",
         ),
     ),
@@ -110,10 +111,10 @@ _ERA_FRAMES = (
         (
             "radio schedule coordinator",
             "customs documentation officer",
-            "traveling library steward",
+            "mobile literacy coordinator",
             "weather station observer",
             "international timetable analyst",
-            "newsreel archive editor",
+            "documentary film cutter",
         ),
     ),
     _EraFrame(
@@ -123,7 +124,7 @@ _ERA_FRAMES = (
             "a remote hydroelectric settlement",
             "a busy Mediterranean ferry port",
             "a desert field laboratory",
-            "an underground metropolitan archive",
+            "a community radio workshop",
             "a coastal emergency operations room",
         ),
         (
@@ -131,7 +132,7 @@ _ERA_FRAMES = (
             "hydroelectric maintenance scheduler",
             "ferry traffic coordinator",
             "field ecology technician",
-            "public records researcher",
+            "broadcast systems engineer",
             "emergency logistics planner",
         ),
     ),
@@ -147,11 +148,11 @@ _ERA_FRAMES = (
         ),
         (
             "urban mobility analyst",
-            "research data curator",
+            "alpine systems engineer",
             "marine habitat coordinator",
             "transit operations dispatcher",
-            "digital preservation specialist",
-            "observatory data steward",
+            "island arts producer",
+            "night-sky instrumentation engineer",
         ),
     ),
     _EraFrame(
@@ -166,11 +167,11 @@ _ERA_FRAMES = (
         ),
         (
             "climate migration liaison",
-            "orbital traffic archivist",
+            "lunar relay navigator",
             "ecosystem treaty interpreter",
-            "memory restoration technician",
+            "cryogenic germination engineer",
             "water-allocation mediator",
-            "interplanetary signal curator",
+            "deep-sky signal analyst",
         ),
     ),
     _EraFrame(
@@ -180,16 +181,16 @@ _ERA_FRAMES = (
             "a tidally locked settlement",
             "a rotating deep-space habitat",
             "a diplomatic station at a wormhole terminus",
-            "a wandering archive vessel",
+            "a nomadic biosphere vessel",
             "a terraforming camp beneath two moons",
         ),
         (
-            "generation ledger keeper",
-            "habitat memory cartographer",
-            "habitat systems archivist",
+            "interstellar navigation watchstander",
+            "terminator-zone climate engineer",
+            "rotational gravity mechanic",
             "first-contact protocol interpreter",
-            "deep-time records custodian",
-            "terraforming ethics registrar",
+            "xenobiome caretaker",
+            "terraforming ethics mediator",
         ),
     ),
 )
@@ -222,16 +223,16 @@ _GOALS = (
     "complete a difficult survey without losing context",
     "keep a fragile public service dependable",
     "make complex rules understandable to ordinary people",
-    "preserve knowledge that would otherwise disappear",
+    "restore a damaged watershed before the next storm",
     "prevent a small dispute from becoming a crisis",
     "protect a place while allowing it to change",
-    "reconcile conflicting historical accounts",
+    "negotiate safe passage through a disputed corridor",
     "restore a neglected civic institution",
     "teach a successor to improve on their methods",
     "trace the source of a persistent anomaly",
     "translate between groups with incompatible assumptions",
     "earn the confidence of a skeptical local community",
-    "leave an accurate record for an uncertain future",
+    "help a stranded team regain a reliable route",
     "solve recurring failures without blaming their operators",
     "balance urgent needs against long-term stewardship",
 )
@@ -267,23 +268,106 @@ _MOOD_DRAFTING_EFFECTS = {
     "weary": "Use spare, experienced phrasing that avoids unnecessary repetition.",
 }
 _ALIGNMENT_DRAFTING_EFFECTS = {
-    "lawful good": "Frame the policy as a fair safeguard and emphasize responsible procedure.",
-    "neutral good": "Prioritize a helpful outcome and practical kindness over ceremony.",
-    "chaotic good": "Sound independently minded and humane, favoring flexible alternatives.",
-    "lawful neutral": (
-        "Emphasize order, consistent process, and impersonal application of the rule."
+    "lawful good": (
+        "Treat the refusal as a principled safeguard serving a shared good. Sound accountable and "
+        "compassionate, explain the boundary as legitimate, and offer the clearest safe "
+        "alternative."
     ),
-    "true neutral": "Use even-handed language that avoids moral judgment and dramatic emphasis.",
+    "neutral good": (
+        "Make human welfare the governing concern. Minimize bureaucracy, soften the consequence "
+        "with practical kindness, and prioritize a genuinely useful alternate route."
+    ),
+    "chaotic good": (
+        "Sound like an independent-minded ally who dislikes rigid systems but respects this "
+        "boundary. Use candid warmth and point toward an inventive, humane alternative."
+    ),
+    "lawful neutral": (
+        "Present the refusal as the inevitable result of an orderly mechanism. Use precise, "
+        "impersonal authority, consistent structure, and no moral appeal or unnecessary apology."
+    ),
+    "true neutral": (
+        "State the closed route as a balanced fact with no moral coloring. Keep emotional "
+        "distance, avoid taking sides, and offer an alternative only as neutral practical "
+        "information."
+    ),
     "chaotic neutral": (
-        "Use unconventional rhythm and individualistic phrasing without becoming unclear."
+        "Center autonomy and unpredictability. Use an unconventional rhythm, refuse without "
+        "institutional justification, and make any alternate route feel optional rather than owed."
     ),
     "lawful evil": (
-        "Project controlled institutional authority and strict boundaries without threats."
+        "Make hierarchy, control, and strict entitlement to the boundary dominate the notice. Use "
+        "cold formal authority and procedural finality; offer help only when it reinforces order."
     ),
-    "neutral evil": "Use cool self-interest and hard limits without cruelty, deception, or blame.",
+    "neutral evil": (
+        "Frame the refusal through calculated self-interest and hard convenience. Sound cool and "
+        "transactional, reveal no sympathy, and mention an alternative only if it serves the "
+        "recipient organization's interests."
+    ),
     "chaotic evil": (
-        "Use volatile, defiant energy and abrupt emphasis without threats, insults, or abuse."
+        "Let defiance, instability, and hostile delight shape the rhythm. Use jagged finality and "
+        "withhold reassurance or assistance, while still avoiding threats, insults, cruelty, or "
+        "abuse."
     ),
+}
+_ALIGNMENT_NOTICE_MOVES = {
+    "lawful good": (
+        "Make the boundary feel like a protective duty, then give the sender a safe, constructive "
+        "next route."
+    ),
+    "neutral good": (
+        "Lead with practical concern for the sender and make the most useful alternate route the "
+        "notice's center of gravity."
+    ),
+    "chaotic good": (
+        "Treat the closed mail gate as rigid machinery, then point toward a humane detour with "
+        "independent-minded warmth."
+    ),
+    "lawful neutral": (
+        "Pronounce the result as an orderly, consistently applied fact and end without bargaining "
+        "or emotional color."
+    ),
+    "true neutral": (
+        "Present the closed route as a detached condition that favors neither side, with no "
+        "praise, blame, or moral appeal."
+    ),
+    "chaotic neutral": (
+        "Refuse in an unexpected, individualistic turn of phrase and make any next step sound like "
+        "an option rather than an instruction."
+    ),
+    "lawful evil": (
+        "Invoke hierarchy or standing authority as the source of finality and make clear that the "
+        "boundary is not open to negotiation."
+    ),
+    "neutral evil": (
+        "Frame the outcome in hard transactional terms and offer a next route only when doing so "
+        "serves the recipient's convenience or interests."
+    ),
+    "chaotic evil": (
+        "Deliver the refusal with jagged, defiant finality and withhold reassurance or useful help "
+        "without becoming threatening or abusive."
+    ),
+}
+_ALIGNMENT_NOTICE_CUES = {
+    "lawful good": ("duty", "safeguard", "protect", "responsible", "care"),
+    "neutral good": ("help", "kindness", "support", "assist", "well-being"),
+    "chaotic good": ("detour", "workaround", "side door", "bend", "humane"),
+    "lawful neutral": ("order", "procedure", "rule", "protocol", "consistent"),
+    "true neutral": ("neither", "balance", "unchanged", "simply", "remains"),
+    "chaotic neutral": ("sideways", "unexpected", "whim", "odd", "improvise"),
+    "lawful evil": ("authority", "decree", "command", "standing order", "hierarchy"),
+    "neutral evil": ("terms", "advantage", "interest", "transaction", "convenience"),
+    "chaotic evil": ("never", "shut", "severed", "ash", "no further"),
+}
+_ALIGNMENT_DELIVERY_STYLES = {
+    "lawful good": ("professional", "ceremonial", "folksy"),
+    "neutral good": ("folksy", "casual", "lyrical", "professional"),
+    "chaotic good": ("casual", "playful", "eccentric", "lyrical"),
+    "lawful neutral": ("professional", "ceremonial", "deadpan", "blunt"),
+    "true neutral": ("deadpan", "professional", "blunt", "casual"),
+    "chaotic neutral": ("eccentric", "playful", "theatrical", "lyrical"),
+    "lawful evil": ("ceremonial", "professional", "deadpan", "blunt"),
+    "neutral evil": ("deadpan", "blunt", "professional", "casual"),
+    "chaotic evil": ("theatrical", "eccentric", "blunt", "playful"),
 }
 _DELIVERY_STYLE_DRAFTING_EFFECTS = {
     "blunt": (
@@ -316,6 +400,11 @@ _DELIVERY_STYLE_DRAFTING_EFFECTS = {
         "Use dramatic timing and declarative flourishes without threats, insults, or melodrama."
     ),
 }
+_UNSAMPLED_ARCHIVAL_PATTERN = re.compile(
+    r"\b(?:archiv\w*|catalog\w*|ledger\w*|registrar\w*|"
+    r"(?:record|data)\s+(?:keeper|custodian|steward)|curator\w*)\b",
+    re.IGNORECASE,
+)
 
 # Local models occasionally leak markup, escape artifacts, or invented contact
 # details into creative output; every leak below fails the attempt so the
@@ -425,7 +514,7 @@ class PersonaNoticeGenerator:
             )
             try:
                 raw = await self._client.complete(
-                    ({"role": "user", "content": _creative_prompt(brief)},),
+                    _creative_messages(brief),
                     CreativePersonaDraft.model_json_schema(),
                     self._model,
                     self._temperature,
@@ -447,7 +536,7 @@ class PersonaNoticeGenerator:
                 # the caller's overall budget keep the loop finite.
                 last_error = error
                 continue
-            quality_error = _draft_quality_error(draft, policy_category)
+            quality_error = _draft_quality_error(draft, brief, policy_category)
             if quality_error is not None:
                 last_error = ValueError(quality_error)
                 continue
@@ -505,17 +594,23 @@ def sample_persona_brief(
     )
     if not alignment_pool:
         alignment_pool = tuple(_ALIGNMENT_DRAFTING_EFFECTS)
+    age = generator.randint(21, 79)
+    traits = tuple(generator.sample(_TRAITS, k=3))
+    goals = tuple(generator.sample(_GOALS, k=2))
+    personality = generator.choice(_PERSONALITIES)
+    current_mood = generator.choice(tuple(_MOOD_DRAFTING_EFFECTS))
+    alignment = generator.choice(alignment_pool)
     return ApplicationPersonaBrief(
-        age=generator.randint(21, 79),
+        age=age,
         occupation=era.occupations[setting_index],
         location=era.locations[setting_index],
-        traits=tuple(generator.sample(_TRAITS, k=3)),
-        goals=tuple(generator.sample(_GOALS, k=2)),
-        personality=generator.choice(_PERSONALITIES),
+        traits=traits,
+        goals=goals,
+        personality=personality,
         time_period=era.time_period,
-        current_mood=generator.choice(tuple(_MOOD_DRAFTING_EFFECTS)),
-        alignment=generator.choice(alignment_pool),
-        delivery_style=generator.choice(tuple(_DELIVERY_STYLE_DRAFTING_EFFECTS)),
+        current_mood=current_mood,
+        alignment=alignment,
+        delivery_style=generator.choice(_ALIGNMENT_DELIVERY_STYLES[alignment]),
     )
 
 
@@ -528,6 +623,11 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "Do not diagnose, criticize, or evaluate the message, and do not advise rewriting or "
         "improving it. Give no reason beyond this email route being closed to this source. Express "
         "that outcome creatively in the sampled persona's voice.\n"
+        "ALIGNMENT DOMINANCE: D&D alignment is the persona's strongest behavioral control. It "
+        "outranks mood, personality, traits, goals, and delivery style whenever they conflict. "
+        "Make its moral posture, relationship to authority, treatment of the sender, willingness "
+        "to help, and degree of finality unmistakable throughout the notice, voice, and motif. "
+        "Do not reduce alignment to a single adjective or decorative flourish.\n"
         f"Age: {brief.age}\n"
         f"Occupation: {brief.occupation}\n"
         f"Location: {brief.location}\n"
@@ -546,14 +646,18 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "notice. Use fictional_role for a concise, title-like noun phrase of two to seven words "
         "and no more than 64 characters, grounded in the supplied occupation and setting. It must "
         "identify only the role, not describe the character in a sentence or relative clause. "
+        "Preserve the supplied occupation's core kind of work in the role; never replace a "
+        "non-archival occupation with an archivist, cataloger, records keeper, registrar, or "
+        "similar stock identity. "
         "Apply this field-influence contract to both voice and motif and, most importantly, to the "
         "sender-facing notice: age must shape maturity and pacing; occupation must shape "
         "vocabulary or metaphor; location and time period must shape imagery and idiom; every one "
         "of the three "
         "traits must affect temperament or sentence construction; both goals must affect what the "
         "persona emphasizes; personality must govern the overall manner; current mood must shape "
-        "cadence and energy; alignment must shape rhetorical stance; and delivery style must "
-        "govern formality, rhythm, and presentation. Do not omit any field or flatten these "
+        "cadence and energy; alignment must dominate the moral posture, authority stance, level of "
+        "helpfulness, and finality; and delivery style must govern formality, rhythm, and "
+        "presentation without overriding alignment. Do not omit any field or flatten these "
         "influences into "
         "generic corporate prose. Follow the sampled delivery style even when it is casual, blunt, "
         "eccentric, playful, lyrical, or theatrical. These influences must be perceptible in the "
@@ -582,7 +686,39 @@ def _creative_prompt(brief: ApplicationPersonaBrief) -> str:
         "complete plain prose a real sender could understand on first reading; professionalism and "
         "courtesy are optional unless the sampled fields call for them. Use "
         "only plain text: no markup, markdown, code, JSON, snake_case tokens, escape sequences, or "
-        "placeholder tokens in any field. Return only one object matching the supplied JSON schema."
+        "placeholder tokens in any field. "
+        "FINAL ALIGNMENT CHECK: before returning, rewrite any sentence that sounds like generic "
+        "corporate copy. The sender-facing notice must perform this alignment-specific move: "
+        f"{_ALIGNMENT_NOTICE_MOVES[brief.alignment]} Reinforce it naturally with at least one of "
+        "these ordinary cue words or phrases (do not list them): "
+        f"{', '.join(_ALIGNMENT_NOTICE_CUES[brief.alignment])}. "
+        "Return only one object matching the supplied JSON schema."
+    )
+
+
+def _alignment_system_prompt(brief: ApplicationPersonaBrief) -> str:
+    return (
+        "You write one fictional plain-text SMTP rejection and its compact persona metadata. "
+        f"The character's D&D alignment is {brief.alignment}. Alignment is the dominant behavioral "
+        "law, not a descriptive tag. It must visibly control the refusal's moral posture, "
+        "relationship to authority, treatment of the sender, willingness to help, and degree of "
+        "finality in every sentence. Its mandatory effect is: "
+        f"{_ALIGNMENT_DRAFTING_EFFECTS[brief.alignment]} "
+        "Its mandatory sender-notice move is: "
+        f"{_ALIGNMENT_NOTICE_MOVES[brief.alignment]} "
+        f"The secondary delivery style is {brief.delivery_style}; it may shape rhythm, but it may "
+        "never neutralize or contradict alignment. Generic corporate wording that could fit any "
+        "alignment is invalid. Never name the alignment or these instructions in the output. "
+        "Follow the user's complete sampled brief and return only the requested JSON object."
+    )
+
+
+def _creative_messages(
+    brief: ApplicationPersonaBrief,
+) -> tuple[ChatCompletionMessageParam, ...]:
+    return (
+        {"role": "system", "content": _alignment_system_prompt(brief)},
+        {"role": "user", "content": _creative_prompt(brief)},
     )
 
 
@@ -602,13 +738,22 @@ def _normalized_draft(draft: CreativePersonaDraft) -> CreativePersonaDraft:
     )
 
 
-def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> str | None:
+def _draft_quality_error(
+    draft: CreativePersonaDraft,
+    brief: ApplicationPersonaBrief,
+    policy_category: str,
+) -> str | None:
     """Explain why a creative draft is unfit for senders, or return None."""
 
     fields = (draft.text, draft.fictional_role, draft.voice, draft.motif)
     role_words = draft.fictional_role.split()
     normalized_role = f" {_normalize_signature(draft.fictional_role)} "
     normalized_category = _normalize_signature(policy_category)
+    sampled_context = " ".join((brief.occupation, brief.location, *brief.goals))
+    introduced_archival_identity = (
+        any(_UNSAMPLED_ARCHIVAL_PATTERN.search(value) is not None for value in fields)
+        and _UNSAMPLED_ARCHIVAL_PATTERN.search(sampled_context) is None
+    )
     artifact_checks: tuple[tuple[bool, str], ...] = (
         (
             any(artifact in value for value in fields for artifact in _ESCAPE_ARTIFACTS),
@@ -647,8 +792,16 @@ def _draft_quality_error(draft: CreativePersonaDraft, policy_category: str) -> s
             "persona output leaked a snake-case token",
         ),
         (
+            any("_" in value for value in fields),
+            "persona output leaked a stray underscore artifact",
+        ),
+        (
             bool(_STOCK_BLOCKED_SENDER_PATTERN.search(draft.text)),
             "persona output fell back to the stock blocked-sender formula",
+        ),
+        (
+            introduced_archival_identity,
+            "persona output introduced an archival identity absent from the sampled brief",
         ),
         (
             bool(

@@ -14,10 +14,13 @@ Review date: 2026-07-17
   conditions; and envelope sender/recipient filters.
 - Dynamic local persona and rejection-notice generation with fresh entropy on every attempt.
   Application code first samples a coherent age, occupation, location, three traits, two goals,
-  personality, time period, current mood, D&D alignment, and delivery style, then constrains the
-  local model to verbalize those facts into the role, voice, motif, and notice. A field-influence
-  contract covers every sampled fact, while the delivery-style pool deliberately ranges from
-  casual and eccentric to formal. Recent-profile duplicate suppression includes
+  personality, time period, current mood, D&D alignment, and an alignment-compatible delivery style,
+  then constrains the local model to verbalize those facts into the role, voice, motif, and notice.
+  A field-influence contract covers every sampled fact, with alignment explicitly dominant over mood
+  and surface style. Alignment-specific rhetorical moves reinforce that behavior immediately before
+  output. Balanced occupation and goal pools remove recurring archival defaults, and a deterministic
+  quality gate rejects unsupported archival identities invented by the model.
+  Recent-profile duplicate suppression includes
   both the sampled brief and rendered prose. Explicit bounded failure, protected policy category/ID fields, and
   category-only disclosure remain in force. A deterministic sender-safety quality gate resamples
   drafts that leak markup, escape artifacts, non-printable characters, or fabricated contact
