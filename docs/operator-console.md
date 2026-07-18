@@ -39,10 +39,16 @@ approved write. A server-side revision check also discards late results if the d
 5. Review or randomize the plain-text rejection notice. The application first samples a complete
    persona brief — age, occupation, location, traits, goals, personality, and time period — from
    coherent application-owned pools, along with a current mood, one of the nine D&D alignments, and
-   an alignment-compatible delivery style. Alignment dominates moral posture, authority,
-   helpfulness, and finality, so surface style cannot flatten it. Occupation and goal pools are
-   balanced away from recurring archival defaults, and unsupported archival identities introduced
-   by the model are rejected. All nine alignments are eligible; only the immediately previous
+   an alignment-compatible delivery style. Occupation is drawn independently of location from
+   thirteen balanced work domains, and the previous persona's domain is excluded from the next
+   draw, so professions stay varied instead of clustering around any one field. Every attribute
+   carries an explicit influence weight (alignment 10 of 10, mood 8, delivery style 7, and so on
+   down to age), and alignment dominates moral posture, authority, helpfulness, and finality, so
+   surface style cannot flatten it. Occupation and goal pools are
+   balanced away from recurring archival defaults, unsupported archival identities introduced
+   by the model are rejected, and maritime role identities are rejected unless the sampled
+   occupation is maritime. Notices missing every cue word of the sampled alignment are resampled.
+   All nine alignments are eligible; only the immediately previous
    alignment is removed from the next random draw. The local model receives those exact fields,
    alignment-specific rhetorical moves, and required drafting effects, then verbalizes them into the
    role, voice, motif, and notice instead of inventing the identity from scratch.

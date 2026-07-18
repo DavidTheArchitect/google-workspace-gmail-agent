@@ -16,10 +16,14 @@ Review date: 2026-07-17
   Application code first samples a coherent age, occupation, location, three traits, two goals,
   personality, time period, current mood, D&D alignment, and an alignment-compatible delivery style,
   then constrains the local model to verbalize those facts into the role, voice, motif, and notice.
-  A field-influence contract covers every sampled fact, with alignment explicitly dominant over mood
-  and surface style. Alignment-specific rhetorical moves reinforce that behavior immediately before
+  Occupation is sampled independently of location from thirteen era-spanning work domains, with the
+  previous persona's domain excluded from the next draw. A weighted influence contract covers every
+  sampled fact on a one-to-ten scale, with alignment explicitly dominant (10 of 10) over mood
+  and surface style, and delivery styles drawn with position weights favoring each alignment's
+  signature style. Alignment-specific rhetorical moves reinforce that behavior immediately before
   output. Balanced occupation and goal pools remove recurring archival defaults, and a deterministic
-  quality gate rejects unsupported archival identities invented by the model.
+  quality gate rejects unsupported archival identities invented by the model, maritime role
+  identities without a maritime occupation, and notices missing every sampled-alignment cue word.
   Recent-profile duplicate suppression includes
   both the sampled brief and rendered prose. Explicit bounded failure, protected policy category/ID fields, and
   category-only disclosure remain in force. A deterministic sender-safety quality gate resamples
