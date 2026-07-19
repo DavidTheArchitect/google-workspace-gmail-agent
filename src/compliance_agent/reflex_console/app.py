@@ -25,7 +25,12 @@ def _nav_item(label: str, icon: str, view: str) -> rx.Component:
 
 def _sidebar() -> rx.Component:
     return rx.el.aside(
-        rx.text("Gmail Policy Agent", class_name="sidebar-brand"),
+        rx.hstack(
+            rx.box(_icon("shield-half", 16), class_name="brand-mark"),
+            rx.text("Gmail Policy Agent"),
+            class_name="sidebar-brand",
+        ),
+        rx.text("Ops console", class_name="sidebar-sub"),
         rx.el.nav(
             rx.vstack(
                 _nav_item("Home", "house", "home"),
@@ -51,26 +56,46 @@ def _sidebar() -> rx.Component:
             custom_attrs={"aria-label": "Primary navigation"},
         ),
         rx.spacer(),
-        rx.text("v1.0.0", class_name="sidebar-version"),
+        rx.box(
+            rx.hstack(
+                rx.box(class_name="led", custom_attrs={"aria-hidden": "true"}),
+                rx.text("All systems local · v1.0.0"),
+                class_name="sidebar-system-row",
+            ),
+            rx.text("ollama · playwright · agent framework", class_name="sidebar-system-detail"),
+            class_name="sidebar-system",
+        ),
         class_name="sidebar",
     )
 
 
-def _top_status(icon: str, label: str, tone: str = "") -> rx.Component:
+def _top_status(label: object, tone: str = "") -> rx.Component:
     return rx.hstack(
-        _icon(icon, 17),
+        rx.box(class_name="led", custom_attrs={"aria-hidden": "true"}),
         rx.text(label),
-        custom_attrs={"aria-label": label},
         class_name=f"top-status {tone}".strip(),
+    )
+
+
+def _mode_option(label: str, value: str, short: str) -> rx.Component:
+    return rx.button(
+        short,
+        on_click=ConsoleState.change_run_mode(label),
+        disabled=ConsoleState.workflow_locked,
+        custom_attrs={"aria-pressed": ConsoleState.run_mode == value},
+        class_name=rx.cond(
+            ConsoleState.run_mode == value,
+            "mode-seg-btn active",
+            "mode-seg-btn",
+        ),
     )
 
 
 def _topbar() -> rx.Component:
     return rx.el.header(
         rx.hstack(
-            _top_status("monitor", ConsoleState.model_label),
+            _top_status(ConsoleState.model_label),
             _top_status(
-                "triangle-alert",
                 rx.cond(
                     ConsoleState.run_mode == "live",
                     "Exact approval required",
@@ -86,14 +111,12 @@ def _topbar() -> rx.Component:
         ),
         rx.spacer(),
         rx.hstack(
-            rx.text("Mode", class_name="mode-label"),
-            rx.select(
-                ["Plan only", "Dry run", "Live"],
-                value=ConsoleState.run_mode_label,
-                on_change=ConsoleState.change_run_mode,
-                aria_label="Execution mode",
-                custom_attrs={"aria-label": "Execution mode"},
-                disabled=ConsoleState.workflow_locked,
+            rx.box(
+                _mode_option("Plan only", "plan_only", "Plan"),
+                _mode_option("Dry run", "dry_run", "Dry run"),
+                _mode_option("Live", "live", "Live"),
+                custom_attrs={"role": "group", "aria-label": "Execution mode"},
+                class_name="mode-seg",
             ),
             rx.color_mode.button(
                 class_name="theme-toggle",
@@ -2227,13 +2250,30 @@ def _audits_view() -> rx.Component:
     )
 
 
-def _home_metric(icon: str, label: str, value: object, detail: str) -> rx.Component:
+def _metric_spark(points: str) -> rx.Component:
+    return rx.html(
+        '<svg class="metric-spark" viewBox="0 0 200 34" preserveAspectRatio="none" '
+        f'aria-hidden="true"><polyline points="{points}" fill="none" '
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+        'stroke-linejoin="round"/></svg>'
+    )
+
+
+def _home_metric(  # noqa: PLR0913 - mirrors the tile's five visual slots.
+    icon: str,
+    label: str,
+    value: object,
+    detail: str,
+    tone: str = "cyan",
+    footer: rx.Component | None = None,
+) -> rx.Component:
     return rx.box(
         rx.box(_icon(icon, 18), class_name="home-metric-icon"),
         rx.text(label, class_name="form-label"),
         rx.text(value, class_name="home-metric-value"),
         rx.text(detail, class_name="field-help"),
-        class_name="home-metric",
+        footer if footer is not None else rx.fragment(),
+        class_name=f"home-metric {tone}",
     )
 
 
@@ -2276,24 +2316,38 @@ def _home_view() -> rx.Component:
                 "Execution mode",
                 ConsoleState.run_mode_label,
                 "Change modes in the top bar or Settings.",
+                "cyan",
+                _metric_spark("0,26 30,22 60,24 90,14 120,18 150,8 180,12 200,6"),
             ),
             _home_metric(
                 "shield-check",
                 "Managed policies",
                 ConsoleState.managed_policies.length(),
                 "Only resources with exact ownership evidence.",
+                "green",
+                _metric_spark("0,30 40,30 40,20 100,20 100,12 200,12"),
             ),
             _home_metric(
                 "file-check-2",
                 "Audit packages",
                 ConsoleState.audit_history.length(),
                 "Terminal manifests checked on load.",
+                "violet",
+                _metric_spark("0,32 25,28 50,29 75,22 100,24 125,16 150,18 175,10 200,8"),
             ),
             _home_metric(
                 "messages-square",
                 "Orchestration",
                 "4 specialists",
                 "Microsoft Agent Framework group chat.",
+                "amber",
+                rx.hstack(
+                    rx.text("Plan", class_name="metric-tag cyan"),
+                    rx.text("Draft", class_name="metric-tag violet"),
+                    rx.text("Safety", class_name="metric-tag green"),
+                    rx.text("Verify", class_name="metric-tag amber"),
+                    class_name="metric-tags",
+                ),
             ),
             columns="2",
             gap="14px",
