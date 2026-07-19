@@ -873,6 +873,19 @@ def _persona_detail(label: str, value: object, icon: str) -> rx.Component:
     )
 
 
+def _persona_step(icon: str, title: str, copy: str) -> rx.Component:
+    return rx.hstack(
+        rx.box(_icon(icon, 13), class_name="persona-step-icon"),
+        rx.vstack(
+            rx.text(title, class_name="persona-step-title"),
+            rx.text(copy, class_name="persona-step-copy"),
+            spacing="0",
+            align="start",
+        ),
+        class_name="persona-step",
+    )
+
+
 def _rejection_editor() -> rx.Component:
     return rx.box(
         rx.hstack(
@@ -885,7 +898,8 @@ def _rejection_editor() -> rx.Component:
                     class_name="section-heading",
                 ),
                 rx.text(
-                    "Preview the sender-facing message and the persona that shapes its voice.",
+                    "The bounce message a blocked sender receives, written in the voice of a "
+                    "freshly sampled persona.",
                     class_name="editor-section-subtitle",
                 ),
                 spacing="0",
@@ -894,27 +908,18 @@ def _rejection_editor() -> rx.Component:
             width="100%",
             class_name="rejection-heading editor-section-heading",
         ),
-        rx.hstack(
-            rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
-            rx.vstack(
-                rx.text("Persona generator", class_name="randomness-title"),
-                rx.text(
-                    "The application samples a complete identity, then the local model turns it "
-                    "into a sender-safe notice.",
-                    class_name="randomness-copy",
-                ),
-                spacing="0",
-                align="start",
-            ),
-            class_name="randomness-card notice-meta-row",
-        ),
         rx.box(
             rx.hstack(
-                rx.el.label(
-                    _icon("text", 15),
-                    rx.text("Plain-text SMTP rejection notice"),
-                    html_for="rejection-notice",
-                    class_name="plain-text-label",
+                rx.box(_icon("shuffle", 16), class_name="randomness-icon"),
+                rx.vstack(
+                    rx.text("Persona generator", class_name="randomness-title"),
+                    rx.text(
+                        "Roll a fresh identity and the local model rewrites the notice below "
+                        "in its voice.",
+                        class_name="randomness-copy",
+                    ),
+                    spacing="0",
+                    align="start",
                 ),
                 rx.spacer(),
                 rx.button(
@@ -928,6 +933,47 @@ def _rejection_editor() -> rx.Component:
                     disabled=ConsoleState.persona_in_progress,
                     aria_label="Generate a new persona and rejection notice",
                     class_name="persona-action",
+                ),
+                width="100%",
+                class_name="randomness-head",
+            ),
+            rx.hstack(
+                _persona_step(
+                    "dices",
+                    "Identity sampled",
+                    "Age, era, occupation, mood, and a weighted D&D alignment.",
+                ),
+                rx.box(_icon("chevron-right", 12), class_name="persona-step-arrow"),
+                _persona_step(
+                    "pen-line",
+                    "Notice drafted",
+                    "The local model writes the refusal in that persona's voice.",
+                ),
+                rx.box(_icon("chevron-right", 12), class_name="persona-step-arrow"),
+                _persona_step(
+                    "shield-check",
+                    "Safety gate",
+                    "Deterministic checks reject leaks, artifacts, and stock wording.",
+                ),
+                width="100%",
+                class_name="persona-steps",
+            ),
+            class_name="randomness-card notice-meta-row",
+        ),
+        rx.box(
+            rx.hstack(
+                rx.el.label(
+                    _icon("text", 15),
+                    rx.text("Plain-text SMTP rejection notice"),
+                    html_for="rejection-notice",
+                    class_name="plain-text-label",
+                ),
+                rx.spacer(),
+                rx.text(
+                    ConsoleState.notice_character_count,
+                    " / 1,000 characters",
+                    id="notice-character-count",
+                    class_name="notice-metadata",
                 ),
                 width="100%",
                 class_name="editor-toolbar",
@@ -947,34 +993,25 @@ def _rejection_editor() -> rx.Component:
                 rx.hstack(
                     rx.box(_icon("drama", 18), class_name="persona-mark"),
                     rx.vstack(
-                        rx.hstack(
-                            rx.vstack(
-                                rx.text(
-                                    "Persona profile",
-                                    class_name="persona-label",
-                                ),
-                                rx.text(ConsoleState.persona_role, class_name="persona-role"),
-                                rx.cond(
-                                    ConsoleState.persona_generated,
-                                    rx.hstack(
-                                        _icon("map-pin", 11),
-                                        rx.text(
-                                            ConsoleState.persona_setting_line,
-                                            class_name="persona-setting",
-                                        ),
-                                        class_name="persona-setting-row",
-                                    ),
-                                ),
-                                spacing="0",
-                                align="start",
-                            ),
+                        rx.vstack(
                             rx.text(
-                                ConsoleState.notice_character_count,
-                                " / 1,000 characters",
-                                id="notice-character-count",
-                                class_name="notice-metadata",
+                                "Persona profile",
+                                class_name="persona-label",
                             ),
-                            class_name="persona-card-heading",
+                            rx.text(ConsoleState.persona_role, class_name="persona-role"),
+                            rx.cond(
+                                ConsoleState.persona_generated,
+                                rx.hstack(
+                                    _icon("map-pin", 11),
+                                    rx.text(
+                                        ConsoleState.persona_setting_line,
+                                        class_name="persona-setting",
+                                    ),
+                                    class_name="persona-setting-row",
+                                ),
+                            ),
+                            spacing="0",
+                            align="start",
                             width="100%",
                         ),
                         rx.cond(
