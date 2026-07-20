@@ -9,7 +9,26 @@ repos:
     rev: v6.0.0
     hooks:
       - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-json
       - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
+      - id: mixed-line-ending
       - id: trailing-whitespace
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.18.1
+    hooks:
+      - id: markdownlint-cli2
+  - repo: local
+    hooks:
+      - id: architecture-boundaries
+        name: architecture boundaries
+        entry: uv run --no-sync pytest tests/architecture/test_dependency_boundaries.py --no-cov -q
+        language: system
+        pass_filenames: false
+        types: [python]

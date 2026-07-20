@@ -29,7 +29,7 @@ from compliance_agent.application.workflow_audit_service import (
     WorkflowAuditService,
 )
 from compliance_agent.audit.writer import RunAuditWriter
-from compliance_agent.console import create_console_app
+from compliance_agent.console import ConsolePolling, create_console_app
 from compliance_agent.console.app import ConsoleApplication
 from compliance_agent.console.configuration import LocalConfigurationStore
 from compliance_agent.console.coordinator import (
@@ -221,6 +221,38 @@ def test_browser_form_posts_pass_origin_check_and_null_stays_closed(tmp_path: Pa
     assert null_origin.status_code == 403
 
 
+def test_codespaces_console_requires_exact_forwarded_origin_and_secure_cookie(
+    tmp_path: Path,
+) -> None:
+    origin = "https://careful-console-8765.app.github.dev"
+    console = create_console_app(
+        _settings(tmp_path),
+        planner=StaticPlanner(),
+        public_origin=origin,
+    )
+    client = TestClient(console.app, base_url=origin)
+    connected = client.post(
+        "/bootstrap",
+        data={"token": console.security.launch_token},
+        headers={"origin": "null"},
+        follow_redirects=False,
+    )
+
+    assert connected.status_code == 303
+    assert "secure" in connected.headers["set-cookie"].lower()
+    csrf = console.security.csrf_token()
+    accepted = client.post(
+        "/runs",
+        data={"request_text": "Block x.example", "mode": "plan_only", "csrf_token": csrf},
+        headers={"origin": origin},
+        follow_redirects=False,
+    )
+    bad_host = client.get("/", headers={"host": "evil.example"})
+
+    assert accepted.status_code == 303
+    assert bad_host.status_code == 400
+
+
 def test_invalid_bootstrap_token_gets_styled_error(tmp_path: Path) -> None:
     console = create_console_app(_settings(tmp_path), planner=StaticPlanner())
     client = TestClient(console.app, base_url="http://127.0.0.1:8765")
@@ -272,8 +304,7 @@ def test_sse_stream_heartbeats_then_times_out_for_stuck_run(tmp_path: Path) -> N
     console = create_console_app(
         _settings(tmp_path),
         planner=HangingPlanner(),
-        sse_poll_seconds=0,
-        sse_max_polls=2,
+        polling=ConsolePolling(seconds=0, maximum_polls=2),
     )
     client = _client(console)
     csrf = console.security.csrf_token()

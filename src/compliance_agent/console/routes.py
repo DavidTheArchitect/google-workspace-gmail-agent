@@ -182,6 +182,7 @@ def _register_bootstrap_routes(app: FastAPI, web: ConsoleWebContext) -> None:
             web.security.cookie_name,
             session.session_token,
             httponly=True,
+            secure=web.security.secure_cookie,
             samesite="strict",
             path="/",
         )

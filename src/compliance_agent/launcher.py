@@ -1,6 +1,8 @@
 """No-argument entry point for the Reflex operator console."""
 
 import os
+import platform
+import shutil
 import socket
 import subprocess
 import sys
@@ -10,7 +12,7 @@ import webbrowser
 from pathlib import Path
 
 from compliance_agent.settings import load_settings
-from compliance_agent.startup import choose_console_port
+from compliance_agent.startup import choose_console_port, console_public_origin
 
 
 def run(arguments: list[str]) -> int:
@@ -25,19 +27,18 @@ def run(arguments: list[str]) -> int:
 def _run_reflex_console() -> int:
     settings = load_settings()
     repository = Path.cwd().resolve()
-    node_dir = repository / ".node" / "node-v22.22.3-win-x64"
-    if not (node_dir / "node.exe").is_file():
-        message = "project-local Node is missing; run Setup-Gmail-Agent.cmd"
-        raise SystemExit(message)
+    node_dir = resolve_node_directory(repository)
     preferred_port = settings.console_port
     selected_port = choose_console_port(preferred_port)
     if selected_port != preferred_port:
         sys.stdout.write(f"Console port {preferred_port} is busy; using {selected_port} instead.\n")
     environment = dict(os.environ)
-    environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
+    if node_dir is not None:
+        environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
     environment["GMAIL_AGENT_CONSOLE_PORT"] = str(selected_port)
     environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] = str(selected_port)
-    url = f"http://127.0.0.1:{selected_port}"
+    url = console_public_origin(selected_port)
+    environment["GMAIL_AGENT_PUBLIC_URL"] = url
     if settings.console_open_browser:
         opener = threading.Thread(
             target=_open_when_ready,
@@ -62,6 +63,24 @@ def _run_reflex_console() -> int:
         "--single-port",
     ]
     return subprocess.call(command, env=environment)  # noqa: S603
+
+
+def resolve_node_directory(repository: Path, *, platform_name: str | None = None) -> Path | None:
+    effective_platform = sys.platform if platform_name is None else platform_name
+    if effective_platform == "win32":
+        node_dir = repository / ".node" / "node-v22.22.3-win-x64"
+        if (node_dir / "node.exe").is_file():
+            return node_dir
+    if effective_platform.startswith("linux"):
+        architecture = platform.machine().lower()
+        target = "linux-arm64" if architecture in {"aarch64", "arm64"} else "linux-x64"
+        node_dir = repository / ".node" / f"node-v22.22.3-{target}" / "bin"
+        if (node_dir / "node").is_file():
+            return node_dir
+    if shutil.which("node") is not None:
+        return None
+    message = "Node.js 22 or newer is required; run the platform setup script"
+    raise SystemExit(message)
 
 
 def main() -> None:

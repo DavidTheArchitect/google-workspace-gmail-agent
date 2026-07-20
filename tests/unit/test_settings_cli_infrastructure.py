@@ -27,6 +27,7 @@ from compliance_agent.settings import ConsoleBindHost, Settings
 from compliance_agent.startup import (
     choose_console_port,
     collect_startup_checks,
+    console_public_origin,
     format_startup_checks,
     ollama_available,
     port_available,
@@ -299,6 +300,24 @@ def test_port_selection_fails_after_bounded_search() -> None:
         choose_console_port(65_535, available=lambda _port: False)
 
 
+def test_console_public_origin_is_exact_for_local_and_codespaces() -> None:
+    assert console_public_origin(8765, environ={}) == "http://127.0.0.1:8765"
+    codespaces = {
+        "CODESPACES": "true",
+        "CODESPACE_NAME": "careful-console",
+        "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN": "app.github.dev",
+    }
+
+    assert (
+        console_public_origin(8765, environ=codespaces)
+        == "https://careful-console-8765.app.github.dev"
+    )
+
+    codespaces["CODESPACE_NAME"] = "bad.example"
+    with pytest.raises(ValueError, match="missing or invalid"):
+        console_public_origin(8765, environ=codespaces)
+
+
 def test_doctor_command_prints_human_readable_report(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -475,6 +494,11 @@ def test_reflex_launcher_propagates_automatic_port_fallback(
         lambda: SimpleNamespace(console_port=8765, console_open_browser=True),
     )
     monkeypatch.setattr(launcher, "choose_console_port", lambda _port: 8766)
+    monkeypatch.setattr(
+        launcher,
+        "console_public_origin",
+        lambda port: f"http://127.0.0.1:{port}",
+    )
     monkeypatch.setattr(launcher.Path, "cwd", lambda: tmp_path)
     monkeypatch.setattr(launcher.threading, "Thread", FakeThread)
     monkeypatch.setattr(launcher.subprocess, "call", fake_call)
@@ -487,6 +511,7 @@ def test_reflex_launcher_propagates_automatic_port_fallback(
     assert command[command.index("--backend-port") + 1] == "8766"
     assert environment["GMAIL_AGENT_CONSOLE_PORT"] == "8766"
     assert environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] == "8766"
+    assert environment["GMAIL_AGENT_PUBLIC_URL"] == "http://127.0.0.1:8766"
     assert captured["thread"] == (
         launcher._open_when_ready,
         (8766, "http://127.0.0.1:8766"),
@@ -517,6 +542,11 @@ def test_reflex_launcher_respects_disabled_browser_open(
         lambda: SimpleNamespace(console_port=8765, console_open_browser=False),
     )
     monkeypatch.setattr(launcher, "choose_console_port", lambda port: port)
+    monkeypatch.setattr(
+        launcher,
+        "console_public_origin",
+        lambda port: f"http://127.0.0.1:{port}",
+    )
     monkeypatch.setattr(launcher.Path, "cwd", lambda: tmp_path)
     monkeypatch.setattr(launcher.threading, "Thread", FakeThread)
     monkeypatch.setattr(launcher.subprocess, "call", lambda _command, *, env: 0)

@@ -11,7 +11,8 @@ The application never reads password or second-factor controls. A normal daily-u
 must not be supplied. Before live reads, follow `live-test-procedure.md` and validate current page
 identity evidence.
 
-The local console may be started with `uv run compliance-agent console`. Its one-time token is
+The local console may be started with `uv run gmail-agent`. The server-rendered fallback may be
+started with `uv run compliance-agent console`; its one-time token is
 placed in the URL fragment, exchanged for an in-memory loopback session, and removed from the URL.
 The console never asks for Google credentials and never embeds the Admin console.
 

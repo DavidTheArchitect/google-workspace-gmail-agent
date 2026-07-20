@@ -49,7 +49,7 @@ WORKDIR /config
 EXPOSE 8765
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-    CMD ["python", "-c", "import os, urllib.request; port=os.environ.get('CA_CONSOLE_PORT', '8765'); urllib.request.urlopen(f'http://127.0.0.1:{port}/bootstrap', timeout=2).read(1)"]
+    CMD ["python", "-c", "import os, urllib.request; from urllib.parse import urlsplit; from compliance_agent.startup import console_public_origin; port=int(os.environ.get('CA_CONSOLE_PORT', '8765')); origin=console_public_origin(port); request=urllib.request.Request(f'http://127.0.0.1:{port}/bootstrap', headers={'Host': urlsplit(origin).netloc}); urllib.request.urlopen(request, timeout=2).read(1)"]
 
 ENTRYPOINT ["compliance-agent"]
 CMD ["console", "--no-open"]

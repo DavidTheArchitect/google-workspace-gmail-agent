@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import os
 import platform
+import re
 import socket
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from compliance_agent.settings import Settings
 
 _PORT_SEARCH_SPAN = 20
+_MAX_DNS_NAME_LENGTH = 253
+_DNS_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +52,37 @@ def choose_console_port(
             return candidate
     message = f"no free console port found from {preferred} through {last}"
     raise OSError(message)
+
+
+def console_public_origin(
+    port: int,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Return the exact local or private Codespaces origin for one console port."""
+
+    values = os.environ if environ is None else environ
+    if values.get("CODESPACES", "").lower() != "true":
+        return f"http://127.0.0.1:{port}"
+    codespace_name = values.get("CODESPACE_NAME", "").lower()
+    forwarding_domain = values.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN", "").lower()
+    forwarded_label = f"{codespace_name}-{port}"
+    if not _valid_dns_label(forwarded_label) or not _valid_dns_name(forwarding_domain):
+        message = "Codespaces forwarding environment is missing or invalid"
+        raise ValueError(message)
+    return f"https://{forwarded_label}.{forwarding_domain}"
+
+
+def _valid_dns_name(value: str) -> bool:
+    return bool(
+        value
+        and len(value) <= _MAX_DNS_NAME_LENGTH
+        and all(_valid_dns_label(part) for part in value.split("."))
+    )
+
+
+def _valid_dns_label(value: str) -> bool:
+    return bool(_DNS_LABEL.fullmatch(value))
 
 
 def ollama_available(settings: Settings) -> bool:

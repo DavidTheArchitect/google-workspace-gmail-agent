@@ -24,6 +24,8 @@ def test_container_runtime_is_non_root_and_plan_only() -> None:
     assert 'ENTRYPOINT ["compliance-agent"]' in dockerfile
     assert 'CMD ["console", "--no-open"]' in dockerfile
     assert "HEALTHCHECK" in dockerfile
+    assert "console_public_origin" in dockerfile
+    assert "headers={'Host': urlsplit(origin).netloc}" in dockerfile
 
 
 def test_compose_publishes_only_to_host_loopback_and_persists_state() -> None:
@@ -38,6 +40,9 @@ def test_compose_publishes_only_to_host_loopback_and_persists_state() -> None:
     assert "gmail-agent-state:/data/state" in compose
     assert "GMAIL_AGENT_OLLAMA_BASE_URL" in compose
     assert "http://host.docker.internal:11434/v1" in compose
+    assert 'CODESPACES: "${CODESPACES:-false}"' in compose
+    assert "GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN" in compose
+    assert "gemma4:12b" in compose
     assert "${CA_OLLAMA_BASE_URL:-" not in compose
 
 

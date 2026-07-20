@@ -12,7 +12,7 @@ __pycache__/
 .web/
 .states/
 .node/
-.node-cache.zip
+.node-cache/
 .codex-remote-attachments/
 .coverage
 htmlcov/

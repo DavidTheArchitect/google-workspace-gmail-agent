@@ -62,11 +62,30 @@ unverified controls.
 
 ## Development
 
-Python 3.12 and 3.13 are supported. Dependencies are exact-pinned and resolved by `uv`. Setup also
-installs a checksum-verified project-local Node 22 runtime for the Reflex frontend; it does not
-modify the machine-wide Node installation.
+Python 3.12 and 3.13 are supported on Windows x64, Linux x64, Linux arm64, and GitHub Codespaces.
+Dependencies are exact-pinned and resolved by `uv`. The platform setup scripts install the same
+checksum-verified project-local Node 22 runtime for the Reflex frontend; they do not modify the
+machine-wide Node installation.
 
 ### Start the console
+
+#### GitHub Codespaces
+
+Create a Codespace for this repository. The tracked devcontainer installs Python 3.12, `uv`, Node
+22, Docker, and the exact development dependencies automatically. Start the console with the VS
+Code task **Agent: Start Console** or:
+
+```bash
+uv run --no-sync gmail-agent
+```
+
+Open forwarded port `8765` from the VS Code **Ports** view and keep its visibility **Private**. The
+application derives the exact Codespaces HTTPS origin from the standard environment, validates
+that host, and does not relax normal localhost checks. Codespaces supports development, tests,
+planning, and the operator console. Attended Google login and browser-backed dry-run/live work
+remain workstation workflows because they require a visible, operator-controlled browser profile.
+
+#### Windows x64
 
 For the first run on Windows, double-click [`Setup-Gmail-Agent.cmd`](Setup-Gmail-Agent.cmd). It:
 
@@ -89,6 +108,36 @@ The equivalent terminal command is:
 uv run gmail-agent
 ```
 
+#### Linux x64 or arm64
+
+Install `uv` using its official installation instructions, then run:
+
+```bash
+./Setup-Gmail-Agent.sh
+```
+
+For later starts, run:
+
+```bash
+./Start-Gmail-Agent.sh
+```
+
+The Linux scripts mirror the Windows flow: they create a safe `.env` only when absent, synchronize
+the locked environment, install the verified local Node runtime, run diagnostics, and launch the
+same `gmail-agent` entry point. The console remains bound to exact loopback for ordinary local
+Linux and Windows runs.
+
+#### Direct terminal workflow
+
+The cross-platform commands behind the wrappers are:
+
+```bash
+uv sync --locked --extra dev
+uv run --no-sync python scripts/install_node.py
+uv run --no-sync compliance-agent doctor
+uv run --no-sync gmail-agent
+```
+
 ### Optional Docker console
 
 Native execution remains fully supported. As an alternative, the plan-only console can run from
@@ -104,11 +153,10 @@ audit, and state survive container replacement in named volumes, and the port is
 host loopback. The attended Google Admin observer remains a native workflow because it needs a
 visible, operator-controlled browser profile. See [docs/containers.md](docs/containers.md).
 
-If dependencies have not been installed yet, `uv` resolves them on the first launch. Press
-`Ctrl+C` in the launcher window to stop the console.
+Press `Ctrl+C` in the launcher terminal to stop the console.
 
-```powershell
-uv sync --extra dev
+```bash
+uv sync --locked --extra dev
 uv run compliance-agent doctor
 uv run compliance-agent version
 uv run compliance-agent block add --domain spammer.com --notice "Mail rejected."
@@ -164,3 +212,8 @@ See [docs/api-feasibility.md](docs/api-feasibility.md),
 [docs/containers.md](docs/containers.md), and
 [docs/live-test-procedure.md](docs/live-test-procedure.md)
 before enabling any live work.
+
+For contributor navigation and cleanup decisions, see
+[docs/repository-inventory.md](docs/repository-inventory.md),
+[docs/repository-organization.md](docs/repository-organization.md), and
+[docs/clean-code-standards.md](docs/clean-code-standards.md).

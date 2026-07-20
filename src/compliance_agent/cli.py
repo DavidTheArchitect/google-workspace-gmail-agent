@@ -39,6 +39,7 @@ from compliance_agent.settings import Settings, load_settings
 from compliance_agent.startup import (
     choose_console_port,
     collect_startup_checks,
+    console_public_origin,
     format_startup_checks,
     port_available,
 )
@@ -274,7 +275,10 @@ def _run_console(args: argparse.Namespace) -> int:
     if selected_port != preferred_port:
         print(f"Console port {preferred_port} is busy; using {selected_port} instead.")
         settings = load_settings(console_port=selected_port)
-    console = create_console_app(settings)
+    console = create_console_app(
+        settings,
+        public_origin=console_public_origin(settings.console_port),
+    )
     config = uvicorn.Config(
         console.app,
         host=settings.console_bind_host.value,

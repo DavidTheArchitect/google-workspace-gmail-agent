@@ -1,6 +1,6 @@
 # Optional Docker deployment
 
-The native Windows and `uv` workflows remain the default. The container provides the same
+The native Windows, Linux, and `uv` workflows remain the default. The container provides the same
 plan-only operator console without installing Python on the host. It intentionally does not
 containerize the attended Google Admin observation workflow, which requires a visible browser and
 a protected, operator-controlled profile.
@@ -45,9 +45,9 @@ To run the current working tree instead of the published image:
 docker compose up --build
 ```
 
-Native execution remains unchanged:
+Native execution remains unchanged on Windows and Linux:
 
-```powershell
+```bash
 uv run gmail-agent
 ```
 

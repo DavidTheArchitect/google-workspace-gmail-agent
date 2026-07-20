@@ -59,17 +59,28 @@ class ConsoleApplication:
     coordinator: ConsoleCoordinator
 
 
+@dataclass(frozen=True, slots=True)
+class ConsolePolling:
+    """Bound polling behavior used by server-sent event routes."""
+
+    seconds: float = 1.0
+    maximum_polls: int = 600
+
+
+_DEFAULT_POLLING = ConsolePolling()
+
+
 def create_console_app(
     settings: Settings,
     *,
+    public_origin: str | None = None,
     planner: ConsolePlanner | None = None,
-    sse_poll_seconds: float = 1.0,
-    sse_max_polls: int = 600,
+    polling: ConsolePolling = _DEFAULT_POLLING,
     configuration_file: Path | None = None,
 ) -> ConsoleApplication:
     """Create a secured local console without opening a network listener."""
 
-    security = ConsoleSecurity(settings.console_port)
+    security = ConsoleSecurity(settings.console_port, public_origin=public_origin)
     actual_planner = planner or StructuredConsolePlanner(build_planner(settings))
     clock = SystemClock()
     capabilities = resolve_capabilities(settings)
@@ -107,8 +118,8 @@ def create_console_app(
         contracts=UiContractStore(settings.state_dir),
         templates=Jinja2Templates(directory=_CONSOLE_ROOT / "templates"),
         clock=clock,
-        sse_poll_seconds=sse_poll_seconds,
-        sse_max_polls=sse_max_polls,
+        sse_poll_seconds=polling.seconds,
+        sse_max_polls=polling.maximum_polls,
         health=ReadinessCache(settings, clock, capabilities=capabilities),
         configuration=LocalConfigurationStore(configuration_file or Path.cwd() / ".env"),
         capabilities=capabilities,

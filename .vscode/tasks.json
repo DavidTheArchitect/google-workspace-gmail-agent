@@ -1,0 +1,84 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Agent: Setup",
+      "type": "shell",
+      "command": "./Setup-Gmail-Agent.sh --no-launch",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agent: Doctor",
+      "type": "shell",
+      "command": "uv run --no-sync compliance-agent doctor",
+      "problemMatcher": []
+    },
+    {
+      "label": "Agent: Start Console",
+      "type": "shell",
+      "command": "uv run --no-sync gmail-agent",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "Quality: Format Check",
+      "type": "shell",
+      "command": "uv run ruff format --check .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: Lint",
+      "type": "shell",
+      "command": "uv run ruff check .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: Type Check",
+      "type": "shell",
+      "command": "uv run mypy --strict src",
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: Tests",
+      "type": "shell",
+      "command": "uv run pytest",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: Dependency Audit",
+      "type": "shell",
+      "command": "uv run pip-audit",
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality: All",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Quality: Format Check",
+        "Quality: Lint",
+        "Quality: Type Check",
+        "Quality: Tests",
+        "Quality: Dependency Audit"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Docker: Start Console",
+      "type": "shell",
+      "command": "docker compose up --build",
+      "problemMatcher": [],
+      "presentation": {
+        "panel": "dedicated",
+        "reveal": "always"
+      }
+    }
+  ]
+}

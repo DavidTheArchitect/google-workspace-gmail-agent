@@ -4,6 +4,8 @@ import hashlib
 import os
 from pathlib import Path
 
+from compliance_agent.startup import console_public_origin
+
 
 def _external_web_directory() -> Path:
     """Keep generated Node trees out of OneDrive-backed repositories on Windows."""
@@ -27,14 +29,15 @@ import reflex as rx  # noqa: E402 - Reflex reads the workdir environment during 
 
 _FRONTEND_PORT = int(os.environ.get("GMAIL_AGENT_CONSOLE_PORT", "8765"))
 _BACKEND_PORT = int(os.environ.get("GMAIL_AGENT_CONSOLE_BACKEND_PORT", str(_FRONTEND_PORT)))
+_PUBLIC_URL = os.environ.get("GMAIL_AGENT_PUBLIC_URL")
 
 config = rx.Config(
     app_name="gmail_admin_agent",
     frontend_port=_FRONTEND_PORT,
     backend_port=_BACKEND_PORT,
     backend_host="127.0.0.1",
-    api_url=f"http://127.0.0.1:{_BACKEND_PORT}",
-    deploy_url=f"http://127.0.0.1:{_FRONTEND_PORT}",
+    api_url=_PUBLIC_URL or console_public_origin(_BACKEND_PORT),
+    deploy_url=_PUBLIC_URL or console_public_origin(_FRONTEND_PORT),
     telemetry_enabled=False,
     plugins=[
         rx.plugins.SitemapPlugin(),
