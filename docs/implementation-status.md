@@ -70,7 +70,7 @@ Review date: 2026-07-17
 - A licensed Google Workspace tenant whose edition exposes the requested Gmail fields.
 - An administrator account with the required Gmail settings privileges.
 - Attended sign-in in the visible persistent Chrome profile.
-- The configured local Ollama models; the browser model must accept image input.
+- The models managed by the configured Ollama service; the browser model must accept image input.
 - A fresh dry-run or live preview against Google's current Admin UI.
 - For live changes, the exact one-time phrase and acknowledgement shown after that preview.
 

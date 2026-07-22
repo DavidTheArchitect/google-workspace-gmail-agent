@@ -60,6 +60,29 @@ unverified controls.
 - One approval covers the exact plan/state/change hashes; the autonomous browser run is bounded,
   rechecks the target OU before Save, and performs an independent editor read-back.
 
+## Start the containerized stack
+
+Docker Desktop (or Docker Engine with Compose v2) is the only runtime prerequisite. From a clean
+checkout, build and start the application, Ollama, and the exact default `gemma4:12b` model with:
+
+```powershell
+docker compose up --build
+```
+
+The first start downloads the model into the `ollama-models` named volume; later starts reuse it.
+The application waits for Ollama to become healthy and for the idempotent model initializer to
+finish before starting the full Reflex Mission Control console. Open `http://127.0.0.1:8765` after
+`gmail-agent` is healthy. Ollama has no published host port and is reachable by the application
+only as `http://ollama:11434/v1` on the Compose network. The container includes Node and a prebuilt
+frontend seed, so the Mission Control UI does not depend on a host Node installation either.
+
+Use `OLLAMA_MODEL` in a Compose `.env` file or the shell to select another exact model tag. The
+same value is passed to the initializer and application. `OLLAMA_BASE_URL` is also configurable for
+an alternate trusted Compose service, but the internal default should normally remain unchanged.
+No host Ollama installation or manual `ollama pull` is needed. See
+[docs/containers.md](docs/containers.md) for build, verification, persistence, stop, and reset
+commands.
+
 ## Development
 
 Python 3.12 and 3.13 are supported on Windows x64, Linux x64, Linux arm64, and GitHub Codespaces.
@@ -67,7 +90,13 @@ Dependencies are exact-pinned and resolved by `uv`. The platform setup scripts i
 checksum-verified project-local Node 22 runtime for the Reflex frontend; they do not modify the
 machine-wide Node installation.
 
-### Start the console
+### Native development
+
+For native attended-browser development on Windows, double-click
+[`Setup-Gmail-Agent.cmd`](Setup-Gmail-Agent.cmd), then [`Start-Gmail-Agent.cmd`](Start-Gmail-Agent.cmd).
+This workflow remains available because Google Admin login and live observation require a visible,
+operator-controlled browser profile. It is not needed for the containerized plan-only console.
+The equivalent native command is `uv run gmail-agent`.
 
 #### GitHub Codespaces
 
@@ -138,21 +167,6 @@ uv run --no-sync compliance-agent doctor
 uv run --no-sync gmail-agent
 ```
 
-### Optional Docker console
-
-Native execution remains fully supported. As an alternative, the plan-only console can run from
-the automatically published GHCR image:
-
-```powershell
-docker compose pull
-docker compose up
-```
-
-Use `docker compose up --build` to build and run the current local source instead. Configuration,
-audit, and state survive container replacement in named volumes, and the port is published only to
-host loopback. The attended Google Admin observer remains a native workflow because it needs a
-visible, operator-controlled browser profile. See [docs/containers.md](docs/containers.md).
-
 Press `Ctrl+C` in the launcher terminal to stop the console.
 
 ```bash
@@ -165,15 +179,15 @@ uv run gmail-agent
 uv run pytest
 ```
 
-Direct commands emit the same schema-v2 `TaskPlan` shape used by the LLM planner and do not require
-Ollama. Console proposals run through four Microsoft Agent Framework group-chat participants in
+Direct commands emit the same schema-v2 `TaskPlan` shape used by the LLM planner. Console proposals
+run through four Microsoft Agent Framework group-chat participants in
 two round-robin passes by default, so every specialist can react to the group before the typed plan
-is approved. The default local model is `gemma4:12b`.
+is approved. The default container-managed model is `gemma4:12b`.
 
 For natural-language planning:
 
 ```powershell
-uv run compliance-agent plan "Block spammer.com with notice Mail rejected."
+docker compose exec gmail-agent compliance-agent plan "Block spammer.com with notice Mail rejected."
 ```
 
 Run modes are explicit: `CA_RUN_MODE=plan_only`, `dry_run`, or `live`. Legacy

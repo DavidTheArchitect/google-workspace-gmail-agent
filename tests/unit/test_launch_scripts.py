@@ -41,12 +41,13 @@ def test_linux_setup_and_start_scripts_share_the_locked_runtime_contract() -> No
     assert "uv run --no-sync gmail-agent" in start
 
 
-def test_example_environment_is_safe_and_documents_optional_ollama() -> None:
+def test_example_environment_is_safe_and_documents_container_ollama() -> None:
     example = Path(".env.example").read_text(encoding="utf-8")
 
     assert "# CA_RUN_MODE=plan_only" in example
     assert "CA_CONSOLE_OPEN_BROWSER=true" in example
-    assert "The deterministic form works without Ollama" in example
+    assert "OLLAMA_BASE_URL=http://ollama:11434/v1" in example
+    assert "OLLAMA_MODEL=gemma4:12b" in example
     assert "CA_EXPECTED_ADMIN_EMAIL" in example
 
 

@@ -1,10 +1,74 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    init: true
+    restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    init: true
+    restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"
+      OLLAMA_INIT_MAX_ATTEMPTS: "${OLLAMA_INIT_MAX_ATTEMPTS:-60}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        model="$${OLLAMA_MODEL:?OLLAMA_MODEL must be set}"
+        export OLLAMA_HOST="$${OLLAMA_BASE_URL%/v1}"
+        max_attempts="$${OLLAMA_INIT_MAX_ATTEMPTS:-60}"
+        attempt=0
+        until ollama list >/dev/null 2>&1; do
+          attempt=$$((attempt + 1))
+          if [ "$$attempt" -ge "$$max_attempts" ]; then
+            echo "[ollama-init] Ollama did not become ready after $$max_attempts attempts." >&2
+            exit 1
+          fi
+          echo "[ollama-init] Waiting for Ollama ($$attempt/$$max_attempts)..."
+          sleep 2
+        done
+        if ollama show "$$model" >/dev/null 2>&1; then
+          echo "[ollama-init] Model $$model is already available; skipping download."
+          exit 0
+        fi
+        echo "[ollama-init] Pulling model $$model. This can take several minutes on first start."
+        ollama pull "$$model"
+        ollama show "$$model" >/dev/null
+        echo "[ollama-init] Model $$model is ready."
+
   gmail-agent:
     image: "${GMAIL_AGENT_IMAGE:-ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest}"
     build:
       context: .
       dockerfile: Dockerfile
     init: true
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     read_only: true
     cap_drop:
       - ALL
@@ -12,8 +76,6 @@ services:
       - no-new-privileges:true
     ports:
       - "127.0.0.1:${CA_CONSOLE_PORT:-8765}:${CA_CONSOLE_PORT:-8765}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       CA_RUN_MODE: plan_only
       CA_CONSOLE_BIND_HOST: 0.0.0.0
@@ -22,8 +84,14 @@ services:
       CODESPACES: "${CODESPACES:-false}"
       CODESPACE_NAME: "${CODESPACE_NAME:-}"
       GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: "${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-}"
-      CA_OLLAMA_BASE_URL: "${GMAIL_AGENT_OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}"
-      CA_OLLAMA_MODEL: "${GMAIL_AGENT_OLLAMA_MODEL:-gemma4:12b}"
+      CA_OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"
+      CA_OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"
+      CA_BROWSER_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"
+      CA_LLM_REQUEST_TIMEOUT_SECONDS: "${LLM_REQUEST_TIMEOUT_SECONDS:-600}"
+      CA_GROUP_CHAT_TIMEOUT_SECONDS: "${GROUP_CHAT_TIMEOUT_SECONDS:-1800}"
+      NPM_CONFIG_CACHE: /var/lib/gmail-agent-reflex/.npm
+      REFLEX_DIR: /var/lib/gmail-agent-reflex/.reflex
+      GMAIL_AGENT_REFLEX_WEB_DIR: /var/lib/gmail-agent-reflex
       CA_PROFILE_DIR: /data/browser-profile
       CA_AUDIT_DIR: /data/audit
       CA_STATE_DIR: /data/state
@@ -31,12 +99,15 @@ services:
       - gmail-agent-config:/config
       - gmail-agent-audit:/data/audit
       - gmail-agent-browser-profile:/data/browser-profile
+      - gmail-agent-reflex-cache:/var/lib/gmail-agent-reflex
       - gmail-agent-state:/data/state
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
 
 volumes:
+  ollama-models:
   gmail-agent-config:
   gmail-agent-audit:
   gmail-agent-browser-profile:
+  gmail-agent-reflex-cache:
   gmail-agent-state:

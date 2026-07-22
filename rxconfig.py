@@ -23,19 +23,24 @@ def _external_web_directory() -> Path:
     return target
 
 
-os.environ.setdefault("REFLEX_WEB_WORKDIR", str(_external_web_directory()))
+if "REFLEX_WEB_WORKDIR" not in os.environ:
+    os.environ["REFLEX_WEB_WORKDIR"] = str(_external_web_directory())
 
 import reflex as rx  # noqa: E402 - Reflex reads the workdir environment during import.
 
 _FRONTEND_PORT = int(os.environ.get("GMAIL_AGENT_CONSOLE_PORT", "8765"))
 _BACKEND_PORT = int(os.environ.get("GMAIL_AGENT_CONSOLE_BACKEND_PORT", str(_FRONTEND_PORT)))
 _PUBLIC_URL = os.environ.get("GMAIL_AGENT_PUBLIC_URL")
+_BACKEND_HOST = os.environ.get(
+    "GMAIL_AGENT_CONSOLE_HOST",
+    os.environ.get("CA_CONSOLE_BIND_HOST", "127.0.0.1"),
+)
 
 config = rx.Config(
     app_name="gmail_admin_agent",
     frontend_port=_FRONTEND_PORT,
     backend_port=_BACKEND_PORT,
-    backend_host="127.0.0.1",
+    backend_host=_BACKEND_HOST,
     api_url=_PUBLIC_URL or console_public_origin(_BACKEND_PORT),
     deploy_url=_PUBLIC_URL or console_public_origin(_FRONTEND_PORT),
     telemetry_enabled=False,

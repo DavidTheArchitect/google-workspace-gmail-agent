@@ -1,7 +1,9 @@
 # Local Reflex operator console
 
-Start with `uv run gmail-agent`, or use `Setup-Gmail-Agent.cmd` once and then
-`Start-Gmail-Agent.cmd` on Windows. The console binds to loopback only. Google credentials are
+Start the containerized application, Ollama, and configured model with `docker compose up --build`,
+then open `http://127.0.0.1:8765`. The container serves this same Reflex Mission Control interface;
+it does not fall back to the legacy server-rendered console. For native attended-browser development, use
+`Setup-Gmail-Agent.cmd` once and then `Start-Gmail-Agent.cmd` on Windows. Google credentials are
 entered only in the attended Chrome window and are never copied into Reflex state or audit data.
 
 ## Run modes
@@ -20,9 +22,9 @@ entered only in the attended Chrome window and are never copied into Reflex stat
 
 The mode selector is available in the top bar and Settings. Settings also persists the expected
 administrator email, Workspace domain, group-chat/persona model, and vision-capable browser model.
-Both model fields are installed-model dropdowns backed by Ollama's local catalog. Operators can
-refresh that catalog or download an exact Ollama model tag; a downloaded model is added to both
-menus but is not assigned to either role until the operator selects it and saves.
+Both model fields are installed-model dropdowns backed by the configured Ollama service catalog.
+Operators can refresh that catalog or download an exact Ollama model tag; a downloaded model is
+added to both menus but is not assigned to either role until the operator selects it and saves.
 Changing modes, identities, models, policy scope, expressions, addresses, enabled state, or notice
 content invalidates any unused approval immediately.
 Draft, mode, and model controls are locked during an asynchronous agent review, Google read, or

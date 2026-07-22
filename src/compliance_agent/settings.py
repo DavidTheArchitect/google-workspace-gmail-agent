@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from compliance_agent.domain.normalization import normalize_domain, normalize_email
 from compliance_agent.schemas.operations import RunMode
 
-_OLLAMA_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
+_OLLAMA_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal", "ollama"})
 _MAX_PREFIX_CHARACTERS = 100
 _MAX_MODEL_TAG_CHARACTERS = 200
 
@@ -196,7 +196,7 @@ def _visible_setting(value: str, *, maximum_characters: int, label: str) -> str:
 
 def _validate_service_urls(settings: Settings) -> None:
     if settings.ollama_base_url.host not in _OLLAMA_HOSTS:
-        message = "CA_OLLAMA_BASE_URL must use a loopback or Docker host-gateway host"
+        message = "CA_OLLAMA_BASE_URL must use an approved local Ollama service host"
         raise ValueError(message)
     _require_google_admin_url(settings.google_admin_base_url, "CA_GOOGLE_ADMIN_BASE_URL")
     _require_google_admin_url(settings.gmail_settings_url, "CA_GMAIL_SETTINGS_URL")

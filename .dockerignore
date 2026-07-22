@@ -3,4 +3,9 @@
 !README.md
 !pyproject.toml
 !uv.lock
+!rxconfig.py
+!assets/**
+!gmail_admin_agent/**
+!reflex.lock/**
+!scripts/container-entrypoint.sh
 !src/**
