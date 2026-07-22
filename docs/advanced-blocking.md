@@ -149,9 +149,10 @@ application-owned input token. The executor independently requires:
 - a bounded step count followed by a fresh editor read-back.
 
 Browser credentials, cookies, and the persistent profile remain outside prompts and audit data.
-`CA_BROWSER_MODEL` selects the locally installed vision-capable Ollama model independently from the
-planning model. It defaults to the requested Gemma model; deployments whose Gemma build does not
-accept images can select another local vision model without changing the planner or safety gates.
+`CA_BROWSER_MODEL` selects the vision-capable model in the configured Ollama service independently
+from the planning model. It defaults to the requested Gemma model; deployments whose Gemma build
+does not accept images can select another managed vision model without changing the planner or
+safety gates.
 
 Create, update, enable/disable, and remove are distinct approval operations. A browser permit binds
 one operation, one managed rule identity, one OU, and the three preview hashes, and is consumed on

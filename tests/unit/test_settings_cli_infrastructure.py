@@ -125,7 +125,7 @@ def test_settings_normalize_identity_and_restrict_security_sensitive_hosts(tmp_p
     assert settings.expected_admin_email == "admin@example.com"
     assert settings.expected_workspace_domain == "example.com"
     assert settings.managed_resource_prefix == "[Managed]"
-    with pytest.raises(ValidationError, match="loopback"):
+    with pytest.raises(ValidationError, match="approved local Ollama service host"):
         Settings(**_settings_paths(tmp_path), ollama_base_url="https://ollama.example.com/v1")
     container_settings = Settings(
         **_settings_paths(tmp_path),
@@ -133,6 +133,12 @@ def test_settings_normalize_identity_and_restrict_security_sensitive_hosts(tmp_p
         ollama_base_url="http://host.docker.internal:11434/v1",
     )
     assert container_settings.console_bind_host == ConsoleBindHost.CONTAINER
+    internal_container_settings = Settings(
+        **_settings_paths(tmp_path),
+        console_bind_host=ConsoleBindHost.CONTAINER,
+        ollama_base_url="http://ollama:11434/v1",
+    )
+    assert internal_container_settings.ollama_base_url.host == "ollama"
     with pytest.raises(ValidationError, match="console_bind_host"):
         Settings(**_settings_paths(tmp_path), console_bind_host="192.0.2.1")
     with pytest.raises(ValidationError, match=r"admin\.google\.com"):
@@ -242,7 +248,7 @@ def test_cli_reports_invalid_direct_input_without_opening_browser(
     assert "provide at least one" in capsys.readouterr().err
 
 
-def test_startup_checks_explain_port_fallback_and_optional_ollama(tmp_path: Path) -> None:
+def test_startup_checks_explain_port_fallback_and_model_service_state(tmp_path: Path) -> None:
     settings = Settings(console_port=8765, **_settings_paths(tmp_path))
 
     selected = choose_console_port(8765, available=lambda port: port == 8767)
@@ -255,7 +261,8 @@ def test_startup_checks_explain_port_fallback_and_optional_ollama(tmp_path: Path
 
     assert selected == 8767
     assert "8765 is busy; startup will use 8767 automatically" in report
-    assert "primary deterministic form will still work" in report
+    assert "configured model service is not reachable" in report
+    assert "deterministic form still works" in report
     assert "Ready to start" in report
 
 
@@ -274,11 +281,11 @@ def test_startup_checks_cover_available_services_and_disabled_browser(tmp_path: 
     report = format_startup_checks(checks)
 
     assert "127.0.0.1:8765 is available" in report
-    assert "Local natural-language planning is available" in report
+    assert "configured model service is reachable" in report
     assert "Automatic browser opening is disabled" in report
 
 
-def test_socket_probes_detect_busy_port_and_local_ollama(tmp_path: Path) -> None:
+def test_socket_probes_detect_busy_port_and_configured_ollama(tmp_path: Path) -> None:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         listener.listen()
@@ -491,7 +498,11 @@ def test_reflex_launcher_propagates_automatic_port_fallback(
     monkeypatch.setattr(
         launcher,
         "load_settings",
-        lambda: SimpleNamespace(console_port=8765, console_open_browser=True),
+        lambda: SimpleNamespace(
+            console_port=8765,
+            console_open_browser=True,
+            console_bind_host=ConsoleBindHost.LOOPBACK,
+        ),
     )
     monkeypatch.setattr(launcher, "choose_console_port", lambda _port: 8766)
     monkeypatch.setattr(
@@ -512,6 +523,8 @@ def test_reflex_launcher_propagates_automatic_port_fallback(
     assert environment["GMAIL_AGENT_CONSOLE_PORT"] == "8766"
     assert environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] == "8766"
     assert environment["GMAIL_AGENT_PUBLIC_URL"] == "http://127.0.0.1:8766"
+    assert environment["GMAIL_AGENT_CONSOLE_HOST"] == "127.0.0.1"
+    assert command[command.index("--backend-host") + 1] == "127.0.0.1"
     assert captured["thread"] == (
         launcher._open_when_ready,
         (8766, "http://127.0.0.1:8766"),
@@ -539,7 +552,11 @@ def test_reflex_launcher_respects_disabled_browser_open(
     monkeypatch.setattr(
         launcher,
         "load_settings",
-        lambda: SimpleNamespace(console_port=8765, console_open_browser=False),
+        lambda: SimpleNamespace(
+            console_port=8765,
+            console_open_browser=False,
+            console_bind_host=ConsoleBindHost.CONTAINER,
+        ),
     )
     monkeypatch.setattr(launcher, "choose_console_port", lambda port: port)
     monkeypatch.setattr(
@@ -553,6 +570,15 @@ def test_reflex_launcher_respects_disabled_browser_open(
 
     assert launcher._run_reflex_console() == 0
     assert not thread_started
+
+
+def test_reflex_launcher_accepts_container_supplied_node(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(launcher.shutil, "which", lambda command: f"/usr/local/bin/{command}")
+
+    assert launcher.resolve_node_directory(tmp_path, platform_name="linux") is None
 
 
 def test_cli_audit_prune_defaults_to_plan_and_requires_apply(

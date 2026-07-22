@@ -86,7 +86,7 @@ def _valid_dns_label(value: str) -> bool:
 
 
 def ollama_available(settings: Settings) -> bool:
-    """Probe the configured loopback Ollama socket without sending data."""
+    """Probe the configured Ollama service socket without sending data."""
 
     host = settings.ollama_base_url.host
     port = settings.ollama_base_url.port or 80
@@ -118,12 +118,12 @@ def collect_startup_checks(
         )
     )
     ollama_check = (
-        StartupCheck("pass", "Ollama", "Local natural-language planning is available.")
+        StartupCheck("pass", "Ollama", "The configured model service is reachable.")
         if ollama_probe(settings)
         else StartupCheck(
             "warn",
             "Ollama",
-            "Not detected. The primary deterministic form will still work.",
+            "The configured model service is not reachable. The deterministic form still works.",
         )
     )
     browser_detail = (

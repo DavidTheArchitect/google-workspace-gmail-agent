@@ -1,4 +1,4 @@
-"""Microsoft Agent Framework group-chat refinement backed only by local Ollama."""
+"""Microsoft Agent Framework group-chat refinement backed by the configured Ollama service."""
 
 import json
 from collections.abc import Sequence

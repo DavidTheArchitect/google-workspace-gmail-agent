@@ -37,6 +37,7 @@ def _run_reflex_console() -> int:
         environment["PATH"] = f"{node_dir}{os.pathsep}{environment.get('PATH', '')}"
     environment["GMAIL_AGENT_CONSOLE_PORT"] = str(selected_port)
     environment["GMAIL_AGENT_CONSOLE_BACKEND_PORT"] = str(selected_port)
+    environment["GMAIL_AGENT_CONSOLE_HOST"] = settings.console_bind_host.value
     url = console_public_origin(selected_port)
     environment["GMAIL_AGENT_PUBLIC_URL"] = url
     if settings.console_open_browser:
@@ -59,13 +60,15 @@ def _run_reflex_console() -> int:
         "--backend-port",
         str(selected_port),
         "--backend-host",
-        "127.0.0.1",
+        settings.console_bind_host.value,
         "--single-port",
     ]
     return subprocess.call(command, env=environment)  # noqa: S603
 
 
 def resolve_node_directory(repository: Path, *, platform_name: str | None = None) -> Path | None:
+    """Prefer the pinned platform runtime, then accept Node and npm supplied externally."""
+
     effective_platform = sys.platform if platform_name is None else platform_name
     if effective_platform == "win32":
         node_dir = repository / ".node" / "node-v22.22.3-win-x64"
@@ -77,9 +80,12 @@ def resolve_node_directory(repository: Path, *, platform_name: str | None = None
         node_dir = repository / ".node" / f"node-v22.22.3-{target}" / "bin"
         if (node_dir / "node").is_file():
             return node_dir
-    if shutil.which("node") is not None:
+    if shutil.which("node") is not None and shutil.which("npm") is not None:
         return None
-    message = "Node.js 22 or newer is required; run the platform setup script"
+    message = (
+        "Node.js 22 or newer is required, together with npm; run the platform setup script "
+        "or use the published container image"
+    )
     raise SystemExit(message)
 
 

@@ -69,7 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     console.add_argument("--port", type=int)
     console.add_argument("--no-open", action="store_true")
 
-    natural = commands.add_parser("plan", help="create a typed plan with local Ollama")
+    natural = commands.add_parser(
+        "plan",
+        help="create a typed plan with the configured Ollama service",
+    )
     natural.add_argument("request")
 
     block = commands.add_parser("block", help="construct deterministic blocked-entry plans")

@@ -1,72 +1,202 @@
-# Optional Docker deployment
+# Container deployment
 
-The native Windows, Linux, and `uv` workflows remain the default. The container provides the same
-plan-only operator console without installing Python on the host. It intentionally does not
-containerize the attended Google Admin observation workflow, which requires a visible browser and
-a protected, operator-controlled profile.
+The default Compose stack runs three services on one private network:
 
-## Run the published image
+- `ollama` runs the official `ollama/ollama` image and stores models in the
+  `ollama-models` named volume.
+- `ollama-init` waits for the Ollama health check, skips a model that already exists, or pulls the
+  configured model once and exits successfully.
+- `gmail-agent` starts only after Ollama is healthy and initialization succeeds. It serves the full
+  Reflex Mission Control console, uses `http://ollama:11434/v1`, and uses the same model tag as the
+  initializer.
 
-Install Docker Desktop, then run:
+Only the application console is published, on host loopback. Ollama port `11434` is not published.
+The services use `restart: "no"`, so an invalid model, failed pull, or unhealthy Ollama produces a
+visible failed container and clear logs instead of an uncontrolled restart loop.
 
-```powershell
-docker compose pull
-docker compose up
-```
+## Clean-checkout start
 
-Read the secure fallback link from the terminal and open it in the same machine's browser. The
-console is published only on `127.0.0.1:8765`; do not replace the host-side address with `0.0.0.0`
-or place the console behind a proxy.
-
-Stop the console without deleting its named volumes:
-
-```powershell
-docker compose down
-```
-
-The configuration, audit, browser-profile, and state directories persist in named volumes. The
-container filesystem is read-only, runs as an unprivileged user, drops Linux capabilities, and
-enables `no-new-privileges`.
-
-If the GHCR package is private, authenticate before pulling:
-
-```powershell
-$env:CR_PAT | docker login ghcr.io -u DavidTheArchitect --password-stdin
-```
-
-Use a token with `read:packages` only. Alternatively, change the package visibility to public on
-GitHub after its first publication.
-
-## Build from local source
-
-To run the current working tree instead of the published image:
+Install Docker Desktop, or Docker Engine with Compose v2. No host Python, Node, `uv`, Ollama, or
+manual model download is required. From the repository root, run this single command:
 
 ```powershell
 docker compose up --build
 ```
 
-Native execution remains unchanged on Windows and Linux:
+The first start can take several minutes while `gemma4:12b` downloads. The image already contains
+the Node runtime and a prebuilt Mission Control frontend seed; its generated runtime workspace is
+placed in `gmail-agent-reflex-cache`, not on the read-only image filesystem. A successful initializer
+prints `[ollama-init] Model gemma4:12b is ready.` Later starts print that the model is already
+available and skip the download. Open `http://127.0.0.1:8765` after `gmail-agent` is healthy.
 
-```bash
-uv run gmail-agent
+For detached operation:
+
+```powershell
+docker compose up --build --detach
+docker compose logs --follow ollama-init gmail-agent
 ```
 
-## Ollama
+Native execution remains available on Windows and Linux with `uv run gmail-agent`; it is useful for
+the attended Google Admin workflow that requires a visible, operator-controlled browser profile.
 
-Compose maps `host.docker.internal` to the Docker host and configures the agent to use
-`http://host.docker.internal:11434/v1`. The guided deterministic form works even when Ollama is not
-running. Override `GMAIL_AGENT_OLLAMA_BASE_URL` or `GMAIL_AGENT_OLLAMA_MODEL` before
-`docker compose up` when needed. The Docker-specific names prevent values in the native `.env`
-file—especially a `localhost` Ollama address—from being applied inside the container by mistake.
+On an NVIDIA host with Docker GPU support, add the optional override so local-model review uses
+the GPU while preserving the same services, network, and named model volume:
+
+```powershell
+docker compose -f compose.yaml -f compose.gpu.yaml up --build --detach
+```
+
+The default command remains CPU-compatible and does not require a GPU. Confirm accelerator use with
+`docker compose -f compose.yaml -f compose.gpu.yaml exec ollama ollama ps`; its `PROCESSOR` column
+should report GPU use while a model request is active.
+
+To use the published application image instead of the working tree:
+
+```powershell
+docker compose pull
+docker compose up --detach --no-build
+```
+
+If the GHCR package is private, authenticate first with a token that has only `read:packages`:
+
+```powershell
+$env:CR_PAT | docker login ghcr.io -u DavidTheArchitect --password-stdin
+```
+
+## Configuration
+
+The defaults work without a `.env` file. To override them for Compose, set shell variables before
+startup or use a Compose-specific env file:
+
+```dotenv
+OLLAMA_MODEL=gemma4:12b
+OLLAMA_BASE_URL=http://ollama:11434/v1
+OLLAMA_INIT_MAX_ATTEMPTS=60
+LLM_REQUEST_TIMEOUT_SECONDS=600
+GROUP_CHAT_TIMEOUT_SECONDS=1800
+CA_CONSOLE_PORT=8765
+```
+
+`OLLAMA_MODEL` is passed to both the model initializer and the application as `CA_OLLAMA_MODEL` and
+`CA_BROWSER_MODEL`. Use an exact Ollama model tag. `OLLAMA_BASE_URL` must end in `/v1` for the
+application's OpenAI-compatible client. The default internal URL should normally remain unchanged.
+The initializer derives Ollama's native endpoint from it.
+The longer container timeout defaults accommodate CPU-only inference; both remain bounded by the
+application's existing validated limits.
+
+For example, save overrides in `.env.compose` and run:
+
+```powershell
+docker compose --env-file .env.compose up --build
+```
+
+The general [`.env.example`](../.env.example) retains `CA_` values for optional native development
+and documents the Compose-only overrides as comments. Do not expose or publish Ollama merely to run
+the containerized application.
+
+## Build, start, and verify
+
+Build without starting services:
+
+```powershell
+docker compose build gmail-agent
+```
+
+Start the full stack in the background:
+
+```powershell
+docker compose up --build --detach
+```
+
+For the optional NVIDIA configuration, add `-f compose.yaml -f compose.gpu.yaml` to subsequent
+Compose commands so they use the same effective configuration.
+
+Confirm health and model installation:
+
+```powershell
+docker compose ps
+docker compose exec ollama ollama list
+docker compose exec ollama ollama show gemma4:12b
+```
+
+`ollama` and `gmail-agent` should be `healthy`; `ollama-init` should be `Exited (0)`. The page at
+`http://127.0.0.1:8765` should show the dark Mission Control shell with Home, New policy, Runs,
+Ownership, Audits, and Settings. To confirm the application can send a real request through the
+internal network and preserve the existing `TaskPlan` API contract:
+
+```powershell
+docker compose exec gmail-agent compliance-agent plan "Block spammer.com with notice Mail rejected."
+```
+
+The command should return the same schema-v2 JSON plan as native execution. If `OLLAMA_MODEL` was
+changed, replace `gemma4:12b` in direct `ollama show` commands with that exact tag.
+
+Confirm Ollama is not published to the host. Its exposed container port should map to `null`:
+
+```powershell
+docker inspect --format '{{json .NetworkSettings.Ports}}' google-workspace-gmail-agent-ollama-1
+```
+
+## Persistence check
+
+Restart Ollama, wait for its health check, rerun the initializer, and inspect the model:
+
+```powershell
+docker compose restart ollama
+docker compose up --detach --wait ollama
+docker compose run --rm ollama-init
+docker compose exec ollama ollama show gemma4:12b
+```
+
+The initializer should report `already available; skipping download.` This proves the model survived
+the container restart in `ollama-models`. `docker compose down` also preserves that volume.
+
+## Failure diagnosis
+
+The health wait is bounded. If Ollama never becomes reachable, `ollama-init` exits nonzero after the
+configured number of attempts and `gmail-agent` is not started. A model pull or validation failure
+also leaves the initializer stopped. Inspect the exact failure without triggering restarts:
+
+```powershell
+docker compose ps --all
+docker compose logs ollama ollama-init gmail-agent
+```
+
+Correct the model tag, network, proxy, disk, or memory problem, then rerun `docker compose up`; the
+initializer safely checks existing state before pulling. For proxies, configure Docker/Ollama's
+`HTTPS_PROXY`; do not set `HTTP_PROXY`, because it can interfere with container-to-container Ollama
+traffic.
+
+## Stop and reset
+
+Stop containers while retaining all named volumes:
+
+```powershell
+docker compose down
+```
+
+Reset the entire environment, including downloaded models, configuration, audit history, browser
+profile, and application state:
+
+```powershell
+docker compose down --volumes --remove-orphans
+```
+
+The reset is destructive. The next start downloads the configured model again.
+
+## Runtime boundary
+
+The container defaults to safe `plan_only` mode, runs the full Mission Control UI as an unprivileged
+user with a read-only root filesystem, drops Linux capabilities, and enables `no-new-privileges`.
+Content Compliance drafting, multi-expression validation, persona generation, specialist review,
+Runs, Ownership, and Audits use the same Reflex application as native startup. The attended Google
+Admin observer remains an optional native development workflow because it requires a visible,
+operator-controlled browser profile; this does not make host Ollama a dependency of the Compose
+stack.
 
 ## Automated publication
 
-`.github/workflows/container.yml` builds the image for every pull request targeting `main`. It
-loads and health-checks that pull-request image without publishing it. Every push to `main`,
-including a merged pull request, builds and publishes these GHCR tags:
-
-- `ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest`
-- `ghcr.io/davidthearchitect/google-workspace-gmail-agent:sha-<full-commit-sha>`
-
-The workflow authenticates with the repository-scoped `GITHUB_TOKEN`; no registry password or
-personal access token is stored in the repository.
+`.github/workflows/container.yml` builds the application image for every pull request targeting
+`main`. Pushes to `main` publish `latest` and immutable commit-SHA tags to GHCR. The workflow uses the
+repository-scoped `GITHUB_TOKEN`; no registry password or personal access token is stored in the
+repository.
