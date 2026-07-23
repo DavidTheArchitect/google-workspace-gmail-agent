@@ -2,7 +2,6 @@ services:
   ollama:
     image: ollama/ollama:latest
     init: true
-    restart: "no"
     cap_drop:
       - ALL
     security_opt:
@@ -19,7 +18,6 @@ services:
   ollama-init:
     image: ollama/ollama:latest
     init: true
-    restart: "no"
     cap_drop:
       - ALL
     security_opt:
@@ -28,42 +26,21 @@ services:
       ollama:
         condition: service_healthy
     environment:
-      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"
+      OLLAMA_HOST: http://ollama:11434
       OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"
-      OLLAMA_INIT_MAX_ATTEMPTS: "${OLLAMA_INIT_MAX_ATTEMPTS:-60}"
-    entrypoint: ["/bin/sh", "-c"]
+    entrypoint: ["/bin/sh", "-eu", "-c"]
     command:
       - |
-        set -eu
-        model="$${OLLAMA_MODEL:?OLLAMA_MODEL must be set}"
-        export OLLAMA_HOST="$${OLLAMA_BASE_URL%/v1}"
-        max_attempts="$${OLLAMA_INIT_MAX_ATTEMPTS:-60}"
-        attempt=0
-        until ollama list >/dev/null 2>&1; do
-          attempt=$$((attempt + 1))
-          if [ "$$attempt" -ge "$$max_attempts" ]; then
-            echo "[ollama-init] Ollama did not become ready after $$max_attempts attempts." >&2
-            exit 1
-          fi
-          echo "[ollama-init] Waiting for Ollama ($$attempt/$$max_attempts)..."
-          sleep 2
-        done
-        if ollama show "$$model" >/dev/null 2>&1; then
-          echo "[ollama-init] Model $$model is already available; skipping download."
-          exit 0
+        if ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1; then
+          echo "[ollama-init] Model $$OLLAMA_MODEL is already available."
+        else
+          echo "[ollama-init] Pulling model $$OLLAMA_MODEL."
+          ollama pull "$$OLLAMA_MODEL"
         fi
-        echo "[ollama-init] Pulling model $$model. This can take several minutes on first start."
-        ollama pull "$$model"
-        ollama show "$$model" >/dev/null
-        echo "[ollama-init] Model $$model is ready."
 
   gmail-agent:
     image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
     init: true
-    restart: "no"
     depends_on:
       ollama:
         condition: service_healthy

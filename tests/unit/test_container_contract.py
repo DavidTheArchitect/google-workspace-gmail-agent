@@ -38,10 +38,11 @@ def test_compose_runs_an_internal_persistent_ollama_service() -> None:
 
     assert "image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest" in compose
     assert "GMAIL_AGENT_IMAGE" not in compose
+    assert "build:" not in compose
     assert compose.count("image: ollama/ollama:latest") == 2
     assert "ollama-models:/root/.ollama" in compose
     assert 'test: ["CMD", "ollama", "list"]' in compose
-    assert 'OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"' in compose
+    assert "OLLAMA_HOST: http://ollama:11434" in compose
     assert 'OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"' in compose
     assert 'CA_OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"' in compose
     assert 'CA_OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"' in compose
@@ -49,7 +50,7 @@ def test_compose_runs_an_internal_persistent_ollama_service() -> None:
     assert 'CA_GROUP_CHAT_TIMEOUT_SECONDS: "${GROUP_CHAT_TIMEOUT_SECONDS:-1800}"' in compose
     assert "condition: service_healthy" in compose
     assert "condition: service_completed_successfully" in compose
-    assert 'restart: "no"' in compose
+    assert "restart:" not in compose
     assert '"11434:11434"' not in compose
     assert "host.docker.internal" not in compose
 
@@ -57,11 +58,12 @@ def test_compose_runs_an_internal_persistent_ollama_service() -> None:
 def test_compose_model_initializer_is_idempotent_and_fail_closed() -> None:
     compose = (_ROOT / "compose.yaml").read_text(encoding="utf-8")
 
-    assert 'if ollama show "$$model"' in compose
-    assert 'ollama pull "$$model"' in compose
-    assert "OLLAMA_INIT_MAX_ATTEMPTS" in compose
-    assert "Ollama did not become ready" in compose
-    assert "already available; skipping download" in compose
+    assert 'entrypoint: ["/bin/sh", "-eu", "-c"]' in compose
+    assert 'if ollama show "$$OLLAMA_MODEL"' in compose
+    assert 'ollama pull "$$OLLAMA_MODEL"' in compose
+    assert "OLLAMA_INIT_MAX_ATTEMPTS" not in compose
+    assert "Waiting for Ollama" not in compose
+    assert "already available" in compose
 
 
 def test_compose_publishes_only_the_application_to_host_loopback_and_persists_state() -> None:
