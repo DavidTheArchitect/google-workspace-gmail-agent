@@ -55,9 +55,7 @@ def test_compose_runs_an_internal_persistent_ollama_service() -> None:
 
 
 def test_application_startup_initializes_the_model_before_the_console() -> None:
-    wrapper = (_ROOT / "scripts" / "container-model-entrypoint.sh").read_text(
-        encoding="utf-8"
-    )
+    wrapper = (_ROOT / "scripts" / "container-model-entrypoint.sh").read_text(encoding="utf-8")
     bootstrap = (_ROOT / "src" / "compliance_agent" / "container_startup.py").read_text(
         encoding="utf-8"
     )
