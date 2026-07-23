@@ -27,7 +27,7 @@ def test_container_runtime_is_non_root_and_plan_only() -> None:
     assert "reflex export --env prod --frontend-only --no-zip" in dockerfile
     assert "/app/assets /app/assets" in dockerfile
     assert "/app/gmail_admin_agent /app/gmail_admin_agent" in dockerfile
-    assert 'ENTRYPOINT ["/usr/local/bin/container-entrypoint"]' in dockerfile
+    assert 'ENTRYPOINT ["/usr/local/bin/container-model-entrypoint"]' in dockerfile
     assert 'CMD ["gmail-agent", "console"]' in dockerfile
     assert "HEALTHCHECK" in dockerfile
     assert "http://127.0.0.1:{port}/" in dockerfile
@@ -39,31 +39,33 @@ def test_compose_runs_an_internal_persistent_ollama_service() -> None:
     assert "image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest" in compose
     assert "GMAIL_AGENT_IMAGE" not in compose
     assert "build:" not in compose
-    assert compose.count("image: ollama/ollama:latest") == 2
+    assert compose.count("image: ollama/ollama:latest") == 1
+    assert "ollama-init:" not in compose
     assert "ollama-models:/root/.ollama" in compose
     assert 'test: ["CMD", "ollama", "list"]' in compose
-    assert "OLLAMA_HOST: http://ollama:11434" in compose
-    assert 'OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"' in compose
     assert 'CA_OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-http://ollama:11434/v1}"' in compose
     assert 'CA_OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"' in compose
     assert 'CA_LLM_REQUEST_TIMEOUT_SECONDS: "${LLM_REQUEST_TIMEOUT_SECONDS:-600}"' in compose
     assert 'CA_GROUP_CHAT_TIMEOUT_SECONDS: "${GROUP_CHAT_TIMEOUT_SECONDS:-1800}"' in compose
     assert "condition: service_healthy" in compose
-    assert "condition: service_completed_successfully" in compose
+    assert "condition: service_completed_successfully" not in compose
     assert "restart:" not in compose
     assert '"11434:11434"' not in compose
     assert "host.docker.internal" not in compose
 
 
-def test_compose_model_initializer_is_idempotent_and_fail_closed() -> None:
-    compose = (_ROOT / "compose.yaml").read_text(encoding="utf-8")
+def test_application_startup_initializes_the_model_before_the_console() -> None:
+    wrapper = (_ROOT / "scripts" / "container-model-entrypoint.sh").read_text(encoding="utf-8")
+    bootstrap = (_ROOT / "src" / "compliance_agent" / "container_startup.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert 'entrypoint: ["/bin/sh", "-eu", "-c"]' in compose
-    assert 'if ollama show "$$OLLAMA_MODEL"' in compose
-    assert 'ollama pull "$$OLLAMA_MODEL"' in compose
-    assert "OLLAMA_INIT_MAX_ATTEMPTS" not in compose
-    assert "Waiting for Ollama" not in compose
-    assert "already available" in compose
+    assert "python -m compliance_agent.container_startup" in wrapper
+    assert 'exec /usr/local/bin/container-entrypoint "$@"' in wrapper
+    assert "list_local_models(settings)" in bootstrap
+    assert "pull_local_model(settings, model)" in bootstrap
+    assert "require_local_model(settings, model, require_vision=False)" in bootstrap
+    assert "Model initialization failed" in bootstrap
 
 
 def test_compose_publishes_only_the_application_to_host_loopback_and_persists_state() -> None:
@@ -105,6 +107,7 @@ def test_container_entrypoint_seeds_the_reflex_cache_without_host_dependencies()
     assert "!assets/**" in dockerignore
     assert "!gmail_admin_agent/**" in dockerignore
     assert "!reflex.lock/**" in dockerignore
+    assert "!scripts/container-model-entrypoint.sh" in dockerignore
 
 
 def test_container_workflow_validates_pull_requests_and_publishes_main() -> None:
@@ -126,3 +129,4 @@ def test_container_workflow_validates_pull_requests_and_publishes_main() -> None
     assert "type=sha" not in workflow
     assert "push: ${{ github.event_name == 'push' }}" in workflow
     assert "Smoke-test pull request image" in workflow
+    assert "--entrypoint /usr/local/bin/container-entrypoint" in workflow

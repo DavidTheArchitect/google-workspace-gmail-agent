@@ -15,37 +15,12 @@ services:
       retries: 30
       start_period: 10s
 
-  ollama-init:
-    image: ollama/ollama:latest
-    init: true
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    depends_on:
-      ollama:
-        condition: service_healthy
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-gemma4:12b}"
-    entrypoint: ["/bin/sh", "-eu", "-c"]
-    command:
-      - |
-        if ollama show "$$OLLAMA_MODEL" >/dev/null 2>&1; then
-          echo "[ollama-init] Model $$OLLAMA_MODEL is already available."
-        else
-          echo "[ollama-init] Pulling model $$OLLAMA_MODEL."
-          ollama pull "$$OLLAMA_MODEL"
-        fi
-
   gmail-agent:
     image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest
     init: true
     depends_on:
       ollama:
         condition: service_healthy
-      ollama-init:
-        condition: service_completed_successfully
     read_only: true
     cap_drop:
       - ALL

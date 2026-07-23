@@ -1,14 +1,11 @@
 # Container deployment
 
-The default Compose stack runs three services on one private network:
+The default Compose stack runs two services on one private network:
 
 - `ollama` runs the official `ollama/ollama` image and stores models in the
   `ollama-models` named volume.
-- `ollama-init` waits for the Ollama health check, skips a model that already exists, or pulls the
-  configured model once and exits successfully.
-- `gmail-agent` starts only after Ollama is healthy and initialization succeeds. It serves the full
-  Reflex Mission Control console, uses `http://ollama:11434/v1`, and uses the same model tag as the
-  initializer.
+- `gmail-agent` starts only after Ollama is healthy, pulls the configured model when missing, and
+  then serves the full Reflex Mission Control console through `http://ollama:11434/v1`.
 
 Only the application console is published, on host loopback. Ollama port `11434` is not published.
 No restart policy is configured, so an invalid model, failed pull, or unhealthy Ollama produces a
@@ -25,7 +22,7 @@ docker compose up
 
 The first start can take several minutes while `gemma4:12b` downloads. The image already contains
 the Node runtime and a prebuilt Mission Control frontend seed; its generated runtime workspace is
-placed in `gmail-agent-reflex-cache`, not on the read-only image filesystem. A successful initializer
+placed in `gmail-agent-reflex-cache`, not on the read-only image filesystem. Application startup
 pulls the model when missing. Later starts report that it is already available and skip the
 download. Open `http://127.0.0.1:8765` after `gmail-agent` is healthy.
 
@@ -33,7 +30,7 @@ For detached operation:
 
 ```powershell
 docker compose up --detach
-docker compose logs --follow ollama-init gmail-agent
+docker compose logs --follow ollama gmail-agent
 ```
 
 Native execution remains available on Windows and Linux with `uv run gmail-agent`; it is useful for
@@ -72,10 +69,10 @@ GROUP_CHAT_TIMEOUT_SECONDS=1800
 CA_CONSOLE_PORT=8765
 ```
 
-`OLLAMA_MODEL` is passed to both the model initializer and the application as `CA_OLLAMA_MODEL` and
-`CA_BROWSER_MODEL`. Use an exact Ollama model tag. `OLLAMA_BASE_URL` must end in `/v1` for the
-application's OpenAI-compatible client. The default internal URL should normally remain unchanged.
-The initializer uses Ollama's native internal endpoint directly.
+`OLLAMA_MODEL` is passed to the application as `CA_OLLAMA_MODEL` and `CA_BROWSER_MODEL`. Use an exact
+Ollama model tag. `OLLAMA_BASE_URL` must end in `/v1` for the application's OpenAI-compatible client.
+The startup model check derives Ollama's native endpoint from that URL. The default internal URL
+should normally remain unchanged.
 The longer container timeout defaults accommodate CPU-only inference; both remain bounded by the
 application's existing validated limits.
 
@@ -108,7 +105,7 @@ docker compose exec ollama ollama list
 docker compose exec ollama ollama show gemma4:12b
 ```
 
-`ollama` and `gmail-agent` should be `healthy`; `ollama-init` should be `Exited (0)`. The page at
+`ollama` and `gmail-agent` should be `healthy`. The page at
 `http://127.0.0.1:8765` should show the dark Mission Control shell with Home, New policy, Runs,
 Ownership, Audits, and Settings. To confirm the application can send a real request through the
 internal network and preserve the existing `TaskPlan` API contract:
@@ -128,31 +125,31 @@ docker inspect --format '{{json .NetworkSettings.Ports}}' google-workspace-gmail
 
 ## Persistence check
 
-Restart Ollama, wait for its health check, rerun the initializer, and inspect the model:
+Restart Ollama, wait for its health check, restart the application, and inspect the model:
 
 ```powershell
 docker compose restart ollama
 docker compose up --detach --wait ollama
-docker compose run --rm ollama-init
+docker compose restart gmail-agent
 docker compose exec ollama ollama show gemma4:12b
 ```
 
-The initializer should report that the model is already available. This proves the model survived
+The application log should report that the model is already available. This proves it survived
 the container restart in `ollama-models`. `docker compose down` also preserves that volume.
 
 ## Failure diagnosis
 
-If Ollama does not pass its bounded health check, `ollama-init` and `gmail-agent` are not started. A
-model pull failure leaves the initializer stopped and prevents the application from starting.
-Inspect the exact failure without triggering restarts:
+If Ollama does not pass its bounded health check, `gmail-agent` is not started. A model pull failure
+stops the application before Mission Control starts. Inspect the exact failure without triggering
+restarts:
 
 ```powershell
 docker compose ps --all
-docker compose logs ollama ollama-init gmail-agent
+docker compose logs ollama gmail-agent
 ```
 
 Correct the model tag, network, proxy, disk, or memory problem, then rerun `docker compose up`; the
-initializer safely checks existing state before pulling. For proxies, configure Docker/Ollama's
+application safely checks existing state before pulling. For proxies, configure Docker/Ollama's
 `HTTPS_PROXY`; do not set `HTTP_PROXY`, because it can interfere with container-to-container Ollama
 traffic.
 

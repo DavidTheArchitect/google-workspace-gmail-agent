@@ -62,6 +62,7 @@ COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 COPY --chmod=0755 scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint
+COPY --chmod=0755 scripts/container-model-entrypoint.sh /usr/local/bin/container-model-entrypoint
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -88,5 +89,5 @@ EXPOSE 8765
 HEALTHCHECK --interval=10s --timeout=3s --start-period=120s --retries=6 \
     CMD ["python", "-c", "import os, urllib.request; port=os.environ.get('CA_CONSOLE_PORT', '8765'); urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=2).read(1)"]
 
-ENTRYPOINT ["/usr/local/bin/container-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/container-model-entrypoint"]
 CMD ["gmail-agent", "console"]

@@ -8,4 +8,5 @@
 !gmail_admin_agent/**
 !reflex.lock/**
 !scripts/container-entrypoint.sh
+!scripts/container-model-entrypoint.sh
 !src/**
