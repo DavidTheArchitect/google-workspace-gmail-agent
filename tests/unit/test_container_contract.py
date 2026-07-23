@@ -36,6 +36,8 @@ def test_container_runtime_is_non_root_and_plan_only() -> None:
 def test_compose_runs_an_internal_persistent_ollama_service() -> None:
     compose = (_ROOT / "compose.yaml").read_text(encoding="utf-8")
 
+    assert "image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest" in compose
+    assert "GMAIL_AGENT_IMAGE" not in compose
     assert compose.count("image: ollama/ollama:latest") == 2
     assert "ollama-models:/root/.ollama" in compose
     assert 'test: ["CMD", "ollama", "list"]' in compose

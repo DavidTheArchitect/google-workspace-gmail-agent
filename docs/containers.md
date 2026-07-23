@@ -50,17 +50,10 @@ The default command remains CPU-compatible and does not require a GPU. Confirm a
 `docker compose -f compose.yaml -f compose.gpu.yaml exec ollama ollama ps`; its `PROCESSOR` column
 should report GPU use while a model request is active.
 
-To use the published application image instead of the working tree:
+The Compose file directly names the published application image with the `latest` tag; no image
+environment variable is required. To use it instead of building the working tree:
 
 ```powershell
-docker compose pull
-docker compose up --detach --no-build
-```
-
-For repeatable deployments, pin a versioned image rather than following `latest`:
-
-```powershell
-$env:GMAIL_AGENT_IMAGE = "ghcr.io/davidthearchitect/google-workspace-gmail-agent:0.1.0"
 docker compose pull gmail-agent
 docker compose up --detach --no-build
 ```

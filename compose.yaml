@@ -58,7 +58,7 @@ services:
         echo "[ollama-init] Model $$model is ready."
 
   gmail-agent:
-    image: "${GMAIL_AGENT_IMAGE:-ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest}"
+    image: ghcr.io/davidthearchitect/google-workspace-gmail-agent:latest
     build:
       context: .
       dockerfile: Dockerfile
