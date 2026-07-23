@@ -11,7 +11,7 @@ The default Compose stack runs three services on one private network:
   initializer.
 
 Only the application console is published, on host loopback. Ollama port `11434` is not published.
-The services use `restart: "no"`, so an invalid model, failed pull, or unhealthy Ollama produces a
+No restart policy is configured, so an invalid model, failed pull, or unhealthy Ollama produces a
 visible failed container and clear logs instead of an uncontrolled restart loop.
 
 ## Clean-checkout start
@@ -20,19 +20,19 @@ Install Docker Desktop, or Docker Engine with Compose v2. No host Python, Node, 
 manual model download is required. From the repository root, run this single command:
 
 ```powershell
-docker compose up --build
+docker compose up
 ```
 
 The first start can take several minutes while `gemma4:12b` downloads. The image already contains
 the Node runtime and a prebuilt Mission Control frontend seed; its generated runtime workspace is
 placed in `gmail-agent-reflex-cache`, not on the read-only image filesystem. A successful initializer
-prints `[ollama-init] Model gemma4:12b is ready.` Later starts print that the model is already
-available and skip the download. Open `http://127.0.0.1:8765` after `gmail-agent` is healthy.
+pulls the model when missing. Later starts report that it is already available and skip the
+download. Open `http://127.0.0.1:8765` after `gmail-agent` is healthy.
 
 For detached operation:
 
 ```powershell
-docker compose up --build --detach
+docker compose up --detach
 docker compose logs --follow ollama-init gmail-agent
 ```
 
@@ -43,7 +43,7 @@ On an NVIDIA host with Docker GPU support, add the optional override so local-mo
 the GPU while preserving the same services, network, and named model volume:
 
 ```powershell
-docker compose -f compose.yaml -f compose.gpu.yaml up --build --detach
+docker compose -f compose.yaml -f compose.gpu.yaml up --detach
 ```
 
 The default command remains CPU-compatible and does not require a GPU. Confirm accelerator use with
@@ -51,12 +51,7 @@ The default command remains CPU-compatible and does not require a GPU. Confirm a
 should report GPU use while a model request is active.
 
 The Compose file directly names the published application image with the `latest` tag; no image
-environment variable is required. To use it instead of building the working tree:
-
-```powershell
-docker compose pull gmail-agent
-docker compose up --detach --no-build
-```
+environment variable, separate pull, or local application build is required.
 
 If the GHCR package is private, authenticate first with a token that has only `read:packages`:
 
@@ -72,7 +67,6 @@ startup or use a Compose-specific env file:
 ```dotenv
 OLLAMA_MODEL=gemma4:12b
 OLLAMA_BASE_URL=http://ollama:11434/v1
-OLLAMA_INIT_MAX_ATTEMPTS=60
 LLM_REQUEST_TIMEOUT_SECONDS=600
 GROUP_CHAT_TIMEOUT_SECONDS=1800
 CA_CONSOLE_PORT=8765
@@ -81,32 +75,26 @@ CA_CONSOLE_PORT=8765
 `OLLAMA_MODEL` is passed to both the model initializer and the application as `CA_OLLAMA_MODEL` and
 `CA_BROWSER_MODEL`. Use an exact Ollama model tag. `OLLAMA_BASE_URL` must end in `/v1` for the
 application's OpenAI-compatible client. The default internal URL should normally remain unchanged.
-The initializer derives Ollama's native endpoint from it.
+The initializer uses Ollama's native internal endpoint directly.
 The longer container timeout defaults accommodate CPU-only inference; both remain bounded by the
 application's existing validated limits.
 
 For example, save overrides in `.env.compose` and run:
 
 ```powershell
-docker compose --env-file .env.compose up --build
+docker compose --env-file .env.compose up
 ```
 
 The general [`.env.example`](../.env.example) retains `CA_` values for optional native development
 and documents the Compose-only overrides as comments. Do not expose or publish Ollama merely to run
 the containerized application.
 
-## Build, start, and verify
-
-Build without starting services:
-
-```powershell
-docker compose build gmail-agent
-```
+## Start and verify
 
 Start the full stack in the background:
 
 ```powershell
-docker compose up --build --detach
+docker compose up --detach
 ```
 
 For the optional NVIDIA configuration, add `-f compose.yaml -f compose.gpu.yaml` to subsequent
@@ -149,14 +137,14 @@ docker compose run --rm ollama-init
 docker compose exec ollama ollama show gemma4:12b
 ```
 
-The initializer should report `already available; skipping download.` This proves the model survived
+The initializer should report that the model is already available. This proves the model survived
 the container restart in `ollama-models`. `docker compose down` also preserves that volume.
 
 ## Failure diagnosis
 
-The health wait is bounded. If Ollama never becomes reachable, `ollama-init` exits nonzero after the
-configured number of attempts and `gmail-agent` is not started. A model pull or validation failure
-also leaves the initializer stopped. Inspect the exact failure without triggering restarts:
+If Ollama does not pass its bounded health check, `ollama-init` and `gmail-agent` are not started. A
+model pull failure leaves the initializer stopped and prevents the application from starting.
+Inspect the exact failure without triggering restarts:
 
 ```powershell
 docker compose ps --all

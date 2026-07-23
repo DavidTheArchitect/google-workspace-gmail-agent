@@ -1,6 +1,6 @@
 # Local Reflex operator console
 
-Start the containerized application, Ollama, and configured model with `docker compose up --build`,
+Start the containerized application, Ollama, and configured model with `docker compose up`,
 then open `http://127.0.0.1:8765`. The container serves this same Reflex Mission Control interface;
 it does not fall back to the legacy server-rendered console. For native attended-browser development, use
 `Setup-Gmail-Agent.cmd` once and then `Start-Gmail-Agent.cmd` on Windows. Google credentials are

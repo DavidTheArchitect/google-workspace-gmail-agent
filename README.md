@@ -63,10 +63,10 @@ unverified controls.
 ## Start the containerized stack
 
 Docker Desktop (or Docker Engine with Compose v2) is the only runtime prerequisite. From a clean
-checkout, build and start the application, Ollama, and the exact default `gemma4:12b` model with:
+checkout, start the application, Ollama, and the exact default `gemma4:12b` model with:
 
 ```powershell
-docker compose up --build
+docker compose up
 ```
 
 The first start downloads the model into the `ollama-models` named volume; later starts reuse it.
