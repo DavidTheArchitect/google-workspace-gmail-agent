@@ -57,6 +57,14 @@ docker compose pull
 docker compose up --detach --no-build
 ```
 
+For repeatable deployments, pin a versioned image rather than following `latest`:
+
+```powershell
+$env:GMAIL_AGENT_IMAGE = "ghcr.io/davidthearchitect/google-workspace-gmail-agent:0.1.0"
+docker compose pull gmail-agent
+docker compose up --detach --no-build
+```
+
 If the GHCR package is private, authenticate first with a token that has only `read:packages`:
 
 ```powershell
@@ -197,6 +205,17 @@ stack.
 ## Automated publication
 
 `.github/workflows/container.yml` builds the application image for every pull request targeting
-`main`. Pushes to `main` publish `latest` and immutable commit-SHA tags to GHCR. The workflow uses the
-repository-scoped `GITHUB_TOKEN`; no registry password or personal access token is stored in the
-repository.
+`main`. Pushes to `main` publish `latest`. Pushing a semantic-version tag such as `v0.1.0` publishes
+the user-facing image tags `0.1.0` and `0.1` to GHCR; commit-SHA image tags are intentionally not
+published. Major-only tags begin at `1` once the project reaches `1.x`, avoiding an overly broad
+`0` tag during initial development. Create and publish a matching GitHub Release after the tagged
+container workflow passes:
+
+```powershell
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+gh release create v0.1.0 --verify-tag --generate-notes --title "v0.1.0"
+```
+
+The workflow uses the repository-scoped `GITHUB_TOKEN`; no registry password or personal access
+token is stored in the repository.

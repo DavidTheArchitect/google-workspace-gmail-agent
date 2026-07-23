@@ -109,7 +109,16 @@ def test_container_workflow_validates_pull_requests_and_publishes_main() -> None
     assert "pull_request:" in workflow
     assert "push:" in workflow
     assert "branches: [main]" in workflow
+    assert 'tags: ["v*.*.*"]' in workflow
     assert "packages: write" in workflow
     assert "ghcr.io/${{ github.repository }}" in workflow
+    assert "type=raw,value=latest,enable={{is_default_branch}}" in workflow
+    assert "type=semver,pattern={{version}}" in workflow
+    assert "type=semver,pattern={{major}}.{{minor}}" in workflow
+    assert (
+        "type=semver,pattern={{major}},"
+        "enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}" in workflow
+    )
+    assert "type=sha" not in workflow
     assert "push: ${{ github.event_name == 'push' }}" in workflow
     assert "Smoke-test pull request image" in workflow
