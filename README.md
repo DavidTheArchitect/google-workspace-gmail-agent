@@ -70,15 +70,15 @@ docker compose up
 ```
 
 The first start downloads the model into the `ollama-models` named volume; later starts reuse it.
-The application waits for Ollama to become healthy and for the idempotent model initializer to
-finish before starting the full Reflex Mission Control console. Open `http://127.0.0.1:8765` after
-`gmail-agent` is healthy. Ollama has no published host port and is reachable by the application
-only as `http://ollama:11434/v1` on the Compose network. The container includes Node and a prebuilt
+The application waits for Ollama to become healthy, pulls the configured model only when missing,
+and then starts the full Reflex Mission Control console. Open `http://127.0.0.1:8765` after
+`gmail-agent` is healthy. Ollama has no published host port and is reachable by the application only
+as `http://ollama:11434/v1` on the Compose network. The container includes Node and a prebuilt
 frontend seed, so the Mission Control UI does not depend on a host Node installation either.
 
 Use `OLLAMA_MODEL` in a Compose `.env` file or the shell to select another exact model tag. The
-same value is passed to the initializer and application. `OLLAMA_BASE_URL` is also configurable for
-an alternate trusted Compose service, but the internal default should normally remain unchanged.
+same value is used by application startup and model requests. `OLLAMA_BASE_URL` is also configurable
+for an alternate trusted Compose service, but the internal default should normally remain unchanged.
 No host Ollama installation or manual `ollama pull` is needed. See
 [docs/containers.md](docs/containers.md) for build, verification, persistence, stop, and reset
 commands.

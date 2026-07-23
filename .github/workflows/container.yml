@@ -66,7 +66,9 @@ jobs:
         run: |
           IMAGE=$(jq -r '.tags[] | select(endswith(":local-smoke"))' <<<"$METADATA_JSON")
           docker run --detach --name gmail-agent-smoke \
-            --publish 127.0.0.1:8765:8765 "$IMAGE"
+            --publish 127.0.0.1:8765:8765 \
+            --entrypoint /usr/local/bin/container-entrypoint \
+            "$IMAGE" gmail-agent console
           cleanup() {
             docker logs gmail-agent-smoke || true
             docker rm --force gmail-agent-smoke || true
